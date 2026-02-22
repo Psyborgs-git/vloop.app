@@ -56,6 +56,7 @@ path = "./data/test.db"
 
         const config = loadConfig(configPath);
         expect(config.daemon.log_level).toBe('debug');
+        expect(config.daemon.pid_file).toBe('/tmp/test.pid');
         expect(config.network.bind_address).toBe('127.0.0.1');
         expect(config.network.ws_port).toBe(9443);
         expect(config.tls.cert_path).toBe('./certs/test.crt');
@@ -89,11 +90,12 @@ log_level = "info"
 
         process.env['ORCH_NETWORK_WS_PORT'] = '8888';
         process.env['ORCH_DAEMON_LOG_LEVEL'] = 'warn';
+        process.env['ORCH_DAEMON_PID_FILE'] = '/tmp/override.pid';
 
         const config = loadConfig(configPath);
         expect(config.network.ws_port).toBe(8888);
         expect(config.daemon.log_level).toBe('warn');
-    });
+        expect(config.daemon.pid_file).toBe('/tmp/override.pid');    });
 
     it('should use default values for optional fields', () => {
         const configPath = join(tempDir, 'config.toml');

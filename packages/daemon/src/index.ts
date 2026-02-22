@@ -20,3 +20,12 @@ export { createLogger } from './logging.js';
 export type { Logger } from './logging.js';
 export { setupSignalHandlers } from './signal.js';
 export * from './service/index.js';
+
+// pid file helpers
+export {
+    readPidFile,
+    writePidFile,
+    removePidFile,
+    killExistingDaemon,
+    killProcessesOnPorts,
+} from './pid.js';

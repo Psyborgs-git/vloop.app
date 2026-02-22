@@ -15,7 +15,18 @@
  */
 
 import { resolve } from 'node:path';
-import { loadConfig, createLogger, Router, createWebSocketServer, createHealthServer, setupSignalHandlers } from '@orch/daemon';
+import {
+    loadConfig,
+    createLogger,
+    Router,
+    createWebSocketServer,
+    createHealthServer,
+    setupSignalHandlers,
+    killExistingDaemon,
+    writePidFile,
+    removePidFile,
+    killProcessesOnPorts,
+} from '@orch/daemon';
 import { DatabaseManager } from '@orch/shared/db';
 import { JwtValidator, SessionManager, PolicyEngine, AuditLogger, createAuthMiddleware } from '@orch/auth';
 import { VaultCrypto, VaultStore, createVaultHandler } from '@orch/vault';
@@ -40,6 +51,22 @@ async function main(): Promise<void> {
     // ── 3. Init logging ─────────────────────────────────────────────────
 
     const logger = createLogger(config.daemon.log_level);
+    // make sure only one daemon instance is running and write our PID
+    await killExistingDaemon(config.daemon.pid_file, logger);
+    const pidWritten = await writePidFile(config.daemon.pid_file);
+    if (!pidWritten) {
+        logger.warn({ pidFile: config.daemon.pid_file }, 'Could not write pid file (permission denied) — proceeding anyway');
+    }
+
+    // as a fallback, kill any process listening on our ports (for dev/restart scenarios)
+    await killProcessesOnPorts([config.network.health_port, config.network.ws_port], logger);
+
+    // ensure pid file is removed on exit no matter what
+    process.on('exit', () => {
+        try {
+            removePidFile(config.daemon.pid_file);
+        } catch {}
+    });
     logger.info({ config: { ...config, tls: '***', auth: '***' } }, 'Configuration loaded');
 
     // ── 4. Setup signal handlers ────────────────────────────────────────
@@ -369,6 +396,11 @@ async function main(): Promise<void> {
     vaultCrypto.zeroize();
     dbManager.close();
     sessionManager.cleanup();
+
+    // remove pid file before exiting
+    try {
+        await removePidFile(config.daemon.pid_file);
+    } catch {}
 
     logger.info('Orchestrator daemon stopped. Goodbye.');
     process.exit(0);

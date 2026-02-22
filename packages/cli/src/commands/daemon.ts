@@ -88,6 +88,22 @@ export function registerDaemonCommands(program: Command) {
         });
 
     daemonCmd
+        .command('kill')
+        .description('Terminate any other running orchestrator instance and clean up pid file')
+        .action(async () => {
+            // the pid file path comes from the shared config; reuse the loader
+            try {
+                const { loadConfig } = await import('@orch/daemon');
+                const config = loadConfig();
+                const { killExistingDaemon } = await import('@orch/daemon');
+                await killExistingDaemon(config.daemon.pid_file);
+                console.log(chalk.green('✔ Existing orchestrator processes terminated (if any)')); 
+            } catch (err: any) {
+                console.error(chalk.red(`Failed to kill existing daemon: ${err.message}`));
+            }
+        });
+
+    daemonCmd
         .command('logs')
         .description('Tail the logs of the background daemon')
         .option('-n, --lines <n>', 'Number of lines to show', '100')
