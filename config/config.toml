@@ -1,0 +1,40 @@
+# Orchestrator System — Default Configuration
+
+[daemon]
+pid_file = "/var/run/orchestrator.pid"
+log_level = "info"
+foreground = false
+
+[network]
+bind_address = "0.0.0.0"
+ws_port = 9443
+health_port = 9444
+max_connections = 1000
+ping_interval_secs = 30
+pong_timeout_secs = 10
+max_message_size_bytes = 1048576  # 1 MiB
+
+[tls]
+cert_path = "./certs/server.crt"
+key_path = "./certs/server.key"
+
+[auth]
+jwt_public_key_path = "./certs/jwt-public.pem"
+jwt_algorithm = "RS256"
+jwt_issuer = "orchestrator"
+jwt_audience = "orchestrator-api"
+session_idle_timeout_secs = 3600
+session_max_lifetime_secs = 86400
+max_sessions_per_identity = 10
+
+[database]
+path = "./data/state.db"
+
+[vault]
+# Passphrase loaded from ORCH_VAULT_PASSPHRASE env var
+max_secret_versions = 5
+soft_delete_retention_days = 30
+
+[containerd]
+socket_path = "/run/containerd/containerd.sock"
+namespace = "orchestrator"

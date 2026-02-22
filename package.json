@@ -1,0 +1,44 @@
+{
+    "name": "orchestrator",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "description": "Host-level orchestrator daemon — manages containers, processes, AI agents, databases, and device access via secure WebSocket API.",
+    "scripts": {
+        "build": "tsc --build",
+        "dev": "pnpm --filter @orch/orchestrator dev",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "test:integration": "vitest run --project integration",
+        "lint": "eslint packages/",
+        "clean": "tsc --build --clean && rm -rf packages/*/tsconfig.tsbuildinfo"
+    },
+    "engines": {
+        "node": ">=22.0.0",
+        "pnpm": ">=10.0.0"
+    },
+    "packageManager": "pnpm@10.27.0",
+    "pnpm": {
+        "onlyBuiltDependencies": [
+            "argon2",
+            "better-sqlite3-multiple-ciphers",
+            "esbuild"
+        ],
+        "ignoredBuiltDependencies": [
+            "cpu-features",
+            "protobufjs",
+            "ssh2"
+        ]
+    },
+    "devDependencies": {
+        "@tailwindcss/vite": "^4.2.0",
+        "@typescript-eslint/eslint-plugin": "^8.56.0",
+        "@typescript-eslint/parser": "^8.56.0",
+        "eslint": "^10.0.1",
+        "tailwindcss": "^4.2.0",
+        "typescript": "^5.9.3"
+    },
+    "dependencies": {
+        "zod": "^3.24.2"
+    }
+}

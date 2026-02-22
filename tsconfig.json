@@ -1,0 +1,66 @@
+{
+    "compilerOptions": {
+        "target": "ES2024",
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "lib": [
+            "ES2024"
+        ],
+        "strict": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "resolveJsonModule": true,
+        "declaration": true,
+        "declarationMap": true,
+        "sourceMap": true,
+        "composite": true,
+        "isolatedModules": true,
+        "verbatimModuleSyntax": true,
+        "noUncheckedIndexedAccess": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "exactOptionalPropertyTypes": false
+    },
+    "files": [],
+    "exclude": [
+        "node_modules",
+        "dist",
+        "**/*.test.ts"
+    ],
+    "references": [
+        {
+            "path": "packages/shared"
+        },
+        {
+            "path": "packages/daemon"
+        },
+        {
+            "path": "packages/auth"
+        },
+        {
+            "path": "packages/vault"
+        },
+        {
+            "path": "packages/container"
+        },
+        {
+            "path": "packages/process"
+        },
+        {
+            "path": "packages/orchestrator"
+        },
+        {
+            "path": "packages/db-manager"
+        },
+        {
+            "path": "packages/ai-agent"
+        },
+        {
+            "path": "packages/client"
+        },
+        {
+            "path": "packages/cli"
+        }
+    ]
+}

@@ -1,0 +1,25 @@
+{
+    "name": "@orch/db-manager",
+    "version": "0.1.0",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "scripts": {
+        "build": "tsc --build",
+        "clean": "tsc --build --clean"
+    },
+    "dependencies": {
+        "better-sqlite3-multiple-ciphers": "^11.5.0"
+    },
+    "devDependencies": {
+        "@orch/shared": "workspace:*",
+        "@orch/daemon": "workspace:*",
+        "@orch/vault": "workspace:*"
+    },
+    "files": [
+        "dist"
+    ],
+    "publishConfig": {
+        "access": "public"
+    }
+}

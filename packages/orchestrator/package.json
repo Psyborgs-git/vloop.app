@@ -1,0 +1,33 @@
+{
+    "name": "@orch/orchestrator",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "main": "./dist/main.js",
+    "scripts": {
+        "build": "tsc --build",
+        "dev": "ORCH_DB_PASSPHRASE=dev ORCH_VAULT_PASSPHRASE=dev tsx src/main.ts",
+        "start": "node dist/main.js",
+        "clean": "rm -rf dist"
+    },
+    "dependencies": {
+        "@orch/ai-agent": "workspace:*",
+        "@orch/auth": "workspace:*",
+        "@orch/container": "workspace:*",
+        "@orch/daemon": "workspace:*",
+        "@orch/db-manager": "workspace:*",
+        "@orch/process": "workspace:*",
+        "@orch/shared": "workspace:*",
+        "@orch/vault": "workspace:*"
+    },
+    "devDependencies": {
+        "tsx": "^4.21.0",
+        "typescript": "^5.7.0"
+    },
+    "files": [
+        "dist"
+    ],
+    "publishConfig": {
+        "access": "public"
+    }
+}

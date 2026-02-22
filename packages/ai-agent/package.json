@@ -1,0 +1,31 @@
+{
+    "name": "@orch/ai-agent",
+    "version": "0.1.0",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "scripts": {
+        "build": "tsc --build",
+        "clean": "tsc --build --clean"
+    },
+    "dependencies": {
+        "@ai-sdk/anthropic": "^3.0.46",
+        "@ai-sdk/openai": "^3.0.30",
+        "ai": "^6.0.97",
+        "ollama-ai-provider": "^1.2.0",
+        "playwright": "^1.58.2",
+        "zod": "~4.3.6"
+    },
+    "devDependencies": {
+        "@orch/container": "workspace:*",
+        "@orch/daemon": "workspace:*",
+        "@orch/process": "workspace:*",
+        "@orch/shared": "workspace:*"
+    },
+    "files": [
+        "dist"
+    ],
+    "publishConfig": {
+        "access": "public"
+    }
+}

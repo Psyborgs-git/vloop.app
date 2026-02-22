@@ -1,0 +1,30 @@
+{
+    "name": "@orch/cli",
+    "version": "0.1.0",
+    "description": "Orchestrator Command Line Tool",
+    "type": "module",
+    "main": "./dist/cli.js",
+    "types": "./dist/cli.d.ts",
+    "bin": {
+        "orch": "./dist/cli.js"
+    },
+    "scripts": {
+        "build": "tsc",
+        "clean": "rm -rf dist",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "@orch/client": "workspace:*",
+        "@orch/daemon": "workspace:*",
+        "@orch/shared": "workspace:*",
+        "chalk": "^5.3.0",
+        "cli-table3": "^0.6.5",
+        "commander": "^12.1.0"
+    },
+    "files": [
+        "dist"
+    ],
+    "publishConfig": {
+        "access": "public"
+    }
+}

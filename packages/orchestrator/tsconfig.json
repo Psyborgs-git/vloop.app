@@ -1,0 +1,44 @@
+{
+    "extends": "../../tsconfig.json",
+    "compilerOptions": {
+        "composite": true,
+        "outDir": "./dist",
+        "rootDir": "./src",
+        "noUnusedLocals": false,
+        "noUnusedParameters": false
+    },
+    "include": [
+        "src/**/*.ts"
+    ],
+    "exclude": [
+        "node_modules",
+        "dist",
+        "**/*.test.ts"
+    ],
+    "references": [
+        {
+            "path": "../shared"
+        },
+        {
+            "path": "../daemon"
+        },
+        {
+            "path": "../auth"
+        },
+        {
+            "path": "../vault"
+        },
+        {
+            "path": "../container"
+        },
+        {
+            "path": "../process"
+        },
+        {
+            "path": "../db-manager"
+        },
+        {
+            "path": "../ai-agent"
+        }
+    ]
+}

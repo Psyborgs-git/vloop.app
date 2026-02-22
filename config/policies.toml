@@ -1,0 +1,40 @@
+# Orchestrator System — RBAC Policies
+
+[roles.admin]
+description = "Full system access"
+permissions = ["*:*:*"]
+
+[roles.operator]
+description = "Manage containers and processes"
+permissions = [
+    "container:*:*",
+    "process:*:*",
+    "vault:secret.get:*",
+    "health:*:*",
+    "session:info:self",
+    "session:refresh:self",
+]
+
+[roles.agent]
+description = "AI agent — scoped access to own resources"
+permissions = [
+    "container:create:agent-*",
+    "container:stop:agent-*",
+    "container:inspect:agent-*",
+    "process:create:agent-*",
+    "process:stop:agent-*",
+    "vault:secret.get:agent-*",
+    "agent:*:self",
+    "health:check:*",
+]
+
+[roles.viewer]
+description = "Read-only access"
+permissions = [
+    "container:list:*",
+    "container:inspect:*",
+    "process:list:*",
+    "process:inspect:*",
+    "health:*:*",
+    "session:info:self",
+]
