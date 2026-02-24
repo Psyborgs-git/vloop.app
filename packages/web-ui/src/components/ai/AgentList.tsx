@@ -2,7 +2,7 @@
  * AgentList — CRUD list for AI agent configurations.
  */
 
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useMemo } from 'react';
 import {
     Box, Typography, IconButton, Button, Card, CardContent, Chip, Stack,
 } from '@mui/material';
@@ -34,7 +34,23 @@ export default function AgentList() {
 
     useEffect(() => { load(); }, [client]);
 
-    const fields: FieldDef[] = [
+    // Optimize lookups with O(1) maps
+    const modelMap = useMemo(() => {
+        return models.reduce((acc, m) => {
+            acc[m.id] = m.name;
+            return acc;
+        }, {} as Record<string, string>);
+    }, [models]);
+
+    const toolMap = useMemo(() => {
+        return tools.reduce((acc, t) => {
+            acc[t.id] = t.name;
+            return acc;
+        }, {} as Record<string, string>);
+    }, [tools]);
+
+    // Memoize fields to prevent unnecessary form resets in ConfigFormDialog
+    const fields: FieldDef[] = useMemo(() => [
         { name: 'name', label: 'Agent Name', type: 'text', required: true },
         { name: 'description', label: 'Description', type: 'multiline' },
         { name: 'modelId', label: 'Model', type: 'select', required: true,
@@ -42,10 +58,10 @@ export default function AgentList() {
         { name: 'systemPrompt', label: 'System Prompt', type: 'multiline' },
         { name: 'toolIds', label: 'Tools', type: 'chips' },
         { name: 'params', label: 'Override Params (JSON)', type: 'json', default: '{}' },
-    ];
+    ], [models]);
 
-    const modelName = (mid: string) => models.find(m => m.id === mid)?.name || mid;
-    const toolName = (tid: string) => tools.find(t => t.id === tid)?.name || tid;
+    const modelName = (mid: string) => modelMap[mid] || mid;
+    const toolName = (tid: string) => toolMap[tid] || tid;
 
     return (
         <Box>
