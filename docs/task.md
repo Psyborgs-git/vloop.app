@@ -32,3 +32,11 @@
 ### M8: Phase 3 tests (Completed)
 - [x] Unit tests for container + process packages
 - [x] Integration tests for workload lifecycle
+
+## Phase 4: Authentication & RBAC (Completed)
+- [x] Local user management (bcryptjs)
+- [x] Dynamic JWT provider whitelisting (jose JWKS)
+- [x] Stateful WebSocket authentication (`ws.sessionId`)
+- [x] Internal RBAC enforcement for AI agents via `router.dispatch`
+- [x] Dynamic key generation and `./data/keys/` storage mechanism for DB and Vault passphrases
+- [x] Client SDK and Web UI updates for explicit login flow

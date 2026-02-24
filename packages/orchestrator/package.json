@@ -18,6 +18,7 @@
         "@orch/db-manager": "workspace:*",
         "@orch/process": "workspace:*",
         "@orch/shared": "workspace:*",
+        "@orch/terminal": "workspace:*",
         "@orch/vault": "workspace:*"
     },
     "devDependencies": {

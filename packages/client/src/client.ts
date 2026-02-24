@@ -1,18 +1,37 @@
 import WebSocket from 'isomorphic-ws';
 import { decode, encode } from '@msgpack/msgpack';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
+
+// `crypto.randomUUID` isn't available in all browser environments (e.g. older WebKit).
+// We provide a small fallback to generate RFC‑4122 v4 UUIDs using
+// `crypto.getRandomValues` which is widely supported in browsers.
+function generateUUID(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+    // fallback uuid v4
+    const buf = new Uint8Array(16);
+    crypto.getRandomValues(buf);
+    // Per RFC-4122 section 4.4, set version bits (0100) and variant bits (10xx)
+    buf[6] = ((buf[6] ?? 0) & 0x0f) | 0x40;
+    buf[8] = ((buf[8] ?? 0) & 0x3f) | 0x80;
+    const hex = Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+}
 import { ProcessClient } from './namespaces/process.js';
 import { ContainerClient } from './namespaces/container.js';
 import { VaultClient } from './namespaces/vault.js';
 import { DbClient } from './namespaces/db.js';
 import { AgentClient } from './namespaces/agent.js';
+import { AuthClient } from './namespaces/auth.js';
+import { TerminalClient } from './namespaces/terminal.js';
 
+// Random short ID generator for keepalive pings
 // Random short ID generator for keepalive pings
 const generateId = () => Math.random().toString(36).substring(2, 15);
 
 export interface ClientConfig {
     url: string;
-    token?: string; // JWT token for auth
     tls?: {
         ca?: Buffer | string;
         cert?: Buffer | string;
@@ -29,11 +48,11 @@ interface PendingRequest {
 
 export interface ServerMessage {
     id: string;
-    type: 'response' | 'error' | 'stream' | 'auth_ok';
+    type: 'response' | 'result' | 'error' | 'stream' | 'auth_ok';
 }
 
 export interface PayloadMessage extends ServerMessage {
-    type: 'response';
+    type: 'response' | 'result';
     payload: any;
 }
 
@@ -64,6 +83,8 @@ export class OrchestratorClient {
     public readonly vault: VaultClient;
     public readonly db: DbClient;
     public readonly agent: AgentClient;
+    public readonly auth: AuthClient;
+    public readonly terminal: TerminalClient;
 
     constructor(private config: ClientConfig) {
         this.process = new ProcessClient(this);
@@ -71,31 +92,41 @@ export class OrchestratorClient {
         this.vault = new VaultClient(this);
         this.db = new DbClient(this);
         this.agent = new AgentClient(this);
+        this.auth = new AuthClient(this);
+        this.terminal = new TerminalClient(this);
+        this.config = config;
     }
 
     public async connect(): Promise<void> {
+        // If already open, do nothing
         if (this.ws?.readyState === WebSocket.OPEN) return;
+        
+        // If already connecting, wait for the existing pending connect
+        if (this.ws?.readyState === WebSocket.CONNECTING && this.pendingConnect) {
+            return new Promise((resolve, reject) => {
+                const original = this.pendingConnect!;
+                this.pendingConnect = {
+                    resolve: () => {
+                        original.resolve();
+                        resolve();
+                    },
+                    reject: (err: Error) => {
+                        original.reject(err);
+                        reject(err);
+                    }
+                };
+            });
+        }
 
         return new Promise((resolve, reject) => {
             const isBrowser = typeof globalThis !== 'undefined' && typeof (globalThis as any).window !== 'undefined';
 
             if (isBrowser) {
                 // Browser WebSocket doesn't accept the options object
-                let wsUrl = this.config.url;
-                if (this.config.token) {
-                    const urlObj = new URL(wsUrl);
-                    urlObj.searchParams.set('token', this.config.token);
-                    wsUrl = urlObj.toString();
-                }
-                this.ws = new WebSocket(wsUrl, ['msgpack']);
+                this.ws = new WebSocket(this.config.url, ['msgpack']);
             } else {
                 // Node.js ws accepts the options object for headers and TLS
-                const headers: Record<string, string> = {};
-                if (this.config.token) {
-                    headers['Authorization'] = `Bearer ${this.config.token}`;
-                }
                 this.ws = new WebSocket(this.config.url, ['msgpack'], {
-                    headers,
                     ca: this.config.tls?.ca,
                     cert: this.config.tls?.cert,
                     key: this.config.tls?.key,
@@ -121,8 +152,7 @@ export class OrchestratorClient {
                             action: 'ping',
                             payload: {},
                             meta: {
-                                timestamp: new Date().toISOString(),
-                                session_id: this.config.token
+                                timestamp: new Date().toISOString()
                             }
                         };
                         this.ws.send(encode(pingReq));
@@ -151,7 +181,7 @@ export class OrchestratorClient {
                         // intercept and parse the JSON string, then pass it down.
                         // Or we can just re-encode it to msgpack format to reuse the same downstream logic.
                         bufferData = encode(parsed);
-                    } catch (e) {
+                    } catch {
                         bufferData = new TextEncoder().encode(data);
                     }
                 } else {
@@ -198,7 +228,7 @@ export class OrchestratorClient {
             throw new Error('Not connected to Orchestrator');
         }
 
-        const id = crypto.randomUUID();
+        const id = generateUUID();
         const msg = {
             id,
             type: 'request',
@@ -206,8 +236,7 @@ export class OrchestratorClient {
             action,
             payload,
             meta: {
-                timestamp: new Date().toISOString(),
-                ...(this.config.token ? { session_id: this.config.token } : {})
+                timestamp: new Date().toISOString()
             }
         };
 
@@ -239,7 +268,7 @@ export class OrchestratorClient {
             throw new Error('Not connected to Orchestrator');
         }
 
-        const id = crypto.randomUUID();
+        const id = generateUUID();
         const msg = {
             id,
             type: 'request',
@@ -247,8 +276,7 @@ export class OrchestratorClient {
             action,
             payload,
             meta: {
-                timestamp: new Date().toISOString(),
-                ...(this.config.token ? { session_id: this.config.token } : {})
+                timestamp: new Date().toISOString()
             }
         };
 
@@ -311,6 +339,56 @@ export class OrchestratorClient {
     }
 
     /**
+     * Sends a request and keeps stream handling active after the request resolves.
+     * Useful for long-lived feeds where stream frames continue after the initial response.
+     */
+    public async requestWithPersistentStream<Result = any>(
+        topic: string,
+        action: string,
+        payload: any,
+        onStream: (chunk: any) => void,
+    ): Promise<{ requestId: string; result: Result }> {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            throw new Error('Not connected to Orchestrator');
+        }
+
+        const id = generateUUID();
+        const msg = {
+            id,
+            type: 'request',
+            topic,
+            action,
+            payload,
+            meta: {
+                timestamp: new Date().toISOString(),
+            },
+        };
+
+        this.setStreamHandler(id, onStream);
+
+        const result = await new Promise<Result>((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+                this.pendingRequests.delete(id);
+                this.clearStreamHandler(id);
+                reject(new Error(`Timeout waiting for response to ${topic}.${action}`));
+            }, this.config.timeoutMs ?? 30000);
+
+            this.pendingRequests.set(id, { resolve, reject, timeoutId });
+
+            this.ws!.send(encode(msg), (err: any) => {
+                if (err) {
+                    clearTimeout(timeoutId);
+                    this.pendingRequests.delete(id);
+                    this.clearStreamHandler(id);
+                    reject(err);
+                }
+            });
+        });
+
+        return { requestId: id, result };
+    }
+
+    /**
      * Registers a steady-state streaming handler for long-lived feeds (e.g. process logs).
      * The initial request is sent using `request()`, but asynchronous stream frames are routed here.
      */
@@ -332,7 +410,7 @@ export class OrchestratorClient {
 
             const msg = decode(data) as any;
 
-            if (msg.type === 'response') {
+            if (msg.type === 'result' || msg.type === 'response') {
                 const req = this.pendingRequests.get(msg.id);
                 if (req) {
                     clearTimeout(req.timeoutId);

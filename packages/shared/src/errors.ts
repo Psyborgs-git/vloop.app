@@ -48,6 +48,9 @@ export enum ErrorCode {
     PROCESS_NOT_FOUND = 'PROCESS_NOT_FOUND',
     SCHEDULE_ERROR = 'SCHEDULE_ERROR',
 
+    // Terminal errors
+    TERMINAL_ERROR = 'TERMINAL_ERROR',
+
     // General errors
     NOT_FOUND = 'NOT_FOUND',
     ALREADY_EXISTS = 'ALREADY_EXISTS',

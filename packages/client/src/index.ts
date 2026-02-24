@@ -6,3 +6,4 @@ export * from './namespaces/container.js';
 export * from './namespaces/vault.js';
 export * from './namespaces/db.js';
 export * from './namespaces/agent.js';
+export * from './namespaces/terminal.js';

@@ -1,11 +1,6 @@
 import { Box, Typography, Paper } from '@mui/material';
-import type { OrchestratorClient } from '@orch/client';
 
-interface CanvasProps {
-    client: OrchestratorClient | null;
-}
-
-export default function CanvasView({ client: _client }: CanvasProps) {
+export default function CanvasView() {
     const defaultHtml = `
       <div style="font-family: system-ui; text-align: center; margin-top: 40px;">
         <h2 style="color: #64748b;">Awaiting UI Generation</h2>

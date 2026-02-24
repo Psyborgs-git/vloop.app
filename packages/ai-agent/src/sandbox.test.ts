@@ -18,7 +18,8 @@ describe('AgentSandbox', () => {
         sandbox = new AgentSandbox(mockLogger);
     });
 
-    it('throws INTERNAL_ERROR because evaluate is not yet fully implemented', async () => {
-        await expect(sandbox.evaluate('console.log("hi")', { workspaceId: 'ws-1' })).rejects.toThrowError(/Sandbox execution not yet implemented/);
+    it('evaluates code in a sandbox', async () => {
+        const result = await sandbox.evaluate('1 + 1', { workspaceId: 'ws-1' });
+        expect(result).toBe(2);
     });
 });

@@ -12,14 +12,14 @@ The Orchestrator Daemon requires its connected clients to announce exactly how t
 
 ### Example (Node.js)
 ```typescript
-const ws = new WebSocket('wss://localhost:9443', ['msgpack'], {
-    headers: { Authorization: `Bearer ${token}` }
-});
+const ws = new WebSocket('wss://localhost:9443', ['msgpack']);
+// After connection, send an auth.login message
 ```
 
 ### Example (Browser `isomorphic-ws`)
 ```typescript
-const ws = new WebSocket(`wss://localhost:9443?token=${token}`, ['msgpack']);
+const ws = new WebSocket(`wss://localhost:9443`, ['msgpack']);
+// After connection, send an auth.login message
 ```
 
 
@@ -37,11 +37,11 @@ Initiates an execution pipeline in the daemon.
     "payload": {},       // Schema-validated argument body
     "meta": {
         "timestamp": "ISO-8601",
-        "session_id": "auth-token-hash", // Token appended explicitly in browsers
         "trace_id": "optional-telemetry"
     }
 }
 ```
+*Note: The `session_id` is no longer required in the `meta` object. It is automatically tracked by the server per-connection after a successful `auth.login` message.*
 
 ### Response Payload (`Response` object)
 Returned to specific single-event triggers.
@@ -89,6 +89,56 @@ Any invalid schema requests, or underlying daemon failures will return a strict 
     "meta": { ... }
 }
 ```
+
+## 5. Terminal Topic (`terminal.*`)
+
+The terminal subsystem streams PTY output in real time over the same request ID used for `terminal.spawn`.
+
+### Spawn request
+
+```typescript
+{
+    "id": "uuid-v4",
+    "topic": "terminal",
+    "action": "spawn",
+    "payload": {
+        "sessionId": "term_123",
+        "shell": "/bin/zsh",
+        "cwd": "/Users/me",
+        "cols": 120,
+        "rows": 30
+    },
+    "meta": { "timestamp": "ISO-8601" }
+}
+```
+
+### Stream chunks
+
+- PTY output chunk:
+
+```typescript
+{
+    "id": "uuid-v4",
+    "type": "stream",
+    "topic": "terminal",
+    "action": "spawn",
+    "payload": { "sessionId": "term_123", "data": "ls -la\r\n" }
+}
+```
+
+- PTY exit event (also streamed):
+
+```typescript
+{
+    "id": "uuid-v4",
+    "type": "stream",
+    "topic": "terminal",
+    "action": "spawn",
+    "payload": { "sessionId": "term_123", "type": "exit", "exitCode": 0 }
+}
+```
+
+For full terminal action coverage (`write`, `resize`, `kill`, `scrollback`, profile actions), see [`docs/terminal.md`](terminal.md).
 
 ## Additional Constraints
 - Do not transmit raw JSON strings for Keepalives `{"type": "ping"}`; these are explicitly intercepted, however sending other custom root properties alongside valid schema blocks is invalid.

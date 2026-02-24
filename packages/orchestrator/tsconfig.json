@@ -38,6 +38,9 @@
             "path": "../db-manager"
         },
         {
+            "path": "../terminal"
+        },
+        {
             "path": "../ai-agent"
         }
     ]

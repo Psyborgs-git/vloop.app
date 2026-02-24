@@ -71,10 +71,10 @@ graph TB
 ### Layer 2 — Auth, Session & Routing
 | Component | Responsibility |
 |---|---|
-| **Auth Engine** | Handles initial authentication (JWT bearer tokens, mTLS client certs). Issues short-lived session tokens. |
-| **RBAC Policy Engine** | Evaluates every inbound message against a policy store (roles, permissions, resource scopes). |
-| **Session Manager** | Tracks per-connection session state, token refresh lifecycle, and session-scoped resource quotas. |
-| **Message Router** | Dispatches validated, authorised messages to the correct feature handler via a topic/action addressing scheme. |
+| **Auth Engine** | Handles initial authentication via explicit `login` messages (Local users via bcrypt, or dynamic JWTs via JWKS). Issues stateful session IDs. |
+| **RBAC Policy Engine** | Evaluates every inbound message against a policy store (roles, permissions). Enforces access control for both external clients and internal AI agents. |
+| **Session Manager** | Tracks per-connection session state (`ws.sessionId`), token refresh lifecycle, and session-scoped resource quotas. |
+| **Message Router** | Dispatches validated, authorised messages to the correct feature handler via a topic/action addressing scheme. Internal services (like AI agents) route requests through here to ensure RBAC is enforced. |
 
 ### Layer 3 — Orchestration Core
 | Component | Responsibility |
@@ -106,8 +106,9 @@ sequenceDiagram
     participant FEATURE as Feature Handler
 
     C->>WS: Connect (TLS 1.3)
-    WS->>AUTH: Authenticate (JWT / mTLS)
-    AUTH-->>WS: Session Token (short-lived)
+    C->>WS: Login Message (Local Credentials / JWT)
+    WS->>AUTH: Authenticate
+    AUTH-->>WS: Session ID (Stateful)
     WS-->>C: AUTH_OK + Session ID
 
     C->>WS: Action Message (e.g., container.create)
@@ -170,9 +171,9 @@ stateDiagram-v2
 | Concern | Approach |
 |---|---|
 | **Transport** | TLS 1.3 mandatory. Optional mTLS for service-to-service. |
-| **Authentication** | JWT (RS256/EdDSA) or mTLS client certificates. |
-| **Authorization** | RBAC with resource-scoped permissions. Policies stored in an embedded policy engine. |
-| **Secrets** | Encrypted at rest (AES-256-GCM). In-memory decryption only. Auto-rotation support. |
+| **Authentication** | Local users (bcryptjs) or dynamic JWT providers (jose JWKS). Stateful WebSocket sessions. |
+| **Authorization** | RBAC with resource-scoped permissions. Policies stored in an embedded policy engine. Enforced for both external clients and internal AI agents. |
+| **Secrets** | Encrypted at rest (AES-256-GCM). In-memory decryption only. Auto-rotation support. Passphrases auto-generated and stored securely in `./data/keys/` if not provided via environment variables. |
 | **Device Access** | Explicit session-scoped grants. Default-deny posture. Audit-logged. |
 | **Audit** | Every mutation is logged with session ID, trace ID, timestamp, and outcome. |
 

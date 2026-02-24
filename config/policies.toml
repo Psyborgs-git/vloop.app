@@ -5,11 +5,23 @@ description = "Full system access"
 permissions = ["*:*:*"]
 
 [roles.operator]
-description = "Manage containers and processes"
+description = "Manage containers, processes, databases, and own secrets"
 permissions = [
     "container:*:*",
     "process:*:*",
-    "vault:secret.get:*",
+    "vault:secret.create:self",
+    "vault:secret.get:self",
+    "vault:secret.update:self",
+    "vault:secret.delete:self",
+    "vault:secret.list:self",
+    "db:db.provision:*",
+    "db:db.query:*",
+    "db:db.disconnect:*",
+    "db:db.ext.register:self",
+    "db:db.ext.list:self",
+    "db:db.ext.query:self",
+    "db:db.ext.test:self",
+    "db:db.ext.remove:self",
     "health:*:*",
     "session:info:self",
     "session:refresh:self",
@@ -25,16 +37,20 @@ permissions = [
     "process:stop:agent-*",
     "vault:secret.get:agent-*",
     "agent:*:self",
+    "db:db.query:*",
     "health:check:*",
 ]
 
 [roles.viewer]
-description = "Read-only access"
+description = "Read-only access with own vault secrets"
 permissions = [
     "container:list:*",
     "container:inspect:*",
     "process:list:*",
     "process:inspect:*",
+    "vault:secret.list:self",
+    "vault:secret.get:self",
+    "db:db.ext.list:self",
     "health:*:*",
     "session:info:self",
 ]

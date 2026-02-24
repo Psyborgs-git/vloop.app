@@ -52,6 +52,7 @@ export class VaultStore {
     }
 
     private initSchema(): void {
+        // Step 1: Create tables (without owner — avoids conflict with existing DBs)
         this.db.exec(`
       CREATE TABLE IF NOT EXISTS vault_meta (
         key   TEXT PRIMARY KEY,
@@ -75,6 +76,16 @@ export class VaultStore {
       );
       CREATE INDEX IF NOT EXISTS idx_secrets_name ON secrets(name);
     `);
+
+        // Step 2: Migration — add owner column if missing
+        try {
+            this.db.prepare("SELECT owner FROM secrets LIMIT 1").get();
+        } catch {
+            this.db.exec("ALTER TABLE secrets ADD COLUMN owner TEXT NOT NULL DEFAULT '__system__'");
+        }
+
+        // Step 3: Owner index (safe now — column guaranteed to exist)
+        this.db.exec("CREATE INDEX IF NOT EXISTS idx_secrets_owner ON secrets(owner)");
     }
 
     /**
@@ -140,8 +151,9 @@ export class VaultStore {
 
     /**
      * Create a new secret.
+     * @param owner - identity of the user who owns this secret ('__system__' for internal)
      */
-    create(name: string, value: string, metadata?: Record<string, unknown>): SecretMetadata {
+    create(name: string, value: string, metadata?: Record<string, unknown>, owner: string = '__system__'): SecretMetadata {
         // Check for existing
         const existing = this.db.prepare(
             'SELECT name FROM secrets WHERE name = ? AND deleted_at IS NULL LIMIT 1',
@@ -154,13 +166,14 @@ export class VaultStore {
             );
         }
 
-        return this.writeVersion(name, value, 1, metadata);
+        return this.writeVersion(name, value, 1, metadata, owner);
     }
 
     /**
      * Get a secret value by name (latest version by default).
+     * @param requester - identity + roles for ACL check
      */
-    get(name: string, version?: number): { name: string; value: string; version: number; metadata?: Record<string, unknown> } {
+    get(name: string, version?: number, requester?: { identity: string; roles: string[] }): { name: string; value: string; version: number; metadata?: Record<string, unknown> } {
         let row: SecretRow | undefined;
 
         if (version !== undefined) {
@@ -178,6 +191,14 @@ export class VaultStore {
                 ErrorCode.SECRET_NOT_FOUND,
                 `Secret "${name}"${version !== undefined ? ` version ${version}` : ''} not found.`,
             );
+        }
+
+        // ACL: unless requester is admin or system, must be the owner
+        if (requester && (row as any).owner !== '__system__') {
+            const owner = (row as any).owner;
+            if (owner !== requester.identity && !requester.roles.includes('admin')) {
+                throw new OrchestratorError(ErrorCode.PERMISSION_DENIED, `Access denied to secret "${name}"`);
+            }
         }
 
         // Unwrap DEK
@@ -207,10 +228,10 @@ export class VaultStore {
     /**
      * Update a secret — creates a new version.
      */
-    update(name: string, value: string, metadata?: Record<string, unknown>): SecretMetadata {
+    update(name: string, value: string, metadata?: Record<string, unknown>, requester?: { identity: string; roles: string[] }): SecretMetadata {
         const latest = this.db.prepare(
-            'SELECT version FROM secrets WHERE name = ? AND deleted_at IS NULL ORDER BY version DESC LIMIT 1',
-        ).get(name) as { version: number } | undefined;
+            'SELECT version, owner FROM secrets WHERE name = ? AND deleted_at IS NULL ORDER BY version DESC LIMIT 1',
+        ).get(name) as { version: number; owner?: string } | undefined;
 
         if (!latest) {
             throw new OrchestratorError(
@@ -219,8 +240,15 @@ export class VaultStore {
             );
         }
 
+        // ACL check
+        if (requester && latest.owner && latest.owner !== '__system__') {
+            if (latest.owner !== requester.identity && !requester.roles.includes('admin')) {
+                throw new OrchestratorError(ErrorCode.PERMISSION_DENIED, `Access denied to secret "${name}"`);
+            }
+        }
+
         const newVersion = latest.version + 1;
-        const result = this.writeVersion(name, value, newVersion, metadata);
+        const result = this.writeVersion(name, value, newVersion, metadata, latest.owner);
 
         // Prune old versions if exceeding max
         this.pruneVersions(name);
@@ -249,12 +277,20 @@ export class VaultStore {
 
     /**
      * List secrets — returns metadata only, never values.
+     * Scoped to owner unless admin.
      */
-    list(options: { prefix?: string; limit?: number; offset?: number } = {}): SecretMetadata[] {
-        const { prefix, limit = 100, offset = 0 } = options;
+    list(options: { prefix?: string; limit?: number; offset?: number; owner?: string; roles?: string[] } = {}): SecretMetadata[] {
+        const { prefix, limit = 100, offset = 0, owner, roles = [] } = options;
+        const isAdmin = roles.includes('admin');
 
         let query = 'SELECT DISTINCT name, MAX(version) as version, metadata, created_at, id FROM secrets WHERE deleted_at IS NULL';
         const params: unknown[] = [];
+
+        // Owner scoping — admins see all, users see only their own + system
+        if (owner && !isAdmin) {
+            query += ' AND (owner = ? OR owner = \'__system__\')';
+            params.push(owner);
+        }
 
         if (prefix) {
             query += ' AND name LIKE ?';
@@ -288,6 +324,7 @@ export class VaultStore {
         value: string,
         version: number,
         metadata?: Record<string, unknown>,
+        owner: string = '__system__',
     ): SecretMetadata {
         const id = randomUUID();
         const dek = this.crypto.generateDek();
@@ -296,10 +333,10 @@ export class VaultStore {
         const now = new Date().toISOString();
 
         this.db.prepare(`
-      INSERT INTO secrets (id, name, version, wrapped_dek, dek_nonce, dek_tag, ciphertext, nonce, tag, metadata, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO secrets (id, name, version, owner, wrapped_dek, dek_nonce, dek_tag, ciphertext, nonce, tag, metadata, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-            id, name, version,
+            id, name, version, owner,
             wrappedKey.wrappedDek, wrappedKey.nonce, wrappedKey.tag,
             encrypted.ciphertext, encrypted.nonce, encrypted.tag,
             metadata ? JSON.stringify(metadata) : null,

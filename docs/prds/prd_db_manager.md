@@ -6,7 +6,7 @@ Build the `@orch/db-manager` package. This module acts as the autonomous provisi
 ## 2. Requirements
 
 ### Functional
-1. **Provisioning**: Programmatically create new, isolated SQLite database files for specific tenants or workflows.
+1. **Provisioning**: Programmatically create new, isolated SQLite database files for specific tenants or workflows. The main orchestrator database is encrypted using a passphrase provided via `ORCH_DB_PASSPHRASE` or auto-generated and stored in `./data/keys/db.key`.
 2. **Encryption**: Integrate seamlessly with the `@orch/vault` to generate unique AES-256 keys (via `better-sqlite3-multiple-ciphers`) for each provisioned DB file.
 3. **Connection Pooling**: Maintain active connection references, ensuring PRAGMA configurations (e.g., WAL mode, foreign keys, busy timeouts) are strictly enforced to prevent `SQLITE_BUSY` deadlocks.
 4. **Lifecycle Management**: Safely close pools, backup databases to raw SQL dumps, and delete physical files when a workspace is destroyed.

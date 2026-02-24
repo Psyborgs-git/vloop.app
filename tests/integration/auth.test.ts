@@ -16,6 +16,7 @@ import type { HandlerContext } from '../../packages/daemon/src/router.js';
 import { SessionManager } from '../../packages/auth/src/session.js';
 import { PolicyEngine } from '../../packages/auth/src/rbac.js';
 import { AuditLogger } from '../../packages/auth/src/audit.js';
+import { UserManager } from '../../packages/auth/src/user.js';
 import { createAuthMiddleware } from '../../packages/auth/src/middleware.js';
 
 const logger = createLogger('error');
@@ -45,6 +46,7 @@ describe('Auth Middleware Pipeline', () => {
     let sessionManager: SessionManager;
     let policyEngine: PolicyEngine;
     let auditLogger: AuditLogger;
+    let userManager: UserManager;
     let router: Router;
     let policyPath: string;
 
@@ -58,6 +60,9 @@ describe('Auth Middleware Pipeline', () => {
             maxLifetimeSecs: 86400,
             maxSessionsPerIdentity: 10,
         });
+
+        // User manager
+        userManager = new UserManager(db);
 
         // RBAC policies
         policyPath = join(tempDir, 'policies.toml');
@@ -97,6 +102,14 @@ permissions = [
 
         router.register('health', () => {
             return { status: 'healthy' };
+        });
+
+        // Register a mock auth handler for user.create
+        router.register('auth', (action: string, payload: unknown) => {
+            if (action === 'user.create') {
+                return { success: true, created: payload };
+            }
+            throw new Error('Unknown action');
         });
     });
 
@@ -208,5 +221,20 @@ permissions = [
         const req2 = makeRequest('health', 'check', token);
         const resp2 = await router.dispatch(req2, logger);
         expect(resp2.type).toBe('error');
+    });
+
+    it('should initialize default admin user if db is empty', async () => {
+        expect(userManager.count()).toBe(0);
+        await userManager.initDefaultUser();
+        expect(userManager.count()).toBe(1);
+        
+        const user = userManager.findByEmail('admin');
+        expect(user).toBeDefined();
+        expect(user?.email).toBe('admin');
+        expect(JSON.parse(user?.allowed_roles || '[]')).toEqual(['admin']);
+        
+        // Should be able to verify password
+        const verified = await userManager.verifyPassword('admin', 'password');
+        expect(verified.email).toBe('admin');
     });
 });

@@ -63,3 +63,37 @@ Test Files  19 passed (19)
      Tests  124 passed (124)
   Duration  1.16s
 ```
+
+---
+
+## Phase 4: Authentication & RBAC ✅
+
+We have successfully overhauled the authentication and RBAC system to support both human operators and machine-to-machine (AI agent) authentication.
+
+| Package | Capabilities | Code Structure |
+|---|---|---|
+| **`@orch/auth`** | Local user management (bcryptjs), dynamic JWT provider whitelisting (jose JWKS), stateful WebSocket authentication (`ws.sessionId`), internal RBAC enforcement for AI agents via `router.dispatch`. | Updated `session.ts`, `rbac.ts`, `middleware.ts`, `jwt.ts` |
+| **`@orch/client`** | Client SDK updated to support explicit `client.auth.login()` flow instead of passing tokens in the connection URL. | Updated `client.ts`, `namespaces/auth.ts` |
+| **`@orch/web-ui`** | React UI (`AuthView.tsx`) for access control management (local users, JWT providers). | Added `AuthView.tsx`, updated `App.tsx` |
+| **`@orch/orchestrator`** | Dynamic key generation and `./data/keys/` storage mechanism for DB and Vault passphrases. | Updated `main.ts` |
+
+**Current Status**: All packages compile successfully (`tsc --build`) with 0 errors. All integration tests pass.
+
+---
+
+## Phase 5: Multi-Tenant System Upgrade ✅
+
+Transformed the orchestrator into a fully multi-tenant system with per-user data isolation.
+
+| Area | Changes |
+|------|---------|
+| **Live Dashboard** | `DashboardView.tsx` — replaced mock data with real-time RPC calls (`process.list`, `container.list`, `health.check`, `session.info`), auto-refresh, session banner |
+| **Root DB Access** | `db-manager/handler.ts` — admin-only `db.root_query` action, `main.ts` wired root `DatabaseManager` |
+| **External DB Registry** | `db-manager/external-db.ts` *(new)* — Postgres/MySQL/SQLite, owner-scoped ACL, vault-stored credentials |
+| **Per-User Vault** | `vault/store.ts` — `owner` column + migration, `handler.ts` passes identity context |
+| **RBAC Policies** | `policies.toml` — `self` scoping for vault + ext DB, admin-only root DB |
+| **Web UI** | `DataView.tsx` — 3 connection modes (Workspace/Root/External), register dialog; `serviceRegistry.ts` — 6 new actions |
+
+**Documentation**: See [`docs/multi-tenancy.md`](multi-tenancy.md), [`docs/database.md`](database.md), and [`docs/terminal.md`](terminal.md).
+
+**Current Status**: All packages compile with 0 errors.

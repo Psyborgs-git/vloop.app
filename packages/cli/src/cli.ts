@@ -8,6 +8,8 @@ import { registerContainerCommands } from './commands/container.js';
 import { registerVaultCommands } from './commands/vault.js';
 import { registerAgentCommands } from './commands/agent.js';
 import { registerDaemonCommands } from './commands/daemon.js';
+import { registerDbCommands } from './commands/db.js';
+import { registerAuthCommands } from './commands/auth.js';
 
 const program = new Command();
 
@@ -25,11 +27,13 @@ export async function getClient(): Promise<OrchestratorClient> {
     const opts = program.opts();
     const client = new OrchestratorClient({
         url: opts.host,
-        token: opts.token,
     });
 
     try {
         await client.connect();
+        if (opts.token) {
+            await client.auth.login('', '', opts.token);
+        }
         return client;
     } catch (err: any) {
         console.error(chalk.red(`Failed to connect to orchestrator at ${opts.host}: ${err.message}`));
@@ -43,5 +47,7 @@ registerContainerCommands(program);
 registerVaultCommands(program);
 registerAgentCommands(program);
 registerDaemonCommands(program);
+registerDbCommands(program);
+registerAuthCommands(program);
 
 program.parse(process.argv);

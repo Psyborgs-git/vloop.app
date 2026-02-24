@@ -5,6 +5,7 @@
  * so all consumers get clear errors when Docker is not installed or not running.
  */
 
+import { existsSync } from 'node:fs';
 import Dockerode from 'dockerode';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
 
@@ -120,7 +121,8 @@ export class DockerClient {
 }
 
 /**
- * Synchronous socket path detection (no fs.existsSync import overhead).
+ * Synchronous socket path detection.
+ * Checks multiple known Docker socket locations per platform.
  */
 function detectSocketPathSync(): string {
     if (process.platform === 'win32') {
@@ -128,18 +130,15 @@ function detectSocketPathSync(): string {
     }
 
     const home = process.env['HOME'] ?? '';
-    const homeSocket = `${home}/.docker/run/docker.sock`;
-    const defaultSocket = '/var/run/docker.sock';
+    const candidates = [
+        `${home}/.docker/run/docker.sock`,
+        `${home}/.docker/desktop/docker.sock`,
+        '/var/run/docker.sock',
+    ];
 
-    try {
-         
-        const fs = require('node:fs') as typeof import('node:fs');
-        if (fs.existsSync(homeSocket)) {
-            return homeSocket;
-        }
-    } catch {
-        // Fall through
+    for (const sock of candidates) {
+        if (existsSync(sock)) return sock;
     }
 
-    return defaultSocket;
+    return '/var/run/docker.sock'; // last-resort default
 }

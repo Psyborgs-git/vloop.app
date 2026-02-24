@@ -1,11 +1,11 @@
 import { OrchestratorError, ErrorCode } from '@orch/shared';
-import type { Logger } from '@orch/daemon';
+import type { Logger, HandlerContext } from '@orch/daemon';
 
 export interface ToolDefinition {
     name: string;
     description: string;
     parameters: any; // JSON Schema Object
-    execute?: (params: any) => Promise<any>;
+    execute?: (params: any, context?: HandlerContext) => Promise<any>;
 }
 
 export class ToolRegistry {

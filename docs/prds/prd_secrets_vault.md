@@ -58,9 +58,9 @@ graph TD
 
 | ID | Requirement |
 |---|---|
-| FR-1.1 | On first run, prompt for or accept a master passphrase via env var (`ORCH_VAULT_PASSPHRASE`) or config. |
+| FR-1.1 | On first run, accept a master passphrase via env var (`ORCH_VAULT_PASSPHRASE`). If not provided, auto-generate a secure 32-byte hex passphrase and store it in `./data/keys/vault.key` with `0o600` permissions. |
 | FR-1.2 | Derive MEK using Argon2id. Store the Argon2 salt and parameters (not the MEK) in the vault metadata table. |
-| FR-1.3 | On subsequent starts, derive MEK from passphrase + stored salt. Verify via a sentinel value. |
+| FR-1.3 | On subsequent starts, read the passphrase from the env var or the `./data/keys/vault.key` file, then derive MEK from passphrase + stored salt. Verify via a sentinel value. |
 | FR-1.4 | If passphrase is incorrect, abort startup with a clear error. |
 
 ### FR-2: Secret CRUD

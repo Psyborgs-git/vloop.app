@@ -130,7 +130,8 @@ export function createWebSocketServer(
                     ws.send(out);
                 };
 
-                const response = await router.dispatch(request, reqLogger, emit);
+                // Pass the connection object to the router context
+                const response = await router.dispatch(request, reqLogger, emit, ws);
 
                 // Backpressure check
                 if (ws.bufferedAmount > network.max_message_size_bytes * 2) {

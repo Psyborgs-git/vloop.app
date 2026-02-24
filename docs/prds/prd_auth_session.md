@@ -38,21 +38,25 @@ sequenceDiagram
     participant AUTH as Auth Engine
     participant SESS as Session Manager
 
-    C->>WS: WebSocket Upgrade + Authorization header (JWT)
-    WS->>AUTH: Validate JWT (signature, expiry, claims)
-    alt JWT Valid
+    C->>WS: Connect (TLS 1.3)
+    WS-->>C: Connected (Unauthenticated)
+    
+    C->>WS: Login Message (Local Credentials or JWT)
+    WS->>AUTH: Validate Credentials / JWT
+    alt Valid
         AUTH->>SESS: Create session (identity, roles, TTL)
-        SESS-->>AUTH: Session{id, token, expires_at}
-        AUTH-->>WS: AUTH_OK
-        WS-->>C: Connected + session_token
-    else JWT Invalid
+        SESS-->>AUTH: Session ID
+        AUTH-->>WS: AUTH_OK + Session ID
+        WS->>WS: Attach Session ID to connection state
+        WS-->>C: Login Success
+    else Invalid
         AUTH-->>WS: AUTH_FAILED (reason)
-        WS-->>C: Close(4001, "authentication_failed")
+        WS-->>C: Error Response
     end
 
-    Note over C,SESS: Subsequent messages include session_token in meta
+    Note over C,SESS: Subsequent messages are automatically associated with the connection's Session ID
 
-    C->>WS: Request{meta: {session_id}}
+    C->>WS: Request (e.g., container.create)
     WS->>SESS: Validate session (not expired, not revoked)
     SESS-->>WS: Session context (identity, roles)
     WS->>WS: Continue to RBAC evaluation
@@ -62,30 +66,32 @@ sequenceDiagram
 
 | Method | Mechanism | Use Case |
 |---|---|---|
-| **JWT Bearer** | `Authorization: Bearer <token>` in WebSocket upgrade headers | Human operators, CI/CD, API clients |
-| **mTLS** | Client certificate presented during TLS handshake | Service-to-service, AI agents |
+| **Local Users** | Username and password (bcrypt) sent via `auth.login` message | Human operators, Admin UI |
+| **Dynamic JWT** | JWT sent via `auth.login` message, validated against whitelisted JWKS providers | CI/CD, External API clients |
+| **Internal Routing** | Direct `router.dispatch` calls with injected session context | Service-to-service, AI agents |
 
 ---
 
 ## 5. Functional Requirements
 
-### FR-1: JWT Authentication
+### FR-1: Local User Authentication
 
 | ID | Requirement |
 |---|---|
-| FR-1.1 | Parse JWT from the `Authorization` header during WebSocket upgrade. |
-| FR-1.2 | Verify signature using configured public keys (RS256, ES256, or EdDSA). Support JWKS endpoint or local PEM file. |
-| FR-1.3 | Validate standard claims: `exp`, `nbf`, `iss`, `aud`. Configurable expected `iss` and `aud`. |
-| FR-1.4 | Extract custom claims: `sub` (identity), `roles` (array of role names), `scope` (optional). |
-| FR-1.5 | Reject expired, malformed, or unsigned tokens with specific error codes. |
+| FR-1.1 | Support local user creation, update, and deletion (admin only). |
+| FR-1.2 | Store passwords securely using bcrypt hashing. |
+| FR-1.3 | Authenticate users via `auth.login` message with username and password. |
+| FR-1.4 | Assign roles to local users for RBAC enforcement. |
 
-### FR-2: mTLS Authentication
+### FR-2: Dynamic JWT Authentication
 
 | ID | Requirement |
 |---|---|
-| FR-2.1 | Validate client certificate chain against configured CA certificates. |
-| FR-2.2 | Extract identity from certificate CN or SAN fields. |
-| FR-2.3 | Map certificate identity to roles via a configurable cert-to-role mapping. |
+| FR-2.1 | Support dynamic registration of JWT providers (issuer, JWKS URL, role mapping). |
+| FR-2.2 | Authenticate users via `auth.login` message with a JWT token. |
+| FR-2.3 | Verify signature using dynamically fetched JWKS from the provider. |
+| FR-2.4 | Validate standard claims: `exp`, `nbf`, `iss`, `aud`. |
+| FR-2.5 | Map JWT claims to internal roles based on provider configuration. |
 
 ### FR-3: Session Management
 
@@ -161,10 +167,30 @@ permissions = [
 ## 6. Data Model
 
 ```sql
+-- Local Users
+CREATE TABLE users (
+    id            TEXT PRIMARY KEY,
+    username      TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    roles         TEXT NOT NULL, -- JSON array
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+);
+
+-- JWT Providers
+CREATE TABLE jwt_providers (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    issuer     TEXT UNIQUE NOT NULL,
+    jwks_url   TEXT NOT NULL,
+    role_map   TEXT NOT NULL, -- JSON object mapping claims to roles
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 -- Active sessions
 CREATE TABLE sessions (
     id          TEXT PRIMARY KEY,    -- Session ID (UUIDv7)
-    token_hash  TEXT NOT NULL UNIQUE, -- SHA-256 of session token
     identity    TEXT NOT NULL,
     roles       TEXT NOT NULL,       -- JSON array of role names
     created_at  TEXT NOT NULL,
@@ -194,6 +220,18 @@ CREATE TABLE audit_log (
 
 ## 7. WebSocket API
 
+### Topic: `auth`
+
+| Action | Direction | Payload | Response |
+|---|---|---|---|
+| `login` | Client → Server | `{type: "local", username, password}` or `{type: "jwt", token}` | `{session_id, identity, roles, expires_at}` |
+| `user.create` | Client → Server | `{username, password, roles}` | `{id, username, roles}` (admin) |
+| `user.list` | Client → Server | `{}` | `{users: [...]}` (admin) |
+| `user.delete` | Client → Server | `{id}` | `{ok: true}` (admin) |
+| `provider.create` | Client → Server | `{name, issuer, jwks_url, role_map}` | `{id, name, issuer}` (admin) |
+| `provider.list` | Client → Server | `{}` | `{providers: [...]}` (admin) |
+| `provider.delete` | Client → Server | `{id}` | `{ok: true}` (admin) |
+
 ### Topic: `session`
 
 | Action | Direction | Payload | Response |
@@ -216,11 +254,11 @@ CREATE TABLE audit_log (
 
 | # | Criterion |
 |---|---|
-| AC-1 | Valid JWT establishes a session; invalid JWT returns `4001` close code. |
+| AC-1 | Valid `auth.login` message establishes a session; invalid credentials return `AUTH_FAILED`. |
 | AC-2 | Session expires after idle timeout; subsequent messages return `SESSION_EXPIRED`. |
 | AC-3 | `session.refresh` extends the session; `session.revoke` immediately invalidates it. |
 | AC-4 | A `viewer` role can `container:list` but cannot `container:create` (denied with `PERMISSION_DENIED`). |
 | AC-5 | Policy file changes are picked up on `SIGHUP` without restarting the daemon. |
 | AC-6 | Audit log captures all mutations with correct identity, action, and outcome. |
 | AC-7 | Audit log hash chain is verifiable (each entry hash links to previous). |
-| AC-8 | mTLS client with a valid certificate is authenticated and assigned roles per cert mapping. |
+| AC-8 | Admin can create local users and dynamic JWT providers via WebSocket API. |

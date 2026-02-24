@@ -29,6 +29,8 @@ export interface HandlerContext {
     state: Map<string, unknown>;
     /** Optional callback to emit intermediate streaming payloads. */
     emit?: (type: 'stream' | 'event', payload: unknown, seq?: number) => void;
+    /** The underlying WebSocket connection (if applicable). */
+    ws?: import('ws').WebSocket;
 }
 
 /**
@@ -98,13 +100,15 @@ export class Router {
     async dispatch(
         request: Request,
         logger: Logger,
-        emit?: (type: 'stream' | 'event', payload: unknown, seq?: number) => void
+        emit?: (type: 'stream' | 'event', payload: unknown, seq?: number) => void,
+        ws?: import('ws').WebSocket
     ): Promise<Response> {
         const context: HandlerContext = {
             request,
             logger,
             state: new Map(),
             emit,
+            ws,
         };
 
         try {

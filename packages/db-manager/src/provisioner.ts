@@ -17,6 +17,10 @@ export interface ProvisionResult {
 }
 
 export class DatabaseProvisioner {
+
+    /**
+     * 
+    */
     constructor(
         private readonly dataDir: string,
         private readonly vault: VaultStore,

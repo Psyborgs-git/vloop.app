@@ -24,15 +24,30 @@ export function createAuthMiddleware(
     auditLogger: AuditLogger,
 ): Middleware {
     return async (context, next) => {
-        const { request, logger } = context;
-        const sessionToken = request.meta.session_id;
+        const { request, logger, ws } = context;
+
+        // Allow unauthenticated access to auth.login
+        if (request.topic === 'auth' && request.action === 'login') {
+            return next();
+        }
 
         // ── Step 1: Validate session ───────────────────────────────────────
+
+        // Get session token from connection state (preferred) or request meta (fallback for internal calls)
+        let sessionToken = request.meta.session_id;
+        
+        if (ws) {
+            // @ts-ignore - we attach sessionId to the ws object during login
+            const wsSessionId = ws.sessionId;
+            if (wsSessionId) {
+                sessionToken = wsSessionId;
+            }
+        }
 
         if (!sessionToken) {
             throw new OrchestratorError(
                 ErrorCode.AUTH_REQUIRED,
-                'Missing session_id in request meta. Authenticate first.',
+                'Authentication required. Please login first.',
             );
         }
 

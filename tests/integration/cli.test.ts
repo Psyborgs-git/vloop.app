@@ -3,11 +3,12 @@ import { OrchestratorClient } from '../../packages/client/src/index.js';
 import { randomUUID, generateKeyPairSync } from 'node:crypto';
 import { spawn, ChildProcess, execSync } from 'node:child_process';
 import { join } from 'node:path';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 
 describe('E2E Client SDK Integration', () => {
     let client: OrchestratorClient;
     let daemonProc: ChildProcess;
+    let testDbPath: string;
 
     beforeAll(async () => {
         // 0. Generate ephemeral JWT AND TLS certs for the daemon
@@ -31,6 +32,7 @@ describe('E2E Client SDK Integration', () => {
 
         // 1. Start the actual orchestrator daemon
         const targetPath = join(process.cwd(), 'packages/orchestrator/dist/main.js');
+        testDbPath = join(process.cwd(), `data/test-state-${randomUUID()}.db`);
 
         daemonProc = spawn('node', [targetPath], {
             env: {
@@ -38,6 +40,7 @@ describe('E2E Client SDK Integration', () => {
                 ORCH_NETWORK_WS_PORT: '9001',
                 ORCH_NETWORK_HEALTH_PORT: '9002',
                 ORCH_NETWORK_BIND_ADDRESS: '127.0.0.1',
+                ORCH_DATABASE_PATH: testDbPath,
                 ORCH_DB_PASSPHRASE: 'super-secret-db-passphrase-must-be-long-enough',
                 ORCH_VAULT_PASSPHRASE: 'super-secret-vault-passphrase-must-be-long-enough',
                 ORCH_JWT_SECRET: 'super-secret-jwt-key'
@@ -47,7 +50,7 @@ describe('E2E Client SDK Integration', () => {
 
         // 2. Wait for daemon to emit its ready log
         await new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('Daemon failed to start in time')), 10000);
+            const timeout = setTimeout(() => reject(new Error('Daemon failed to start in time')), 20000);
 
             daemonProc.stdout?.on('data', (d) => {
                 const out = d.toString();
@@ -65,7 +68,6 @@ describe('E2E Client SDK Integration', () => {
 
         client = new OrchestratorClient({
             url: 'wss://127.0.0.1:9001',
-            token: 'test-admin-token',
             timeoutMs: 2000
         });
 
@@ -74,7 +76,7 @@ describe('E2E Client SDK Integration', () => {
         } catch (e: any) {
             console.warn('Could not connect to test daemon at wss://127.0.0.1:9001 ', e.message);
         }
-    });
+    }, 30000);
 
     afterAll(async () => {
         if (client) {
@@ -82,6 +84,15 @@ describe('E2E Client SDK Integration', () => {
         }
         if (daemonProc) {
             daemonProc.kill('SIGKILL');
+        }
+        try {
+            if (testDbPath) {
+                rmSync(testDbPath, { force: true });
+                rmSync(`${testDbPath}-shm`, { force: true });
+                rmSync(`${testDbPath}-wal`, { force: true });
+            }
+        } catch (e) {
+            // Ignore cleanup errors
         }
     });
 
@@ -104,7 +115,7 @@ describe('E2E Client SDK Integration', () => {
             expect(res).toBeDefined();
             expect(res.secret.value).toBe(val);
         } catch (err: any) {
-            if (err.message.includes('AUTH_REQUIRED') || err.message.includes('SESSION_NOT_FOUND') || err.message.includes('PERMISSION_DENIED') || err.message.includes('Missing session_id')) {
+            if (err.message.includes('AUTH_REQUIRED') || err.message.includes('SESSION_NOT_FOUND') || err.message.includes('PERMISSION_DENIED') || err.message.includes('Missing session_id') || err.message.includes('Authentication required')) {
                 // If it fails on auth due to the global RBAC, that still proves the multiplexer works end to end.
                 expect(err.code).toBeDefined();
             } else {

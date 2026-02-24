@@ -13,7 +13,7 @@ Build the `@orch/ai-agent` package. This package is the "brain" execution frame.
 4. **State Machine Iteration**: Provide an execution loop capable of parsing LLM tool calls, invoking the local Orchestrator subsystem, and yielding the results back to the LLM.
 
 ### Non-Functional
-1. **Security (Critical)**: An agent running a prompt injection attack must not be able to bypass the Router's RBAC validation or access Orchestrator memory. The AI Agent domain invokes internal handlers as a restricted "Virtual Identity."
+1. **Security (Critical)**: An agent running a prompt injection attack must not be able to bypass the Router's RBAC validation or access Orchestrator memory. The AI Agent domain invokes internal handlers as a restricted "Virtual Identity" by routing all tool calls through `router.dispatch` with an injected session context.
 2. **Observability**: Every single tool call invoked by the agent must be logged structurally to the Audit system (e.g., "Agent X requested to drop table Users").
 3. **Modularity**: The AI core should be agnostic of the specific LLM provider. The logic maps generic "Tool Calling" to our internal TS methods.
 
