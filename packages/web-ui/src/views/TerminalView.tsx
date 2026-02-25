@@ -418,7 +418,7 @@ export default function TerminalView() {
             const res = typeof terminalApi?.listSessions === 'function'
                 ? await terminalApi.listSessions()
                 : await requestTerminal('session.list', {});
-            setSessionHistory((res?.sessions ?? []) as SessionRecord[]);
+            setSessionHistory((res?.items ?? res?.sessions ?? []) as SessionRecord[]);
         } catch {
             setSessionHistory([]);
         } finally {

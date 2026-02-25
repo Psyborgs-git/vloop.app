@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
+import type { PaginationOptions, PaginatedResult } from '@orch/shared';
 
 export interface User {
     id: string;
@@ -36,6 +37,7 @@ export class UserManager {
                 created_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+            CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at DESC);
         `);
     }
 
@@ -160,13 +162,21 @@ export class UserManager {
     /**
      * List all users.
      */
-    list(): User[] {
-        const rows = this.db.prepare('SELECT * FROM users ORDER BY created_at DESC').all() as UserRow[];
-        return rows.map(row => ({
+    list(options: PaginationOptions = {}): PaginatedResult<User> {
+        const limit = options.limit ?? 50;
+        const offset = options.offset ?? 0;
+
+        const countRow = this.db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
+        const total = countRow.count;
+
+        const rows = this.db.prepare('SELECT * FROM users ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?').all(limit, offset) as UserRow[];
+        const items = rows.map(row => ({
             id: row.id,
             email: row.email,
             allowedRoles: JSON.parse(row.allowed_roles),
             createdAt: row.created_at,
         }));
+
+        return { items, total, limit, offset };
     }
 }

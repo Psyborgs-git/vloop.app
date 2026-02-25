@@ -24,6 +24,28 @@ export type TraceId = Brand<string, 'TraceId'>;
 /** Session identifier assigned on successful authentication. */
 export type SessionId = Brand<string, 'SessionId'>;
 
+// ─── Pagination Types ────────────────────────────────────────────────────────
+
+/** Options for paginating list queries. */
+export interface PaginationOptions {
+    /** Maximum number of items to return. Defaults to 50. */
+    limit?: number;
+    /** Number of items to skip. Defaults to 0. */
+    offset?: number;
+}
+
+/** Standard paginated result structure. */
+export interface PaginatedResult<T> {
+    /** The list of items on the current page. */
+    items: T[];
+    /** Total number of items available across all pages. */
+    total: number;
+    /** The limit applied to this query. */
+    limit: number;
+    /** The offset applied to this query. */
+    offset: number;
+}
+
 // ─── Generators ──────────────────────────────────────────────────────────────
 
 /** Generate a new MessageId (UUID v4). */

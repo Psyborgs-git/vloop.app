@@ -91,7 +91,9 @@ export function createAuthHandler(
             }
 
             case 'user.list': {
-                return userManager.list();
+                const limit = payload?.limit ? Number(payload.limit) : undefined;
+                const offset = payload?.offset ? Number(payload.offset) : undefined;
+                return userManager.list({ limit, offset });
             }
 
             case 'provider.add': {
@@ -106,7 +108,9 @@ export function createAuthHandler(
             }
 
             case 'provider.list': {
-                return jwtProviderManager.list();
+                const limit = payload?.limit ? Number(payload.limit) : undefined;
+                const offset = payload?.offset ? Number(payload.offset) : undefined;
+                return jwtProviderManager.list({ limit, offset });
             }
 
             default:

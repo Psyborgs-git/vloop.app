@@ -33,7 +33,7 @@ describe('AuditLogger', () => {
             outcome: 'allowed',
         });
 
-        const entries = audit.query();
+        const entries = audit.query().items;
         expect(entries).toHaveLength(1);
         expect(entries[0]!.identity).toBe('admin@test.com');
         expect(entries[0]!.topic).toBe('vault');
@@ -47,7 +47,7 @@ describe('AuditLogger', () => {
         audit.log({ identity: 'user2', topic: 'c', action: 'd', outcome: 'denied' });
         audit.log({ identity: 'user3', topic: 'e', action: 'f', outcome: 'allowed' });
 
-        const entries = audit.query({ limit: 10 });
+        const entries = audit.query({ limit: 10 }).items;
         expect(entries).toHaveLength(3);
 
         // Each entry should have a unique hash
@@ -60,7 +60,7 @@ describe('AuditLogger', () => {
         audit.log({ identity: 'bob', topic: 'vault', action: 'get', outcome: 'allowed' });
         audit.log({ identity: 'alice', topic: 'container', action: 'create', outcome: 'allowed' });
 
-        const aliceEntries = audit.query({ identity: 'alice' });
+        const aliceEntries = audit.query({ identity: 'alice' }).items;
         expect(aliceEntries).toHaveLength(2);
         expect(aliceEntries.every((e) => e.identity === 'alice')).toBe(true);
     });
@@ -69,7 +69,7 @@ describe('AuditLogger', () => {
         audit.log({ identity: 'user', topic: 'vault', action: 'get', outcome: 'allowed' });
         audit.log({ identity: 'user', topic: 'vault', action: 'delete', outcome: 'denied' });
 
-        const denied = audit.query({ outcome: 'denied' });
+        const denied = audit.query({ outcome: 'denied' }).items;
         expect(denied).toHaveLength(1);
         expect(denied[0]!.action).toBe('delete');
     });
@@ -78,7 +78,7 @@ describe('AuditLogger', () => {
         audit.log({ identity: 'user', topic: 'vault', action: 'get', outcome: 'allowed' });
         audit.log({ identity: 'user', topic: 'container', action: 'create', outcome: 'allowed' });
 
-        const vaultEntries = audit.query({ topic: 'vault' });
+        const vaultEntries = audit.query({ topic: 'vault' }).items;
         expect(vaultEntries).toHaveLength(1);
     });
 
@@ -92,8 +92,8 @@ describe('AuditLogger', () => {
             });
         }
 
-        const page1 = audit.query({ limit: 3, offset: 0 });
-        const page2 = audit.query({ limit: 3, offset: 3 });
+        const page1 = audit.query({ limit: 3, offset: 0 }).items;
+        const page2 = audit.query({ limit: 3, offset: 3 }).items;
 
         expect(page1).toHaveLength(3);
         expect(page2).toHaveLength(3);

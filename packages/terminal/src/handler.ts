@@ -170,7 +170,8 @@ export function createTerminalHandler(
                 const limit = Number.isFinite(limitRaw)
                     ? Math.max(1, Math.min(500, Math.floor(limitRaw)))
                     : 100;
-                return { sessions: sessionStore.list(owner, limit) };
+
+                return sessionStore.list(owner, limit);
             }
 
             case 'session.get': {

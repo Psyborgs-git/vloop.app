@@ -1,4 +1,5 @@
 import { OrchestratorClient } from '../client.js';
+import type { PaginationOptions, PaginatedResult } from '@orch/shared';
 
 export class AuthClient {
     constructor(private client: OrchestratorClient) {}
@@ -35,8 +36,8 @@ export class AuthClient {
     /**
      * List all users
      */
-    public async listUsers(): Promise<any[]> {
-        return this.client.request('auth', 'user.list');
+    public async listUsers(options: PaginationOptions = {}): Promise<PaginatedResult<any>> {
+        return this.client.request('auth', 'user.list', options);
     }
 
     /**
@@ -56,7 +57,7 @@ export class AuthClient {
     /**
      * List all JWT providers
      */
-    public async listProviders(): Promise<any[]> {
-        return this.client.request('auth', 'provider.list');
+    public async listProviders(options: PaginationOptions = {}): Promise<PaginatedResult<any>> {
+        return this.client.request('auth', 'provider.list', options);
     }
 }

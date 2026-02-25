@@ -59,10 +59,10 @@ export default function AuthView() {
             setError(null);
             if (tab === 0) {
                 const res = await client?.auth.listUsers();
-                setUsers(res || []);
+                setUsers(res?.items || []);
             } else {
                 const res = await client?.auth.listProviders();
-                setProviders(res || []);
+                setProviders(res?.items || []);
             }
         } catch (err: any) {
             setError(err.message);
