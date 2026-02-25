@@ -115,8 +115,14 @@ export class TerminalSessionStore {
      * Admins can pass `undefined` to list all; others should pass their identity.
      */
     list(owner?: string, options: PaginationOptions = {}): PaginatedResult<TerminalSessionRecord> {
-        const limit = options.limit ?? 50;
-        const offset = options.offset ?? 0;
+        const rawLimit = (options as any).limit;
+        const rawOffset = (options as any).offset;
+        const limit = Number.isFinite(rawLimit) && typeof rawLimit === 'number'
+            ? Math.max(1, Math.floor(rawLimit))
+            : 50;
+        const offset = Number.isFinite(rawOffset) && typeof rawOffset === 'number'
+            ? Math.max(0, Math.floor(rawOffset))
+            : 0;
 
         let countQuery = 'SELECT COUNT(*) as count FROM terminal_sessions';
         let dataQuery = 'SELECT * FROM terminal_sessions';
