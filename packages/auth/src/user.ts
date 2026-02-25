@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
-import { OrchestratorError, ErrorCode, PaginationOptions, PaginatedResult } from '@orch/shared';
+import { OrchestratorError, ErrorCode } from '@orch/shared';
+import type { PaginationOptions, PaginatedResult } from '@orch/shared';
 
 export interface User {
     id: string;
