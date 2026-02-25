@@ -18,6 +18,28 @@ import { OrchestratorError, ErrorCode } from '@orch/shared';
 // Read-only actions that don't require audit logging
 const READ_ACTIONS = new Set(['list', 'get', 'inspect', 'info', 'check', 'query']);
 
+function getResourceId(topic: string, action: string, payload: unknown): string {
+    const p = (payload || {}) as Record<string, unknown>;
+
+    // 1. Special cases for resources not using 'id' or 'name'
+    if (topic === 'container' && action.startsWith('image.')) {
+        if (typeof p.image === 'string') return p.image;
+    }
+    if (topic === 'vault') {
+        if (typeof p.path === 'string') return p.path;
+    }
+    if (topic === 'agent' && action.startsWith('memory.')) {
+        if (typeof p.agentId === 'string') return p.agentId;
+    }
+
+    // 2. Generic fallback: most resources use 'id' or 'name'
+    if (typeof p.id === 'string') return p.id;
+    if (typeof p.name === 'string') return p.name;
+
+    // 3. Default wildcard
+    return '*';
+}
+
 export function createAuthMiddleware(
     sessionManager: SessionManager,
     policyEngine: PolicyEngine,
@@ -65,10 +87,13 @@ export function createAuthMiddleware(
 
         // ── Step 2: Evaluate RBAC ──────────────────────────────────────────
 
+        const resource = getResourceId(request.topic, request.action, request.payload);
+
         const isAllowed = policyEngine.evaluate(
             session.roles,
             request.topic,
             request.action,
+            resource,
         );
 
         // ── Step 3: Audit log (mutations only) ─────────────────────────────
@@ -80,6 +105,7 @@ export function createAuthMiddleware(
                 identity: session.identity,
                 topic: request.topic,
                 action: request.action,
+                resource,
                 outcome: isAllowed ? 'allowed' : 'denied',
                 traceId: request.meta.trace_id,
             });
@@ -90,11 +116,11 @@ export function createAuthMiddleware(
         if (!isAllowed) {
             throw new OrchestratorError(
                 ErrorCode.PERMISSION_DENIED,
-                `Permission denied: ${session.identity} lacks ${request.topic}:${request.action}`,
+                `Permission denied: ${session.identity} lacks ${request.topic}:${request.action}:${resource}`,
                 {
                     identity: session.identity,
                     roles: session.roles,
-                    required: `${request.topic}:${request.action}:*`,
+                    required: `${request.topic}:${request.action}:${resource}`,
                 },
             );
         }
