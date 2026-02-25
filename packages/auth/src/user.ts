@@ -168,7 +168,7 @@ export class UserManager {
         const countRow = this.db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
         const total = countRow.count;
 
-        const rows = this.db.prepare('SELECT * FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?').all(limit, offset) as UserRow[];
+        const rows = this.db.prepare('SELECT * FROM users ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?').all(limit, offset) as UserRow[];
         const items = rows.map(row => ({
             id: row.id,
             email: row.email,
