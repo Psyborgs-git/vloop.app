@@ -36,9 +36,11 @@
         "@tailwindcss/vite": "^4.2.0",
         "@typescript-eslint/eslint-plugin": "^8.56.0",
         "@typescript-eslint/parser": "^8.56.0",
+        "better-sqlite3-multiple-ciphers": "^12.6.2",
         "eslint": "^10.0.1",
         "tailwindcss": "^4.2.0",
-        "typescript": "^5.9.3"
+        "typescript": "^5.9.3",
+        "vitest": "^4.0.18"
     },
     "dependencies": {
         "pg": "^8.18.0",
