@@ -856,6 +856,38 @@ export class AIConfigStore {
         );
     }
 
+    createToolCalls(inputs: Array<{
+        sessionId: ChatSessionId;
+        messageId: ChatMessageId;
+        toolName: string;
+        arguments: string;
+        result?: string;
+        latencyMs?: number;
+    }>): void {
+        const ts = now();
+        const stmt = this.db.prepare(`
+            INSERT INTO ai_tool_calls (id, session_id, message_id, tool_name, arguments, result, latency_ms, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        const insertMany = this.db.transaction((items: typeof inputs) => {
+            for (const item of items) {
+                stmt.run(
+                    generateId(),
+                    item.sessionId,
+                    item.messageId,
+                    item.toolName,
+                    item.arguments,
+                    item.result ?? null,
+                    item.latencyMs ?? null,
+                    ts
+                );
+            }
+        });
+
+        insertMany(inputs);
+    }
+
     // ── Memory ───────────────────────────────────────────────────────────
 
     createMemory(input: CreateMemoryInput): MemoryEntry {
