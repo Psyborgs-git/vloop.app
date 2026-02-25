@@ -127,4 +127,25 @@ describe('VaultStore', () => {
     it('should throw when updating non-existent secret', () => {
         expect(() => store.update('nonexistent', 'value')).toThrow('not found');
     });
+
+    it('should deny access to system secrets for regular users', () => {
+        store.create('sys-secret', 'sys-val', undefined, '__system__');
+
+        const requester = { identity: 'bob', roles: ['user'] };
+
+        expect(() => store.get('sys-secret', undefined, requester)).toThrow('Access denied');
+        expect(() => store.update('sys-secret', 'new-val', undefined, requester)).toThrow('Access denied');
+    });
+
+    it('should allow admin to access system secrets', () => {
+        store.create('sys-secret-2', 'sys-val-2', undefined, '__system__');
+
+        const requester = { identity: 'alice', roles: ['admin'] };
+
+        const secret = store.get('sys-secret-2', undefined, requester);
+        expect(secret.value).toBe('sys-val-2');
+
+        const updated = store.update('sys-secret-2', 'new-val-2', undefined, requester);
+        expect(updated.version).toBe(2);
+    });
 });
