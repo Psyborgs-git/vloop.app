@@ -7,7 +7,7 @@
 
 import { createHash } from 'node:crypto';
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
-import { PaginationOptions, PaginatedResult } from '@orch/shared';
+import type { PaginationOptions, PaginatedResult } from '@orch/shared';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
