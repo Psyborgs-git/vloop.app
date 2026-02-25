@@ -237,17 +237,17 @@ export class AgentOrchestrator {
 
 		// Log individual tool calls
 		if (toolCalls.length > 0) {
-			for (let i = 0; i < toolCalls.length; i++) {
-				const call = toolCalls[i];
+			const toolCallInputs = toolCalls.map((call, i) => {
 				const result = toolResults[i];
-				this.configStore.createToolCall({
+				return {
 					sessionId: opts.sessionId,
 					messageId: assistantMessage.id,
 					toolName: call.name,
 					arguments: JSON.stringify(call.args),
 					result: result ? JSON.stringify(result.response) : undefined,
-				});
-			}
+				};
+			});
+			this.configStore.createToolCalls(toolCallInputs);
 		}
 
 		this.memoryStore.ingestConversation({
