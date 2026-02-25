@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
-import { OrchestratorError, ErrorCode, PaginationOptions, PaginatedResult } from '@orch/shared';
+import { OrchestratorError, ErrorCode } from '@orch/shared';
+import type { PaginationOptions, PaginatedResult } from '@orch/shared';
 
 export interface JwtProvider {
     id: string;
