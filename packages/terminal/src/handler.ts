@@ -170,12 +170,8 @@ export function createTerminalHandler(
                 const limit = Number.isFinite(limitRaw)
                     ? Math.max(1, Math.min(500, Math.floor(limitRaw)))
                     : 100;
-                const offsetRaw = (data['offset'] as number | undefined) ?? 0;
-                const offset = Number.isFinite(offsetRaw)
-                    ? Math.max(0, Math.floor(offsetRaw))
-                    : 0;
 
-                return sessionStore.list(owner, { limit, offset });
+                return sessionStore.list(owner, limit);
             }
 
             case 'session.get': {
