@@ -8,28 +8,35 @@ import {
 } from '@mui/material';
 import { Plus, Pencil, Trash2, Bot } from 'lucide-react';
 import { ClientContext } from '../../ClientContext.js';
+import { useToast } from '../ToastContext.js';
 import ConfigFormDialog, { type FieldDef } from './ConfigFormDialog.js';
 
 export default function AgentList() {
     const client = useContext(ClientContext);
+    const { showToast } = useToast();
     const [agents, setAgents] = useState<any[]>([]);
     const [models, setModels] = useState<any[]>([]);
     const [tools, setTools] = useState<any[]>([]);
+    const [mcpServers, setMcpServers] = useState<any[]>([]);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editing, setEditing] = useState<any>(null);
 
     const load = async () => {
         if (!client) return;
         try {
-            const [aRes, mRes, tRes] = await Promise.all([
+            const [aRes, mRes, tRes, mcpRes] = await Promise.all([
                 client.agent.listAgents(),
                 client.agent.listModels(),
                 client.agent.listTools(),
+                client.agent.listMcpServers(),
             ]);
             setAgents(aRes.agents || []);
             setModels(mRes.models || []);
             setTools(tRes.tools || []);
-        } catch (e) { console.error('Failed to load agents:', e); }
+            setMcpServers(mcpRes.mcpServers || []);
+        } catch (e: any) { 
+            showToast(e.message || 'Failed to load agents', 'error');
+        }
     };
 
     useEffect(() => { load(); }, [client]);
@@ -40,12 +47,16 @@ export default function AgentList() {
         { name: 'modelId', label: 'Model', type: 'select', required: true,
             options: models.map(m => ({ value: m.id, label: `${m.name} (${m.modelId})` })) },
         { name: 'systemPrompt', label: 'System Prompt', type: 'multiline' },
-        { name: 'toolIds', label: 'Tools', type: 'chips' },
+        { name: 'toolIds', label: 'Tools', type: 'chips',
+            options: tools.map(t => ({ value: t.id, label: t.name })) },
+        { name: 'mcpServerIds', label: 'MCP Servers', type: 'chips',
+            options: mcpServers.map(s => ({ value: s.id, label: s.name })) },
         { name: 'params', label: 'Override Params (JSON)', type: 'json', default: '{}' },
     ];
 
     const modelName = (mid: string) => models.find(m => m.id === mid)?.name || mid;
     const toolName = (tid: string) => tools.find(t => t.id === tid)?.name || tid;
+    const mcpServerName = (sid: string) => mcpServers.find(s => s.id === sid)?.name || sid;
 
     return (
         <Box>
@@ -83,6 +94,9 @@ export default function AgentList() {
                                             {(a.toolIds || []).map((tid: string) => (
                                                 <Chip key={tid} label={toolName(tid)} size="small" variant="outlined" />
                                             ))}
+                                            {(a.mcpServerIds || []).map((sid: string) => (
+                                                <Chip key={sid} label={mcpServerName(sid)} size="small" color="secondary" variant="outlined" />
+                                            ))}
                                         </Box>
                                         {a.systemPrompt && (
                                             <Typography variant="caption" color="text.secondary" sx={{
@@ -97,7 +111,16 @@ export default function AgentList() {
                                         <IconButton size="small" onClick={() => { setEditing(a); setDialogOpen(true); }}>
                                             <Pencil size={16} />
                                         </IconButton>
-                                        <IconButton size="small" color="error" onClick={() => client?.agent.deleteAgent(a.id).then(load)}>
+                                        <IconButton size="small" color="error" onClick={async () => {
+                                            if (!window.confirm('Delete agent?')) return;
+                                            try {
+                                                await client?.agent.deleteAgent(a.id);
+                                                showToast('Agent deleted', 'success');
+                                                load();
+                                            } catch (e: any) {
+                                                showToast(e.message || 'Failed to delete agent', 'error');
+                                            }
+                                        }}>
                                             <Trash2 size={16} />
                                         </IconButton>
                                     </Box>
@@ -113,9 +136,18 @@ export default function AgentList() {
                 onClose={() => { setDialogOpen(false); setEditing(null); }}
                 onSubmit={async (data) => {
                     if (!client) return;
-                    if (editing) await client.agent.updateAgent(editing.id, data);
-                    else await client.agent.createAgent(data as any);
-                    load();
+                    try {
+                        if (editing) {
+                            await client.agent.updateAgent(editing.id, data);
+                            showToast('Agent updated', 'success');
+                        } else {
+                            await client.agent.createAgent(data as any);
+                            showToast('Agent created', 'success');
+                        }
+                        load();
+                    } catch (e: any) {
+                        showToast(e.message || 'Failed to save agent', 'error');
+                    }
                 }}
                 title={editing ? 'Edit Agent' : 'New Agent'}
                 fields={fields}

@@ -49,6 +49,18 @@ CREATE TABLE IF NOT EXISTS ai_tools (
     updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- ─── MCP Server Configs ──────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS ai_mcp_servers (
+    id                TEXT PRIMARY KEY,
+    name              TEXT NOT NULL UNIQUE,
+    protocol_version  TEXT,
+    capabilities      TEXT DEFAULT '[]',
+    transport         TEXT NOT NULL CHECK(transport IN ('stdio','sse','custom')),
+    handler_config    TEXT DEFAULT '{}',
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- ─── Agent Configs ───────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS ai_agents (
     id            TEXT PRIMARY KEY,
@@ -183,4 +195,24 @@ CREATE TABLE IF NOT EXISTS ai_chat_session_tools (
 );
 
 CREATE INDEX IF NOT EXISTS idx_session_tools_session ON ai_chat_session_tools(session_id);
+
+-- ─── Agent ↔ MCP Server (m2m join) ───────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS ai_agent_mcp_servers (
+    agent_id   TEXT NOT NULL REFERENCES ai_agents(id) ON DELETE CASCADE,
+    server_id  TEXT NOT NULL REFERENCES ai_mcp_servers(id) ON DELETE CASCADE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (agent_id, server_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_mcp_servers_agent ON ai_agent_mcp_servers(agent_id);
+
+-- ─── Chat Session ↔ MCP Server (m2m join) ────────────────────────────────────
+CREATE TABLE IF NOT EXISTS ai_chat_session_mcp_servers (
+    session_id TEXT NOT NULL REFERENCES ai_chat_sessions(id) ON DELETE CASCADE,
+    server_id  TEXT NOT NULL REFERENCES ai_mcp_servers(id) ON DELETE CASCADE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (session_id, server_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_mcp_servers_session ON ai_chat_session_mcp_servers(session_id);
 `;

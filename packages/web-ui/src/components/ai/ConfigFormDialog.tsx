@@ -119,31 +119,54 @@ export default function ConfigFormDialog({ open, onClose, onSubmit, title, field
                                 return (
                                     <Box key={f.name}>
                                         <Typography variant="caption" color="text.secondary">{f.label}</Typography>
-                                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
-                                            {(values[f.name] as string[] || []).map((chip: string, i: number) => (
-                                                <Chip key={i} label={chip} size="small" onDelete={() => {
-                                                    const arr = [...(values[f.name] as string[])];
-                                                    arr.splice(i, 1);
-                                                    handleChange(f.name, arr);
-                                                }} />
-                                            ))}
-                                        </Box>
-                                        <TextField
-                                            placeholder={`Add ${f.label.toLowerCase()}`}
-                                            size="small"
-                                            fullWidth
-                                            sx={{ mt: 0.5 }}
-                                            onKeyDown={e => {
-                                                if (e.key === 'Enter') {
-                                                    e.preventDefault();
-                                                    const input = e.target as HTMLInputElement;
-                                                    if (input.value) {
-                                                        handleChange(f.name, [...(values[f.name] as string[] || []), input.value]);
-                                                        input.value = '';
-                                                    }
-                                                }
-                                            }}
-                                        />
+                                        {f.options ? (
+                                            <FormControl fullWidth size="small" sx={{ mt: 0.5 }}>
+                                                <Select
+                                                    multiple
+                                                    value={values[f.name] || []}
+                                                    onChange={e => handleChange(f.name, e.target.value)}
+                                                    renderValue={(selected) => (
+                                                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                                            {(selected as string[]).map((value) => (
+                                                                <Chip key={value} label={f.options?.find(o => o.value === value)?.label || value} size="small" />
+                                                            ))}
+                                                        </Box>
+                                                    )}
+                                                >
+                                                    {f.options?.map(o => (
+                                                        <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+                                                    ))}
+                                                </Select>
+                                            </FormControl>
+                                        ) : (
+                                            <>
+                                                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                                                    {(values[f.name] as string[] || []).map((chip: string, i: number) => (
+                                                        <Chip key={i} label={chip} size="small" onDelete={() => {
+                                                            const arr = [...(values[f.name] as string[])];
+                                                            arr.splice(i, 1);
+                                                            handleChange(f.name, arr);
+                                                        }} />
+                                                    ))}
+                                                </Box>
+                                                <TextField
+                                                    placeholder={`Add ${f.label.toLowerCase()}`}
+                                                    size="small"
+                                                    fullWidth
+                                                    sx={{ mt: 0.5 }}
+                                                    onKeyDown={e => {
+                                                        if (e.key === 'Enter') {
+                                                            e.preventDefault();
+                                                            const input = e.target as HTMLInputElement;
+                                                            if (input.value) {
+                                                                handleChange(f.name, [...(values[f.name] as string[] || []), input.value]);
+                                                                input.value = '';
+                                                            }
+                                                        }
+                                                    }}
+                                                />
+                                            </>
+                                        )}
                                     </Box>
                                 );
                             default:

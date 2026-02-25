@@ -9,6 +9,9 @@ export type { ToolDefinition } from './tools.js';
 export { AgentOrchestrator } from './orchestrator.js';
 export { createAgentHandler } from './handler.js';
 export { BrowserTool } from './tools/browser.js';
+export { createAgentSearchTool } from './tools/agent-search.js';
+export { createDelegateTaskTool } from './tools/delegate-task.js';
+export { createTriggerWorkflowTool } from './tools/trigger-workflow.js';
 
 // Config system
 export { AIConfigStore } from './config/store.js';

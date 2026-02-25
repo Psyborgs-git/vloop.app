@@ -17,7 +17,8 @@ export default defineConfig({
         https: {
             key: readFileSync(resolve(__dirname, '../../certs/server.key')),
             cert: readFileSync(resolve(__dirname, '../../certs/server.crt')),
-            // optionally pass ca if needed
+            // optionally pass ca if needed,
+            ca: readFileSync(resolve(__dirname, '../../certs/ca.crt')),
         },
         port: 3000,
         "host": "0.0.0.0",

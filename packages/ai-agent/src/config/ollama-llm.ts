@@ -248,12 +248,7 @@ export class OllamaLlm extends BaseLlm {
 			parts.push({ text: json.message.content });
 		}
 		for (const tc of json.message?.tool_calls || []) {
-			parts.push({
-				functionCall: {
-					name: tc.function.name,
-					args: tc.function.arguments,
-				},
-			});
+			parts.push(this.toFunctionCallPart(tc));
 		}
 
 		return {
@@ -264,6 +259,14 @@ export class OllamaLlm extends BaseLlm {
 	}
 
 	private mapStreamEvent(event: any): LlmResponse | null {
+		if (Array.isArray(event.message?.tool_calls) && event.message.tool_calls.length > 0) {
+			const parts = event.message.tool_calls.map((tc: any) => this.toFunctionCallPart(tc));
+			return {
+				content: { role: "model", parts },
+				partial: true,
+			};
+		}
+
 		if (event.message?.content) {
 			return {
 				content: { role: "model", parts: [{ text: event.message.content }] },
@@ -277,6 +280,34 @@ export class OllamaLlm extends BaseLlm {
 			};
 		}
 		return null;
+	}
+
+	private toFunctionCallPart(tc: any): Part {
+		const rawArgs = tc?.function?.arguments;
+		let parsedArgs: Record<string, unknown> = {};
+
+		if (rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs)) {
+			parsedArgs = rawArgs as Record<string, unknown>;
+		} else if (typeof rawArgs === "string") {
+			const parsed = this.tryParseJson(rawArgs);
+			if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+				parsedArgs = parsed as Record<string, unknown>;
+			}
+		}
+
+		const thoughtSignature =
+			tc?.function?.thought_signature ??
+			tc?.function?.thoughtSignature ??
+			"ollama";
+
+		return {
+			functionCall: {
+				name: tc?.function?.name,
+				args: parsedArgs,
+				// ADK expects this field for function call parts on some runtimes.
+				thoughtSignature,
+			} as any,
+		} as Part;
 	}
 
 	private tryParseJson(value: string): any | null {

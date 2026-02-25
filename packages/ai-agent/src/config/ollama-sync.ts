@@ -197,9 +197,19 @@ export class OllamaSync {
         // Remove models no longer available locally
         for (const [modelId, existing] of existingByModelId) {
             if (!localByName.has(modelId)) {
-                this.store.deleteModel(existing.id);
-                modelsRemoved.push(modelId);
-                this.logger.info({ modelId }, 'Removed stale Ollama model');
+                try {
+                    this.store.deleteModel(existing.id);
+                    modelsRemoved.push(modelId);
+                    this.logger.info({ modelId }, 'Removed stale Ollama model');
+                } catch (e: any) {
+                    // Model may still be referenced by agents/sessions (FK constraint).
+                    // Keep it in config and continue syncing other models.
+                    modelsUnchanged.push(modelId);
+                    this.logger.warn(
+                        { modelId, err: e?.message ?? String(e) },
+                        'Skipped removing stale Ollama model because it is still referenced',
+                    );
+                }
             }
         }
 

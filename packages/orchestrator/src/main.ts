@@ -69,6 +69,9 @@ import {
     createAgentHandler,
     BrowserTool,
     AIConfigStore,
+    createAgentSearchTool,
+    createDelegateTaskTool,
+    createTriggerWorkflowTool,
 } from "@orch/ai-agent";
 import {
     TerminalManager,
@@ -77,6 +80,9 @@ import {
     TerminalSessionStore,
     createTerminalHandler,
 } from "@orch/terminal";
+import { createMediaHandler } from "@orch/media";
+import { createMcpHttpHandler } from "./mcp-server.js";
+import { registerAITools } from "./ai-tools.js";
 
 function getOrGeneratePassphrase(keyPath: string, envVarName: string, logger: any): string {
     if (process.env[envVarName]) {
@@ -488,6 +494,11 @@ async function main(): Promise<void> {
         vaultGet,
     );
 
+    // Register built-in AI tools
+    toolRegistry.register(createAgentSearchTool(aiConfigStore));
+
+    registerAITools(toolRegistry, router);
+
     // Hook up cron executor to spawn processes
     cronScheduler.setExecutor(async (job: ScheduledJob) => {
         const managed = processManager.start({
@@ -547,6 +558,7 @@ async function main(): Promise<void> {
         "terminal",
         createTerminalHandler(terminalManager, terminalProfileManager, sessionLogger, terminalSessionStore),
     );
+    router.register("media", createMediaHandler(resolve("./data/media")));
     router.register("db", createDatabaseHandler(dbProvisioner, dbPool, dbManager, externalDbRegistry));
     router.register("agent", createAgentHandler(agentOrchestrator, aiConfigStore));
 
@@ -631,11 +643,14 @@ async function main(): Promise<void> {
 
     // ── 10. Start WebSocket server ─────────────────────────────────────
 
+    const mcpHttpHandler = createMcpHttpHandler(toolRegistry, sessionManager, logger);
+
     const wsHandle = createWebSocketServer(
         config,
         router,
         logger,
         shutdownController.signal,
+        mcpHttpHandler
     );
 
     healthServer.registerSubsystem("websocket", () => ({

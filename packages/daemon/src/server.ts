@@ -33,6 +33,7 @@ export function createWebSocketServer(
     router: Router,
     logger: Logger,
     shutdownSignal: AbortSignal,
+    httpHandler?: (req: any, res: any) => void,
 ): WebSocketServerHandle {
     const { network, tls: tlsConfig } = config;
 
@@ -43,7 +44,7 @@ export function createWebSocketServer(
         minVersion: 'TLSv1.3' as const,
     };
 
-    const server = createHttpsServer(tlsOptions);
+    const server = createHttpsServer(tlsOptions, httpHandler);
     const wss = new WebSocketServer({
         server,
         maxPayload: network.max_message_size_bytes,

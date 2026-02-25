@@ -9,6 +9,7 @@ import {
 } from '@mui/material';
 import { Plus, Trash2, Brain, Search } from 'lucide-react';
 import { ClientContext } from '../../ClientContext.js';
+import { useToast } from '../ToastContext.js';
 import ConfigFormDialog, { type FieldDef } from './ConfigFormDialog.js';
 
 const MEMORY_FIELDS: FieldDef[] = [
@@ -19,6 +20,7 @@ const MEMORY_FIELDS: FieldDef[] = [
 
 export default function MemoryList() {
     const client = useContext(ClientContext);
+    const { showToast } = useToast();
     const [memories, setMemories] = useState<any[]>([]);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -30,10 +32,34 @@ export default function MemoryList() {
                 ? await client.agent.searchMemories(searchQuery)
                 : await client.agent.listMemories();
             setMemories(res.memories || []);
-        } catch (e) { console.error('Failed to load memories:', e); }
+        } catch (e: any) {
+            showToast(`Failed to load memories: ${e.message}`, 'error');
+        }
     };
 
     useEffect(() => { load(); }, [client]);
+
+    const handleCreate = async (data: Record<string, any>) => {
+        if (!client) return;
+        try {
+            await client.agent.createMemory(data as any);
+            showToast('Memory created successfully', 'success');
+            load();
+        } catch (e: any) {
+            showToast(`Failed to create memory: ${e.message}`, 'error');
+        }
+    };
+
+    const handleDelete = async (id: string) => {
+        if (!client) return;
+        try {
+            await client.agent.deleteMemory(id);
+            showToast('Memory deleted successfully', 'success');
+            load();
+        } catch (e: any) {
+            showToast(`Failed to delete memory: ${e.message}`, 'error');
+        }
+    };
 
     const handleSearch = () => load();
 
@@ -88,7 +114,7 @@ export default function MemoryList() {
                                             <Chip label={new Date(m.createdAt).toLocaleDateString()} size="small" variant="outlined" />
                                         </Box>
                                     </Box>
-                                    <IconButton size="small" color="error" onClick={() => client?.agent.deleteMemory(m.id).then(load)}>
+                                    <IconButton size="small" color="error" onClick={() => handleDelete(m.id)}>
                                         <Trash2 size={16} />
                                     </IconButton>
                                 </Box>
@@ -101,11 +127,7 @@ export default function MemoryList() {
             <ConfigFormDialog
                 open={dialogOpen}
                 onClose={() => setDialogOpen(false)}
-                onSubmit={async (data) => {
-                    if (!client) return;
-                    await client.agent.addMemory(data as any);
-                    load();
-                }}
+                onSubmit={handleCreate}
                 title="Add Memory"
                 fields={MEMORY_FIELDS}
             />

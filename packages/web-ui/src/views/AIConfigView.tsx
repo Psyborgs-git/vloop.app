@@ -13,6 +13,7 @@ import ToolList from '../components/ai/ToolList.js';
 import AgentList from '../components/ai/AgentList.js';
 import WorkflowList from '../components/ai/WorkflowList.js';
 import MemoryList from '../components/ai/MemoryList.js';
+import McpServerList from '../components/ai/McpServerList.js';
 
 const TABS = [
     { label: 'Providers', component: ProviderList },
@@ -21,6 +22,7 @@ const TABS = [
     { label: 'Agents', component: AgentList },
     { label: 'Workflows', component: WorkflowList },
     { label: 'Memory', component: MemoryList },
+    { label: 'MCP Servers', component: McpServerList },
 ];
 
 export default function AIConfigView() {

@@ -6,6 +6,68 @@ export function registerCrudHandlers(
     configStore: AIConfigStore,
     orchestrator: AgentOrchestrator
 ) {
+    const BUILTIN_PREFIX = 'builtin:';
+
+    const resolvePersistableToolIds = (rawToolIds: unknown): string[] => {
+        const input = Array.isArray(rawToolIds) ? rawToolIds : [];
+        const resolved: string[] = [];
+
+        for (const rawId of input) {
+            if (typeof rawId !== 'string' || rawId.trim() === '') continue;
+            const toolId = rawId.trim();
+
+            // Already a persisted config tool ID
+            if (configStore.getTool(toolId as any)) {
+                resolved.push(toolId);
+                continue;
+            }
+
+            // Config tools may be sent by name from UI/clients
+            const byConfigName = configStore.listTools().find((t) => t.name === toolId);
+            if (byConfigName) {
+                resolved.push(byConfigName.id);
+                continue;
+            }
+
+            // Builtins can arrive as "builtin:<name>" or just "<name>"
+            const builtinName = toolId.startsWith(BUILTIN_PREFIX)
+                ? toolId.slice(BUILTIN_PREFIX.length)
+                : toolId;
+
+            const builtinDef = orchestrator.tools.get(builtinName);
+            if (!builtinDef) {
+                // Unknown tool reference: skip silently to avoid FK failures.
+                continue;
+            }
+
+            let persisted = configStore.listTools().find((t) => t.name === builtinName);
+            if (!persisted) {
+                try {
+                    persisted = configStore.createTool({
+                        name: builtinName,
+                        description:
+                            builtinDef.description || `Builtin tool: ${builtinName}`,
+                        parametersSchema:
+                            (builtinDef.parameters as Record<string, unknown>) ||
+                            { type: 'object', properties: {} },
+                        handlerType: 'builtin',
+                        handlerConfig: { name: builtinName },
+                    });
+                } catch {
+                    // Likely a uniqueness race; resolve by re-reading.
+                    persisted = configStore.listTools().find((t) => t.name === builtinName);
+                }
+            }
+
+            if (persisted) {
+                resolved.push(persisted.id);
+            }
+        }
+
+        // Preserve order, remove duplicates
+        return Array.from(new Set(resolved));
+    };
+
     // ── Provider CRUD ─────────────────────────────────────────────
     handlers.set('provider.create', (p) => configStore.createProvider(p));
     handlers.set('provider.list', () => ({ providers: configStore.listProviders() }));
@@ -41,11 +103,26 @@ export function registerCrudHandlers(
     handlers.set('tool.update', (p) => configStore.updateTool(p.id, p));
     handlers.set('tool.delete', (p) => { configStore.deleteTool(p.id); return { ok: true }; });
 
+    // ── MCP Server CRUD ───────────────────────────────────────────
+    handlers.set('mcp.create', (p) => configStore.createMcpServer(p));
+    handlers.set('mcp.list', () => ({ servers: configStore.listMcpServers() }));
+    handlers.set('mcp.get', (p) => configStore.getMcpServer(p.id));
+    handlers.set('mcp.update', (p) => configStore.updateMcpServer(p.id, p));
+    handlers.set('mcp.delete', (p) => { configStore.deleteMcpServer(p.id); return { ok: true }; });
+
     // ── Agent Config CRUD ─────────────────────────────────────────
-    handlers.set('config.create', (p) => configStore.createAgent(p));
+    handlers.set('config.create', (p) => {
+        const toolIds = resolvePersistableToolIds(p.toolIds);
+        return configStore.createAgent({ ...p, toolIds });
+    });
     handlers.set('config.list', () => ({ agents: configStore.listAgents() }));
     handlers.set('config.get', (p) => configStore.getAgent(p.id));
-    handlers.set('config.update', (p) => configStore.updateAgent(p.id, p));
+    handlers.set('config.update', (p) => {
+        const normalized = p.toolIds === undefined
+            ? p
+            : { ...p, toolIds: resolvePersistableToolIds(p.toolIds) };
+        return configStore.updateAgent(p.id, normalized);
+    });
     handlers.set('config.delete', (p) => { configStore.deleteAgent(p.id); return { ok: true }; });
 
     // ── Workflow Config CRUD ──────────────────────────────────────
@@ -56,16 +133,26 @@ export function registerCrudHandlers(
     handlers.set('workflow.delete', (p) => { configStore.deleteWorkflow(p.id); return { ok: true }; });
 
     // ── Chat Session CRUD ─────────────────────────────────────────
-    handlers.set('chat.create', (p) => configStore.createChatSession(p));
+    handlers.set('chat.create', (p) => {
+        const toolIds = p.toolIds === undefined
+            ? undefined
+            : resolvePersistableToolIds(p.toolIds);
+        return configStore.createChatSession({ ...p, toolIds });
+    });
     handlers.set('chat.list', () => ({ sessions: configStore.listChatSessions() }));
     handlers.set('chat.get', (p) => configStore.getChatSession(p.id));
-    handlers.set('chat.update', (p) => configStore.updateChatSession(p.id, p));
+    handlers.set('chat.update', (p) => {
+        const normalized = p.toolIds === undefined
+            ? p
+            : { ...p, toolIds: resolvePersistableToolIds(p.toolIds) };
+        return configStore.updateChatSession(p.id, normalized);
+    });
     handlers.set('chat.delete', (p) => { configStore.deleteChatSession(p.id); return { ok: true }; });
     handlers.set('chat.history', (p) => ({ messages: configStore.listChatMessages(p.sessionId) }));
 
     // ── Session ↔ Tool m2m ────────────────────────────────────────
     handlers.set('session.tools.set', (p) => {
-        configStore.setSessionTools(p.sessionId, p.toolIds ?? []);
+        configStore.setSessionTools(p.sessionId, resolvePersistableToolIds(p.toolIds) as any);
         return { ok: true };
     });
     handlers.set('session.tools.get', (p) => ({
@@ -74,7 +161,7 @@ export function registerCrudHandlers(
 
     // ── Agent ↔ Tool m2m ──────────────────────────────────────────
     handlers.set('agent.tools.set', (p) => {
-        configStore.setAgentTools(p.agentId, p.toolIds ?? []);
+        configStore.setAgentTools(p.agentId, resolvePersistableToolIds(p.toolIds) as any);
         return { ok: true };
     });
     handlers.set('agent.tools.get', (p) => ({

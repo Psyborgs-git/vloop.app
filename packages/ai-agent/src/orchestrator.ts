@@ -28,6 +28,7 @@ import { OpenAILlm } from "./config/openai-llm.js";
 import { KnowledgeGraphService } from "./config/knowledge-graph.js";
 import { RAGService } from "./config/rag-service.js";
 import { ContextManager } from "./config/context-manager.js";
+import { McpClientManager } from "./mcp/client-manager.js";
 import type { AIConfigStore } from "./config/store.js";
 import type {
 	AgentConfigId,
@@ -59,6 +60,7 @@ export class AgentOrchestrator {
 	public readonly knowledgeGraph: KnowledgeGraphService;
 	public readonly ragService: RAGService;
 	public readonly contextManager: ContextManager;
+	public readonly mcpClientManager: McpClientManager;
 
 	constructor(
 		public readonly tools: ToolRegistry,
@@ -75,10 +77,12 @@ export class AgentOrchestrator {
 
 		// Initialize config-based subsystems if store is available
 		this.providerRegistry = new ProviderRegistry(configStore!, logger);
+		this.mcpClientManager = new McpClientManager(logger);
 		this.agentBuilder = new AgentBuilder(
 			configStore!,
 			this.providerRegistry,
 			tools,
+			this.mcpClientManager,
 			logger,
 		);
 		this.workflowRunner = new WorkflowRunner(

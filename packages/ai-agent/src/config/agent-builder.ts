@@ -10,7 +10,8 @@ import type { Logger, HandlerContext } from '@orch/daemon';
 import type { AIConfigStore } from './store.js';
 import type { ProviderRegistry } from './provider-registry.js';
 import type { ToolRegistry, ToolDefinition } from '../tools.js';
-import type { AgentConfigId, AgentConfig, ToolConfig } from './types.js';
+import type { McpClientManager } from '../mcp/client-manager.js';
+import type { AgentConfigId, AgentConfig, ToolConfig, McpServerId } from './types.js';
 import type { ResolvedModel } from './provider-registry.js';
 
 export interface BuiltAgent {
@@ -29,6 +30,7 @@ export class AgentBuilder {
         private readonly store: AIConfigStore,
         private readonly providerRegistry: ProviderRegistry,
         private readonly builtinTools: ToolRegistry,
+        private readonly mcpClientManager: McpClientManager,
         private readonly logger: Logger,
     ) { }
 
@@ -52,6 +54,12 @@ export class AgentBuilder {
 
         // Build tools
         const tools = this.resolveTools(agentConfig.toolIds, context);
+        
+        // Add MCP tools
+        if (agentConfig.mcpServerIds && agentConfig.mcpServerIds.length > 0) {
+            const mcpTools = await this.resolveMcpFunctionTools(agentConfig.mcpServerIds);
+            tools.push(...mcpTools);
+        }
 
         // Build the LlmAgent
         const agent = new LlmAgent({
@@ -79,10 +87,11 @@ export class AgentBuilder {
     /**
      * Resolve tool IDs into raw ToolDefinitions for non-ADK adapters.
      */
-    public resolveToolDefinitions(
+    public async resolveToolDefinitions(
         toolIds: string[],
+        mcpServerIds?: McpServerId[],
         context?: HandlerContext,
-    ): ToolDefinition[] {
+    ): Promise<ToolDefinition[]> {
         const tools: ToolDefinition[] = [];
 
         for (const toolId of toolIds) {
@@ -130,6 +139,11 @@ export class AgentBuilder {
 
             this.logger.warn({ toolId }, 'Tool not found, skipping');
         }
+        
+        if (mcpServerIds && mcpServerIds.length > 0) {
+            const mcpTools = await this.resolveMcpTools(mcpServerIds);
+            tools.push(...mcpTools);
+        }
 
         return tools;
     }
@@ -168,6 +182,62 @@ export class AgentBuilder {
             this.logger.warn({ toolId }, 'Tool not found, skipping');
         }
 
+        return tools;
+    }
+    
+    /**
+     * Resolve MCP server IDs into ToolDefinitions.
+     */
+    private async resolveMcpTools(serverIds: McpServerId[]): Promise<ToolDefinition[]> {
+        const tools: ToolDefinition[] = [];
+        
+        for (const serverId of serverIds) {
+            const serverConfig = this.store.getMcpServer(serverId);
+            if (!serverConfig) {
+                this.logger.warn({ serverId }, 'MCP server not found, skipping');
+                continue;
+            }
+            
+            try {
+                const serverTools = await this.mcpClientManager.getTools(serverConfig);
+                tools.push(...serverTools);
+            } catch (err) {
+                this.logger.error({ err, serverId }, 'Failed to resolve MCP tools');
+            }
+        }
+        
+        return tools;
+    }
+
+    /**
+     * Resolve MCP server IDs into FunctionTool instances.
+     */
+    private async resolveMcpFunctionTools(serverIds: McpServerId[]): Promise<FunctionTool[]> {
+        const tools: FunctionTool[] = [];
+        
+        for (const serverId of serverIds) {
+            const serverConfig = this.store.getMcpServer(serverId);
+            if (!serverConfig) {
+                this.logger.warn({ serverId }, 'MCP server not found, skipping');
+                continue;
+            }
+            
+            try {
+                const serverTools = await this.mcpClientManager.getTools(serverConfig);
+                for (const tool of serverTools) {
+                    tools.push(new FunctionTool({
+                        name: tool.name,
+                        description: tool.description,
+                        execute: async (args: any) => {
+                            return await tool.execute!(args);
+                        },
+                    }));
+                }
+            } catch (err) {
+                this.logger.error({ err, serverId }, 'Failed to resolve MCP tools');
+            }
+        }
+        
         return tools;
     }
 

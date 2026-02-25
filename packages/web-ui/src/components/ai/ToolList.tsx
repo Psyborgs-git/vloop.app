@@ -9,6 +9,7 @@ import {
 } from '@mui/material';
 import { Plus, Pencil, Trash2, Wrench } from 'lucide-react';
 import { ClientContext } from '../../ClientContext.js';
+import { useToast } from '../ToastContext.js';
 import ConfigFormDialog, { type FieldDef } from './ConfigFormDialog.js';
 
 const TOOL_FIELDS: FieldDef[] = [
@@ -29,6 +30,7 @@ const handlerColors: Record<string, string> = {
 
 export default function ToolList() {
     const client = useContext(ClientContext);
+    const { showToast } = useToast();
     const [tools, setTools] = useState<any[]>([]);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editing, setEditing] = useState<any>(null);
@@ -38,10 +40,46 @@ export default function ToolList() {
         try {
             const res = await client.agent.listTools();
             setTools(res.tools || []);
-        } catch (e) { console.error('Failed to load tools:', e); }
+        } catch (e: any) {
+            showToast(`Failed to load tools: ${e.message}`, 'error');
+        }
     };
 
     useEffect(() => { load(); }, [client]);
+
+    const handleCreate = async (data: Record<string, any>) => {
+        if (!client) return;
+        try {
+            await client.agent.createTool(data as any);
+            showToast('Tool created successfully', 'success');
+            load();
+        } catch (e: any) {
+            showToast(`Failed to create tool: ${e.message}`, 'error');
+        }
+    };
+
+    const handleUpdate = async (data: Record<string, any>) => {
+        if (!client || !editing) return;
+        try {
+            await client.agent.updateTool(editing.id, data);
+            showToast('Tool updated successfully', 'success');
+            setEditing(null);
+            load();
+        } catch (e: any) {
+            showToast(`Failed to update tool: ${e.message}`, 'error');
+        }
+    };
+
+    const handleDelete = async (id: string) => {
+        if (!client) return;
+        try {
+            await client.agent.deleteTool(id);
+            showToast('Tool deleted successfully', 'success');
+            load();
+        } catch (e: any) {
+            showToast(`Failed to delete tool: ${e.message}`, 'error');
+        }
+    };
 
     return (
         <Box>
@@ -92,7 +130,7 @@ export default function ToolList() {
                                                 <IconButton size="small" onClick={() => { setEditing(t); setDialogOpen(true); }}>
                                                     <Pencil size={16} />
                                                 </IconButton>
-                                                <IconButton size="small" color="error" onClick={() => client?.agent.deleteTool(t.id).then(load)}>
+                                                <IconButton size="small" color="error" onClick={() => handleDelete(t.id)}>
                                                     <Trash2 size={16} />
                                                 </IconButton>
                                             </>
@@ -111,12 +149,7 @@ export default function ToolList() {
             <ConfigFormDialog
                 open={dialogOpen}
                 onClose={() => { setDialogOpen(false); setEditing(null); }}
-                onSubmit={async (data) => {
-                    if (!client) return;
-                    if (editing) await client.agent.updateTool(editing.id, data);
-                    else await client.agent.createTool(data as any);
-                    load();
-                }}
+                onSubmit={editing ? handleUpdate : handleCreate}
                 title={editing ? 'Edit Tool' : 'New Tool'}
                 fields={TOOL_FIELDS}
                 initialData={editing}

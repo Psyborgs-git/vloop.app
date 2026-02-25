@@ -114,7 +114,7 @@ function ProfileDialog({
 export default function TerminalView() {
     const client = useClient();
     const terminalApi = (client as any)?.terminal;
-    const requestWithPersistentStream = (client as any)?.requestWithPersistentStream as
+    const requestWithPersistentStream = (client as any)?.requestWithPersistentStream?.bind(client) as
         | ((topic: string, action: string, payload: unknown, onStream: (chunk: unknown) => void) => Promise<{ requestId: string; result: unknown }>)
         | undefined;
 

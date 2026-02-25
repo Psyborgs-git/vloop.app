@@ -8,6 +8,7 @@ import {
 } from '@mui/material';
 import { Plus, Pencil, Trash2, GitBranch, Play } from 'lucide-react';
 import { ClientContext } from '../../ClientContext.js';
+import { useToast } from '../ToastContext.js';
 import ConfigFormDialog, { type FieldDef } from './ConfigFormDialog.js';
 
 const WORKFLOW_FIELDS: FieldDef[] = [
@@ -28,6 +29,7 @@ const typeColors: Record<string, string> = {
 
 export default function WorkflowList() {
     const client = useContext(ClientContext);
+    const { showToast } = useToast();
     const [workflows, setWorkflows] = useState<any[]>([]);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editing, setEditing] = useState<any>(null);
@@ -37,10 +39,60 @@ export default function WorkflowList() {
         try {
             const res = await client.agent.listWorkflowConfigs();
             setWorkflows(res.workflows || []);
-        } catch (e) { console.error('Failed to load workflows:', e); }
+        } catch (e: any) {
+            showToast(`Failed to load workflows: ${e.message}`, 'error');
+        }
     };
 
     useEffect(() => { load(); }, [client]);
+
+    const handleCreate = async (data: Record<string, any>) => {
+        if (!client) return;
+        try {
+            await client.agent.createWorkflowConfig(data as any);
+            showToast('Workflow created successfully', 'success');
+            load();
+        } catch (e: any) {
+            showToast(`Failed to create workflow: ${e.message}`, 'error');
+        }
+    };
+
+    const handleUpdate = async (data: Record<string, any>) => {
+        if (!client || !editing) return;
+        try {
+            await client.agent.updateWorkflowConfig(editing.id, data);
+            showToast('Workflow updated successfully', 'success');
+            setEditing(null);
+            load();
+        } catch (e: any) {
+            showToast(`Failed to update workflow: ${e.message}`, 'error');
+        }
+    };
+
+    const handleDelete = async (id: string) => {
+        if (!client) return;
+        try {
+            await client.agent.deleteWorkflowConfig(id);
+            showToast('Workflow deleted successfully', 'success');
+            load();
+        } catch (e: any) {
+            showToast(`Failed to delete workflow: ${e.message}`, 'error');
+        }
+    };
+
+    const handleRun = async (w: any) => {
+        if (!client) return;
+        const input = prompt('Enter workflow input:');
+        if (!input) return;
+        try {
+            for await (const ev of client.agent.runWorkflowExec(w.id, input)) {
+                console.log('workflow event:', ev);
+            }
+            showToast('Workflow executed successfully', 'success');
+        } catch (e: any) {
+            showToast(`Workflow error: ${e.message}`, 'error');
+        }
+    };
 
     return (
         <Box>
@@ -81,19 +133,13 @@ export default function WorkflowList() {
                                     </Box>
                                     <Box sx={{ display: 'flex', gap: 0.5 }}>
                                         <IconButton size="small" color="primary" title="Run Workflow"
-                                            onClick={async () => {
-                                                if (!client) return;
-                                                const input = prompt('Enter workflow input:');
-                                                if (!input) return;
-                                                try { for await (const ev of client.agent.runWorkflowExec(w.id, input)) { console.log('workflow event:', ev); } }
-                                                catch (e) { console.error('Workflow error:', e); }
-                                            }}>
+                                            onClick={() => handleRun(w)}>
                                             <Play size={16} />
                                         </IconButton>
                                         <IconButton size="small" onClick={() => { setEditing(w); setDialogOpen(true); }}>
                                             <Pencil size={16} />
                                         </IconButton>
-                                        <IconButton size="small" color="error" onClick={() => client?.agent.deleteWorkflowConfig(w.id).then(load)}>
+                                        <IconButton size="small" color="error" onClick={() => handleDelete(w.id)}>
                                             <Trash2 size={16} />
                                         </IconButton>
                                     </Box>
@@ -107,12 +153,7 @@ export default function WorkflowList() {
             <ConfigFormDialog
                 open={dialogOpen}
                 onClose={() => { setDialogOpen(false); setEditing(null); }}
-                onSubmit={async (data) => {
-                    if (!client) return;
-                    if (editing) await client.agent.updateWorkflowConfig(editing.id, data);
-                    else await client.agent.createWorkflowConfig(data as any);
-                    load();
-                }}
+                onSubmit={editing ? handleUpdate : handleCreate}
                 title={editing ? 'Edit Workflow' : 'New Workflow'}
                 fields={WORKFLOW_FIELDS}
                 initialData={editing}

@@ -17,6 +17,7 @@ export type WorkflowId = Brand<string, 'WorkflowId'>;
 export type ChatSessionId = Brand<string, 'ChatSessionId'>;
 export type ChatMessageId = Brand<string, 'ChatMessageId'>;
 export type MemoryId = Brand<string, 'MemoryId'>;
+export type McpServerId = Brand<string, 'McpServerId'>;
 
 export function generateId(): string {
     return crypto.randomUUID();
@@ -120,6 +121,29 @@ export interface CreateToolInput {
     handlerConfig: Record<string, unknown>;
 }
 
+// ─── MCP Server Config ───────────────────────────────────────────────────────
+
+export type McpTransportType = 'stdio' | 'sse' | 'custom';
+
+export interface McpServerConfig {
+    id: McpServerId;
+    name: string;
+    protocolVersion?: string;
+    capabilities: string[];
+    transport: McpTransportType;
+    handlerConfig: Record<string, unknown>;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface CreateMcpServerInput {
+    name: string;
+    protocolVersion?: string;
+    capabilities?: string[];
+    transport: McpTransportType;
+    handlerConfig: Record<string, unknown>;
+}
+
 // ─── Agent Config ────────────────────────────────────────────────────────────
 
 export interface AgentConfig {
@@ -129,6 +153,7 @@ export interface AgentConfig {
     modelId: ModelId;
     systemPrompt: string;
     toolIds: ToolConfigId[];
+    mcpServerIds?: McpServerId[];
     /** Override model params for this agent. */
     params?: ModelParams;
     createdAt: string;
@@ -141,6 +166,7 @@ export interface CreateAgentInput {
     modelId: ModelId;
     systemPrompt?: string;
     toolIds?: ToolConfigId[];
+    mcpServerIds?: McpServerId[];
     params?: ModelParams;
 }
 
@@ -221,6 +247,7 @@ export interface ChatSession {
     title: string;
     /** Active tool set for this session (m2m via ai_chat_session_tools). */
     toolIds: ToolConfigId[];
+    mcpServerIds?: McpServerId[];
     createdAt: string;
     updatedAt: string;
 }
@@ -234,6 +261,7 @@ export interface CreateChatSessionInput {
     title?: string;
     /** Initial tool set to attach to this session. */
     toolIds?: ToolConfigId[];
+    mcpServerIds?: McpServerId[];
 }
 
 // ─── Chat Message ────────────────────────────────────────────────────────────

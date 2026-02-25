@@ -12,9 +12,11 @@ import {
     generateId,
     type ProviderId, type ModelId, type ToolConfigId, type AgentConfigId,
     type WorkflowId, type ChatSessionId, type ChatMessageId, type MemoryId,
+    type McpServerId,
     type ProviderConfig, type CreateProviderInput,
     type ModelConfig, type CreateModelInput,
     type ToolConfig, type CreateToolInput,
+    type McpServerConfig, type CreateMcpServerInput,
     type AgentConfig, type CreateAgentInput,
     type WorkflowConfig, type CreateWorkflowInput,
     type ChatSession, type CreateChatSessionInput,
@@ -100,6 +102,21 @@ export class AIConfigStore {
                 PRIMARY KEY (session_id, tool_id)
             );
             CREATE INDEX IF NOT EXISTS idx_session_tools_session ON ai_chat_session_tools(session_id);
+            
+            CREATE TABLE IF NOT EXISTS ai_agent_mcp_servers (
+                agent_id   TEXT NOT NULL REFERENCES ai_agents(id) ON DELETE CASCADE,
+                server_id  TEXT NOT NULL REFERENCES ai_mcp_servers(id) ON DELETE CASCADE,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (agent_id, server_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_agent_mcp_servers_agent ON ai_agent_mcp_servers(agent_id);
+            CREATE TABLE IF NOT EXISTS ai_chat_session_mcp_servers (
+                session_id TEXT NOT NULL REFERENCES ai_chat_sessions(id) ON DELETE CASCADE,
+                server_id  TEXT NOT NULL REFERENCES ai_mcp_servers(id) ON DELETE CASCADE,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (session_id, server_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_session_mcp_servers_session ON ai_chat_session_mcp_servers(session_id);
         `);
 
         // One-time migration: populate ai_agent_tools from legacy tool_ids JSON column
@@ -115,7 +132,7 @@ export class AIConfigStore {
         const insert = this.db.prepare('INSERT OR IGNORE INTO ai_agent_tools (agent_id, tool_id, sort_order) VALUES (?, ?, ?)');
         const migrate = this.db.transaction((agentId: string, toolIds: string[]) => {
             for (let i = 0; i < toolIds.length; i++) {
-                try { insert.run(agentId, toolIds[i], i); } catch (_) { /* tool may not exist */ }
+                try { insert.run(agentId, toolIds[i], i); } catch { /* tool may not exist */ }
             }
         });
         for (const agent of agents) {
@@ -317,6 +334,61 @@ export class AIConfigStore {
         };
     }
 
+    // ── MCP Servers ───────────────────────────────────────────────────────
+
+    createMcpServer(input: CreateMcpServerInput): McpServerConfig {
+        const id = generateId() as McpServerId;
+        const ts = now();
+        this.db.prepare(`
+            INSERT INTO ai_mcp_servers (id, name, protocol_version, capabilities, transport, handler_config, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            id, input.name, input.protocolVersion ?? null, toJSON(input.capabilities ?? []),
+            input.transport, toJSON(input.handlerConfig), ts, ts
+        );
+        return this.getMcpServer(id)!;
+    }
+
+    getMcpServer(id: McpServerId): McpServerConfig | undefined {
+        const row = this.db.prepare('SELECT * FROM ai_mcp_servers WHERE id = ?').get(id) as any;
+        return row ? this.mapMcpServer(row) : undefined;
+    }
+
+    listMcpServers(): McpServerConfig[] {
+        return (this.db.prepare('SELECT * FROM ai_mcp_servers ORDER BY created_at DESC').all() as any[]).map(r => this.mapMcpServer(r));
+    }
+
+    updateMcpServer(id: McpServerId, input: Partial<CreateMcpServerInput>): McpServerConfig {
+        const existing = this.getMcpServer(id);
+        if (!existing) throw new Error(`MCP Server not found: ${id}`);
+        this.db.prepare(`
+            UPDATE ai_mcp_servers SET name=?, protocol_version=?, capabilities=?, transport=?, handler_config=?, updated_at=? WHERE id=?
+        `).run(
+            input.name ?? existing.name,
+            input.protocolVersion ?? existing.protocolVersion ?? null,
+            toJSON(input.capabilities ?? existing.capabilities),
+            input.transport ?? existing.transport,
+            toJSON(input.handlerConfig ?? existing.handlerConfig),
+            now(), id
+        );
+        return this.getMcpServer(id)!;
+    }
+
+    deleteMcpServer(id: McpServerId): void {
+        this.db.prepare('DELETE FROM ai_mcp_servers WHERE id = ?').run(id);
+    }
+
+    private mapMcpServer(row: any): McpServerConfig {
+        return {
+            id: row.id, name: row.name,
+            protocolVersion: row.protocol_version ?? undefined,
+            capabilities: fromJSON(row.capabilities),
+            transport: row.transport,
+            handlerConfig: fromJSON(row.handler_config),
+            createdAt: row.created_at, updatedAt: row.updated_at,
+        };
+    }
+
     // ── Agents ────────────────────────────────────────────────────────────
 
     createAgent(input: CreateAgentInput): AgentConfig {
@@ -328,6 +400,9 @@ export class AIConfigStore {
         `).run(id, input.name, input.description ?? '', input.modelId, input.systemPrompt ?? '', toJSON(input.toolIds ?? []), toJSON(input.params), ts, ts);
         if (input.toolIds && input.toolIds.length > 0) {
             this.setAgentTools(id, input.toolIds);
+        }
+        if (input.mcpServerIds && input.mcpServerIds.length > 0) {
+            this.setAgentMcpServers(id, input.mcpServerIds);
         }
         return this.getAgent(id)!;
     }
@@ -354,6 +429,9 @@ export class AIConfigStore {
         );
         if (input.toolIds !== undefined) {
             this.setAgentTools(id, input.toolIds);
+        }
+        if (input.mcpServerIds !== undefined) {
+            this.setAgentMcpServers(id, input.mcpServerIds);
         }
         return this.getAgent(id)!;
     }
@@ -383,16 +461,40 @@ export class AIConfigStore {
         return rows.map(r => this.mapTool(r));
     }
 
+    // ── Agent ↔ MCP Server m2m ─────────────────────────────────────────────
+
+    setAgentMcpServers(agentId: AgentConfigId, serverIds: McpServerId[]): void {
+        this.db.transaction(() => {
+            this.db.prepare('DELETE FROM ai_agent_mcp_servers WHERE agent_id = ?').run(agentId);
+            const insert = this.db.prepare('INSERT OR IGNORE INTO ai_agent_mcp_servers (agent_id, server_id, sort_order) VALUES (?, ?, ?)');
+            for (let i = 0; i < serverIds.length; i++) {
+                insert.run(agentId, serverIds[i], i);
+            }
+        })();
+    }
+
+    getAgentMcpServers(agentId: AgentConfigId): McpServerConfig[] {
+        const rows = this.db.prepare(
+            'SELECT s.* FROM ai_mcp_servers s JOIN ai_agent_mcp_servers am ON s.id = am.server_id WHERE am.agent_id = ? ORDER BY am.sort_order'
+        ).all(agentId) as any[];
+        return rows.map(r => this.mapMcpServer(r));
+    }
+
     private mapAgent(row: any): AgentConfig {
         // Read tool IDs from the join table; fall back to legacy JSON column on first access
         const joinRows = this.db.prepare('SELECT tool_id FROM ai_agent_tools WHERE agent_id = ? ORDER BY sort_order').all(row.id) as Array<{ tool_id: string }>;
         const toolIds: ToolConfigId[] = joinRows.length > 0
             ? joinRows.map(r => r.tool_id as ToolConfigId)
             : (fromJSON<string[]>(row.tool_ids) as unknown as ToolConfigId[]);
+            
+        const mcpRows = this.db.prepare('SELECT server_id FROM ai_agent_mcp_servers WHERE agent_id = ? ORDER BY sort_order').all(row.id) as Array<{ server_id: string }>;
+        const mcpServerIds: McpServerId[] = mcpRows.map(r => r.server_id as McpServerId);
+
         return {
             id: row.id, name: row.name, description: row.description,
             modelId: row.model_id, systemPrompt: row.system_prompt,
             toolIds,
+            mcpServerIds,
             params: fromJSON(row.params), createdAt: row.created_at, updatedAt: row.updated_at,
         };
     }
@@ -563,6 +665,18 @@ export class AIConfigStore {
                 this.setSessionTools(id, agentToolIds.map(r => r.tool_id as ToolConfigId));
             }
         }
+        
+        if (input.mcpServerIds && input.mcpServerIds.length > 0) {
+            this.setSessionMcpServers(id, input.mcpServerIds);
+        } else if (input.agentId) {
+            const agentMcpServerIds = this.db
+                .prepare('SELECT server_id FROM ai_agent_mcp_servers WHERE agent_id = ? ORDER BY sort_order')
+                .all(input.agentId) as Array<{ server_id: string }>;
+            if (agentMcpServerIds.length > 0) {
+                this.setSessionMcpServers(id, agentMcpServerIds.map(r => r.server_id as McpServerId));
+            }
+        }
+        
         return this.getChatSession(id)!;
     }
 
@@ -592,6 +706,9 @@ export class AIConfigStore {
         if (input.toolIds !== undefined) {
             this.setSessionTools(id, input.toolIds);
         }
+        if (input.mcpServerIds !== undefined) {
+            this.setSessionMcpServers(id, input.mcpServerIds);
+        }
         return this.getChatSession(id)!;
     }
 
@@ -620,10 +737,32 @@ export class AIConfigStore {
         return rows.map(r => this.mapTool(r));
     }
 
+    // ── Session ↔ MCP Server m2m ────────────────────────────────────────────
+
+    setSessionMcpServers(sessionId: ChatSessionId, serverIds: McpServerId[]): void {
+        this.db.transaction(() => {
+            this.db.prepare('DELETE FROM ai_chat_session_mcp_servers WHERE session_id = ?').run(sessionId);
+            const insert = this.db.prepare('INSERT OR IGNORE INTO ai_chat_session_mcp_servers (session_id, server_id, sort_order) VALUES (?, ?, ?)');
+            for (let i = 0; i < serverIds.length; i++) {
+                insert.run(sessionId, serverIds[i], i);
+            }
+        })();
+    }
+
+    getSessionMcpServers(sessionId: ChatSessionId): McpServerConfig[] {
+        const rows = this.db.prepare(
+            'SELECT s.* FROM ai_mcp_servers s JOIN ai_chat_session_mcp_servers sm ON s.id = sm.server_id WHERE sm.session_id = ? ORDER BY sm.sort_order'
+        ).all(sessionId) as any[];
+        return rows.map(r => this.mapMcpServer(r));
+    }
+
     private mapChatSession(row: any): ChatSession {
         const toolRows = this.db.prepare(
             'SELECT tool_id FROM ai_chat_session_tools WHERE session_id = ? ORDER BY sort_order'
         ).all(row.id) as Array<{ tool_id: string }>;
+        const mcpRows = this.db.prepare(
+            'SELECT server_id FROM ai_chat_session_mcp_servers WHERE session_id = ? ORDER BY sort_order'
+        ).all(row.id) as Array<{ server_id: string }>;
         return {
             id: row.id,
             agentId: row.agent_id ?? undefined,
@@ -633,6 +772,7 @@ export class AIConfigStore {
             mode: row.mode ?? undefined,
             title: row.title,
             toolIds: toolRows.map(r => r.tool_id as ToolConfigId),
+            mcpServerIds: mcpRows.map(r => r.server_id as McpServerId),
             createdAt: row.created_at,
             updatedAt: row.updated_at,
         };

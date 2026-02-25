@@ -12,11 +12,12 @@ import { OrchestratorClient } from '../client.js';
 interface ProviderConfig { id: string; name: string; type: string; adapter?: string; authType?: string; baseUrl?: string; apiKeyRef?: string; headers?: Record<string, string>; timeoutMs?: number; metadata?: Record<string, unknown>; createdAt: string; updatedAt: string; }
 interface ModelConfig { id: string; name: string; providerId: string; modelId: string; runtime?: string; supportsTools?: boolean; supportsStreaming?: boolean; params: Record<string, unknown>; createdAt: string; updatedAt: string; }
 interface ToolConfig { id: string; name: string; description: string; parametersSchema: Record<string, unknown>; handlerType: string; handlerConfig: Record<string, unknown>; createdAt: string; updatedAt: string; }
-interface AgentConfig { id: string; name: string; description: string; modelId: string; systemPrompt: string; toolIds: string[]; params?: Record<string, unknown>; createdAt: string; updatedAt: string; }
+interface AgentConfig { id: string; name: string; description: string; modelId: string; systemPrompt: string; toolIds: string[]; mcpServerIds?: string[]; params?: Record<string, unknown>; createdAt: string; updatedAt: string; }
 interface WorkflowConfig { id: string; name: string; description: string; type: string; nodes: unknown[]; edges: unknown[]; createdAt: string; updatedAt: string; }
-interface ChatSession { id: string; agentId?: string; workflowId?: string; modelId?: string; providerId?: string; mode?: string; title: string; toolIds: string[]; createdAt: string; updatedAt: string; }
+interface ChatSession { id: string; agentId?: string; workflowId?: string; modelId?: string; providerId?: string; mode?: string; title: string; toolIds: string[]; mcpServerIds?: string[]; createdAt: string; updatedAt: string; }
 interface ChatMessage { id: string; sessionId: string; role: string; content: string; providerType?: string; modelId?: string; toolCalls?: unknown[]; toolResults?: unknown[]; finishReason?: string; usage?: Record<string, unknown>; latencyMs?: number; metadata?: Record<string, unknown>; createdAt: string; }
 interface MemoryEntry { id: string; sessionId?: string; agentId?: string; content: string; sourceType?: string; importance?: number; topic?: string; entities?: string[]; metadata?: Record<string, unknown>; createdAt: string; }
+interface McpServerConfig { id: string; name: string; transport: string; url?: string; command?: string; args?: string[]; env?: Record<string, string>; createdAt: string; updatedAt: string; }
 
 export class AgentClient {
     constructor(private readonly client: OrchestratorClient) { }
@@ -83,6 +84,24 @@ export class AgentClient {
     }
     public deleteTool(id: string): Promise<{ ok: boolean }> {
         return this.client.request('agent', 'tool.delete', { id });
+    }
+
+    // ── MCP Server CRUD ────────────────────────────────────────────────
+
+    public createMcpServer(data: Omit<McpServerConfig, 'id' | 'createdAt' | 'updatedAt'>): Promise<McpServerConfig> {
+        return this.client.request('agent', 'mcp.create', data);
+    }
+    public listMcpServers(): Promise<{ mcpServers: McpServerConfig[] }> {
+        return this.client.request('agent', 'mcp.list', {});
+    }
+    public getMcpServer(id: string): Promise<McpServerConfig> {
+        return this.client.request('agent', 'mcp.get', { id });
+    }
+    public updateMcpServer(id: string, data: Partial<Omit<McpServerConfig, 'id' | 'createdAt' | 'updatedAt'>>): Promise<McpServerConfig> {
+        return this.client.request('agent', 'mcp.update', { id, ...data });
+    }
+    public deleteMcpServer(id: string): Promise<{ ok: boolean }> {
+        return this.client.request('agent', 'mcp.delete', { id });
     }
 
     // ── Agent Config CRUD ──────────────────────────────────────────────
@@ -189,7 +208,7 @@ export class AgentClient {
 
     // ── Memory ─────────────────────────────────────────────────────────
 
-    public addMemory(data: { content: string; agentId?: string; sessionId?: string; metadata?: Record<string, unknown> }): Promise<MemoryEntry> {
+    public createMemory(data: { content: string; agentId?: string; sessionId?: string; metadata?: Record<string, unknown> }): Promise<MemoryEntry> {
         return this.client.request('agent', 'memory.add', data);
     }
     public listMemories(agentId?: string): Promise<{ memories: MemoryEntry[] }> {

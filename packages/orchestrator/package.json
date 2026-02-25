@@ -12,17 +12,21 @@
         "clean": "rm -rf dist"
     },
     "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.27.1",
         "@orch/ai-agent": "workspace:*",
         "@orch/auth": "workspace:*",
         "@orch/container": "workspace:*",
         "@orch/daemon": "workspace:*",
         "@orch/db-manager": "workspace:*",
+        "@orch/media": "workspace:*",
         "@orch/process": "workspace:*",
         "@orch/shared": "workspace:*",
         "@orch/terminal": "workspace:*",
-        "@orch/vault": "workspace:*"
+        "@orch/vault": "workspace:*",
+        "express": "^5.2.1"
     },
     "devDependencies": {
+        "@types/express": "^5.0.6",
         "tsx": "^4.21.0",
         "typescript": "^5.7.0"
     },

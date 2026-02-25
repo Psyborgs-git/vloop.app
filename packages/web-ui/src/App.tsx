@@ -14,6 +14,7 @@ import LoginView from './views/LoginView.js';
 import AIConfigView from './views/AIConfigView.js';
 import WorkflowBuilderView from './views/WorkflowBuilderView.js';
 import WorkflowRunsView from './views/WorkflowRunsView.js';
+import MediaView from './views/MediaView.js';
 import { lightTheme, darkTheme } from './theme.js';
 import {
     Box,
@@ -47,7 +48,10 @@ import {
     Database,
     X,
     Sparkles,
+    FolderOpen,
 } from 'lucide-react';
+
+import { ToastProvider } from './components/ToastContext.js';
 
 const drawerWidth = 240;
 const collapsedWidth = 64;
@@ -76,6 +80,7 @@ const Sidebar = ({
         { path: '/console', label: 'Console', icon: Terminal },
         { path: '/terminal', label: 'Terminal', icon: SquareTerminal },
         { path: '/data', label: 'Data Explorer', icon: Database },
+        { path: '/media', label: 'Media & Files', icon: FolderOpen },
         { path: '/canvas', label: 'Dynamic Canvas', icon: Paintbrush },
         { path: '/auth', label: 'Access Control', icon: Users },
     ];
@@ -247,9 +252,11 @@ export default function App() {
         return (
             <ThemeProvider theme={theme}>
                 <CssBaseline />
-                <ClientContext.Provider value={client}>
-                    <LoginView onLoginSuccess={() => setIsAuthenticated(true)} />
-                </ClientContext.Provider>
+                <ToastProvider>
+                    <ClientContext.Provider value={client}>
+                        <LoginView onLoginSuccess={() => setIsAuthenticated(true)} />
+                    </ClientContext.Provider>
+                </ToastProvider>
             </ThemeProvider>
         );
     }
@@ -257,15 +264,16 @@ export default function App() {
     return (
         <ThemeProvider theme={theme}>
             <CssBaseline />
-            <ClientContext.Provider value={client}>
-                <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-                    <Sidebar
-                        toggleTheme={toggleTheme}
-                        mode={mode}
-                        open={sidebarOpen}
-                        setOpen={setSidebarOpen}
-                        isMobile={isMobile}
-                    />
+            <ToastProvider>
+                <ClientContext.Provider value={client}>
+                    <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+                        <Sidebar
+                            toggleTheme={toggleTheme}
+                            mode={mode}
+                            open={sidebarOpen}
+                            setOpen={setSidebarOpen}
+                            isMobile={isMobile}
+                        />
 
                     {/* Mobile menu fab */}
                     {isMobile && !sidebarOpen && (
@@ -326,12 +334,14 @@ export default function App() {
                             <Route path="/console" element={<ConsoleView />} />
                             <Route path="/terminal" element={<TerminalView />} />
                             <Route path="/data" element={<DataView />} />
+                            <Route path="/media" element={<MediaView />} />
                             <Route path="/canvas" element={<CanvasView />} />
                             <Route path="/auth" element={<AuthView />} />
                         </Routes>
                     </Box>
                 </Box>
-            </ClientContext.Provider>
+                </ClientContext.Provider>
+            </ToastProvider>
         </ThemeProvider>
     );
 }

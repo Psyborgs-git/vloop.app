@@ -11,6 +11,7 @@ import {
 } from '@mui/material';
 import { Plus, Pencil, Trash2, Server, RefreshCw } from 'lucide-react';
 import { ClientContext } from '../../ClientContext.js';
+import { useToast } from '../ToastContext.js';
 import ConfigFormDialog, { type FieldDef } from './ConfigFormDialog.js';
 
 const PROVIDER_FIELDS: FieldDef[] = [
@@ -41,6 +42,7 @@ const PROVIDER_FIELDS: FieldDef[] = [
 
 export default function ProviderList() {
     const client = useContext(ClientContext);
+    const { showToast } = useToast();
     const [providers, setProviders] = useState<any[]>([]);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editing, setEditing] = useState<any>(null);
@@ -53,7 +55,9 @@ export default function ProviderList() {
         try {
             const res = await client.agent.listProviders();
             setProviders(res.providers || []);
-        } catch (e) { console.error('Failed to load providers:', e); }
+        } catch (e: any) {
+            showToast(`Failed to load providers: ${e.message}`, 'error');
+        }
     };
 
     // Check Ollama availability on mount
@@ -69,21 +73,36 @@ export default function ProviderList() {
 
     const handleCreate = async (data: Record<string, any>) => {
         if (!client) return;
-        await client.agent.createProvider(data as any);
-        load();
+        try {
+            await client.agent.createProvider(data as any);
+            showToast('Provider created successfully', 'success');
+            load();
+        } catch (e: any) {
+            showToast(`Failed to create provider: ${e.message}`, 'error');
+        }
     };
 
     const handleUpdate = async (data: Record<string, any>) => {
         if (!client || !editing) return;
-        await client.agent.updateProvider(editing.id, data);
-        setEditing(null);
-        load();
+        try {
+            await client.agent.updateProvider(editing.id, data);
+            showToast('Provider updated successfully', 'success');
+            setEditing(null);
+            load();
+        } catch (e: any) {
+            showToast(`Failed to update provider: ${e.message}`, 'error');
+        }
     };
 
     const handleDelete = async (id: string) => {
         if (!client) return;
-        await client.agent.deleteProvider(id);
-        load();
+        try {
+            await client.agent.deleteProvider(id);
+            showToast('Provider deleted successfully', 'success');
+            load();
+        } catch (e: any) {
+            showToast(`Failed to delete provider: ${e.message}`, 'error');
+        }
     };
 
     const handleSyncOllama = async () => {
@@ -94,9 +113,13 @@ export default function ProviderList() {
             const result = await client.agent.syncOllama();
             setSyncResult(result);
             if (result.available) {
+                showToast('Ollama synced successfully', 'success');
                 load(); // Refresh provider list
+            } else {
+                showToast('Ollama is not available', 'warning');
             }
         } catch (e: any) {
+            showToast(`Failed to sync Ollama: ${e.message}`, 'error');
             setSyncResult({ available: false, error: e.message });
         }
         setSyncing(false);

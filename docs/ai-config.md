@@ -56,6 +56,7 @@ Replaced 4 Vercel AI SDK packages with a single dependency:
 | Chat Session| `ai_chat_sessions` | Persistent chat session metadata               |
 | Chat Message| `ai_chat_messages` | Individual messages with tool call tracking     |
 | Memory      | `ai_memories`      | Cross-session knowledge entries                |
+| MCP Server  | `ai_mcp_servers`   | External Model Context Protocol servers        |
 
 ## API Actions (`agent` topic)
 
@@ -67,6 +68,7 @@ Replaced 4 Vercel AI SDK packages with a single dependency:
 - `workflow.create/list/get/update/delete`
 - `chat.create/list/get/update/delete/history`
 - `memory.add/list/search/delete`
+- `mcp.create/list/get/update/delete`
 
 ### Execution
 - `chat.send` — send message to a chat session (streaming)
@@ -83,3 +85,17 @@ Navigate to **AI Config** in the sidebar. The tabbed view provides:
 - **Agents** — card layout with model/tool chips and prompt preview
 - **Workflows** — cards with type badge, step count, and run button
 - **Memory** — searchable list with add/delete
+
+Navigate to **MCP Config** in the sidebar to manage external MCP servers:
+- **MCP Servers** — table with transport type chips and connection details
+
+## Testing Notes
+
+- `test_api.mjs` is a backend/API smoke test for auth, workflow CRUD, chat, and workflow execution.
+- `test_features.mjs` is an end-to-end tool-calling test for agent chat streams.
+- `test_ui.mjs` now uses `TEST_UI_BASE_URL` (defaults to `https://localhost:3000`) so it works with the current Vite dev server settings.
+
+## Troubleshooting
+
+- **Ollama sync can fail with foreign-key errors** when stale model configs are still referenced by existing agents/sessions. Sync now skips deleting referenced models and continues.
+- **Tool-calling depends on model capabilities.** Some local models can chat but do not support tool/function calling, and agent tool tests will fail until a compatible model is selected.

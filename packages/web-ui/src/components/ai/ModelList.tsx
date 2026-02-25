@@ -9,10 +9,12 @@ import {
 } from '@mui/material';
 import { Plus, Pencil, Trash2, Cpu } from 'lucide-react';
 import { ClientContext } from '../../ClientContext.js';
+import { useToast } from '../ToastContext.js';
 import ConfigFormDialog, { type FieldDef } from './ConfigFormDialog.js';
 
 export default function ModelList() {
     const client = useContext(ClientContext);
+    const { showToast } = useToast();
     const [models, setModels] = useState<any[]>([]);
     const [providers, setProviders] = useState<any[]>([]);
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -27,7 +29,9 @@ export default function ModelList() {
             ]);
             setModels(mRes.models || []);
             setProviders(pRes.providers || []);
-        } catch (e) { console.error('Failed to load models:', e); }
+        } catch (e: any) { 
+            showToast(e.message || 'Failed to load models', 'error');
+        }
     };
 
     useEffect(() => { load(); }, [client]);
@@ -96,7 +100,16 @@ export default function ModelList() {
                                         <IconButton size="small" onClick={() => { setEditing(m); setDialogOpen(true); }}>
                                             <Pencil size={16} />
                                         </IconButton>
-                                        <IconButton size="small" color="error" onClick={() => client?.agent.deleteModel(m.id).then(load)}>
+                                        <IconButton size="small" color="error" onClick={async () => {
+                                            if (!window.confirm('Delete model?')) return;
+                                            try {
+                                                await client?.agent.deleteModel(m.id);
+                                                showToast('Model deleted', 'success');
+                                                load();
+                                            } catch (e: any) {
+                                                showToast(e.message || 'Failed to delete model', 'error');
+                                            }
+                                        }}>
                                             <Trash2 size={16} />
                                         </IconButton>
                                     </TableCell>
@@ -112,14 +125,23 @@ export default function ModelList() {
                 onClose={() => { setDialogOpen(false); setEditing(null); }}
                 onSubmit={async (data) => {
                     if (!client) return;
-                    const normalized = {
-                        ...data,
-                        supportsTools: typeof data.supportsTools === 'string' ? data.supportsTools === 'true' : data.supportsTools,
-                        supportsStreaming: typeof data.supportsStreaming === 'string' ? data.supportsStreaming === 'true' : data.supportsStreaming,
-                    };
-                    if (editing) await client.agent.updateModel(editing.id, normalized);
-                    else await client.agent.createModel(normalized as any);
-                    load();
+                    try {
+                        const normalized = {
+                            ...data,
+                            supportsTools: typeof data.supportsTools === 'string' ? data.supportsTools === 'true' : data.supportsTools,
+                            supportsStreaming: typeof data.supportsStreaming === 'string' ? data.supportsStreaming === 'true' : data.supportsStreaming,
+                        };
+                        if (editing) {
+                            await client.agent.updateModel(editing.id, normalized);
+                            showToast('Model updated', 'success');
+                        } else {
+                            await client.agent.createModel(normalized as any);
+                            showToast('Model created', 'success');
+                        }
+                        load();
+                    } catch (e: any) {
+                        showToast(e.message || 'Failed to save model', 'error');
+                    }
                 }}
                 title={editing ? 'Edit Model' : 'New Model'}
                 fields={fields}
