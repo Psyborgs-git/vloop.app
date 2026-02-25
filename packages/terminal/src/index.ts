@@ -17,7 +17,10 @@ export type {
 } from './profiles.js';
 
 export { SessionLogger } from './logger.js';
-export type { SessionLoggerOptions } from './logger.js';
+export type { SessionLoggerOptions, StartRecordingOptions } from './logger.js';
+
+export { TerminalSessionStore } from './sessions.js';
+export type { TerminalSessionRecord } from './sessions.js';
 
 export {
     checkAccess,

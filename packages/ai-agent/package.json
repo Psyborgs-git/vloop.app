@@ -10,6 +10,7 @@
     },
     "dependencies": {
         "@google/adk": "^0.2.0",
+        "ollama": "^0.6.3",
         "playwright": "^1.58.2",
         "zod": "~4.3.6"
     },

@@ -74,6 +74,7 @@ import {
     TerminalManager,
     TerminalProfileManager,
     SessionLogger,
+    TerminalSessionStore,
     createTerminalHandler,
 } from "@orch/terminal";
 
@@ -207,9 +208,11 @@ async function main(): Promise<void> {
 
     const terminalManager = new TerminalManager(logger);
     const terminalProfileManager = new TerminalProfileManager(db, logger);
+    const terminalSessionStore = new TerminalSessionStore(db, logger);
     const sessionLogger = new SessionLogger({
         logDir: resolve("./data/terminal-logs"),
         logger,
+        sessionStore: terminalSessionStore,
     });
 
     // ── 7.6. Init database & AI agent subsystems ───────────────────────
@@ -542,7 +545,7 @@ async function main(): Promise<void> {
     );
     router.register(
         "terminal",
-        createTerminalHandler(terminalManager, terminalProfileManager, sessionLogger),
+        createTerminalHandler(terminalManager, terminalProfileManager, sessionLogger, terminalSessionStore),
     );
     router.register("db", createDatabaseHandler(dbProvisioner, dbPool, dbManager, externalDbRegistry));
     router.register("agent", createAgentHandler(agentOrchestrator, aiConfigStore));

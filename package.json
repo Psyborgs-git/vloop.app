@@ -5,6 +5,7 @@
     "type": "module",
     "description": "Host-level orchestrator daemon — manages containers, processes, AI agents, databases, and device access via secure WebSocket API.",
     "scripts": {
+        "prepare": "node scripts/fix-pty-permissions.mjs 2>/dev/null || true",
         "build": "tsc --build",
         "dev": "pnpm --filter @orch/orchestrator dev",
         "test": "vitest run",

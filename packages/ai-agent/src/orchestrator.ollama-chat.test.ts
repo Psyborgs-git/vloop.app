@@ -51,6 +51,12 @@ describe('AgentOrchestrator Ollama chat pipeline', () => {
     it('uses provider/model config and persists session messages for Ollama completion', async () => {
         fetchSpy.mockResolvedValue({
             ok: true,
+            text: async () => JSON.stringify({
+                message: { content: 'Ollama pipeline verified' },
+                done_reason: 'stop',
+                prompt_eval_count: 7,
+                eval_count: 11,
+            }),
             json: async () => ({
                 message: { content: 'Ollama pipeline verified' },
                 done_reason: 'stop',
@@ -96,5 +102,110 @@ describe('AgentOrchestrator Ollama chat pipeline', () => {
         expect(messages[1]?.role).toBe('assistant');
         expect(messages[1]?.providerType).toBe('ollama');
         expect(messages[1]?.modelId).toBe('llama3.2:latest');
+    });
+
+    it('returns a clear auth error when Ollama responds unauthorized', async () => {
+        fetchSpy.mockResolvedValue({
+            ok: false,
+            status: 401,
+            text: async () => JSON.stringify({ error: 'unauthorized: invalid token' }),
+        } as Response);
+
+        const provider = store.createProvider({
+            name: 'Remote Ollama',
+            type: 'ollama',
+            adapter: 'ollama',
+            baseUrl: 'https://remote.ollama.example',
+        });
+
+        const model = store.createModel({
+            name: 'Remote Model',
+            providerId: provider.id,
+            modelId: 'gemini-3-flash-preview:latest',
+            runtime: 'chat',
+            params: {},
+        });
+
+        await expect(
+            orchestrator.runChatCompletion({
+                modelId: model.id,
+                prompt: 'hello',
+            }),
+        ).rejects.toThrow(/unauthorized/i);
+    });
+
+    it('returns a clear invalid response error when Ollama responds with non-JSON text', async () => {
+        fetchSpy.mockResolvedValue({
+            ok: true,
+            text: async () => 'The operator says this is not json',
+        } as Response);
+
+        const provider = store.createProvider({
+            name: 'Local Ollama',
+            type: 'ollama',
+            adapter: 'ollama',
+            baseUrl: 'http://localhost:11434',
+        });
+
+        const model = store.createModel({
+            name: 'Llama Local',
+            providerId: provider.id,
+            modelId: 'llama3.2:latest',
+            runtime: 'chat',
+            params: {},
+        });
+
+        await expect(
+            orchestrator.runChatCompletion({
+                modelId: model.id,
+                prompt: 'hello',
+            }),
+        ).rejects.toThrow(/non-JSON response/i);
+    });
+
+    it('returns a clear auth error for runAgentChat when Ollama responds unauthorized', async () => {
+        fetchSpy.mockResolvedValue({
+            ok: false,
+            status: 401,
+            text: async () => JSON.stringify({ error: 'The operator is not authorized' }),
+        } as Response);
+
+        const provider = store.createProvider({
+            name: 'Remote Ollama',
+            type: 'ollama',
+            adapter: 'ollama',
+            baseUrl: 'https://remote.ollama.example',
+        });
+
+        const model = store.createModel({
+            name: 'Remote Model',
+            providerId: provider.id,
+            modelId: 'gemini-3-flash-preview:latest',
+            runtime: 'agent',
+            params: {},
+        });
+
+        const agent = store.createAgent({
+            name: 'AuthCheckAgent',
+            modelId: model.id,
+            systemPrompt: 'You are a test agent.',
+            toolIds: [],
+        });
+
+        const session = store.createChatSession({
+            title: 'Auth Error Session',
+            agentId: agent.id,
+            mode: 'agent',
+            modelId: model.id,
+            providerId: provider.id,
+        });
+
+        await expect(
+            orchestrator.runAgentChat({
+                agentId: agent.id,
+                sessionId: session.id,
+                prompt: 'hello',
+            }),
+        ).rejects.toThrow(/not authorized|unauthorized/i);
     });
 });

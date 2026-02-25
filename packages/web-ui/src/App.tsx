@@ -12,6 +12,8 @@ import CanvasView from './views/CanvasView.js';
 import AuthView from './views/AuthView.js';
 import LoginView from './views/LoginView.js';
 import AIConfigView from './views/AIConfigView.js';
+import WorkflowBuilderView from './views/WorkflowBuilderView.js';
+import WorkflowRunsView from './views/WorkflowRunsView.js';
 import { lightTheme, darkTheme } from './theme.js';
 import {
     Box,
@@ -69,6 +71,8 @@ const Sidebar = ({
         { path: '/', label: 'Dashboard', icon: LayoutDashboard },
         { path: '/chat', label: 'Agent Chat', icon: MessageSquare },
         { path: '/ai-config', label: 'AI Config', icon: Sparkles },
+        { path: '/workflow-builder', label: 'Workflow Builder', icon: Sparkles },
+        { path: '/workflow-runs', label: 'Workflow Runs', icon: Sparkles },
         { path: '/console', label: 'Console', icon: Terminal },
         { path: '/terminal', label: 'Terminal', icon: SquareTerminal },
         { path: '/data', label: 'Data Explorer', icon: Database },
@@ -317,6 +321,8 @@ export default function App() {
                             <Route path="/" element={<DashboardView />} />
                             <Route path="/chat" element={<ChatView />} />
                             <Route path="/ai-config" element={<AIConfigView />} />
+                            <Route path="/workflow-builder" element={<WorkflowBuilderView />} />
+                            <Route path="/workflow-runs" element={<WorkflowRunsView />} />
                             <Route path="/console" element={<ConsoleView />} />
                             <Route path="/terminal" element={<TerminalView />} />
                             <Route path="/data" element={<DataView />} />

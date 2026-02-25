@@ -68,7 +68,7 @@ export class ProviderRegistry {
             ...this.normalizeHeaders(provider.headers),
             ...this.authHeaders(provider, apiKey),
         };
-        const timeoutMs = provider.timeoutMs ?? 60_000;
+        const timeoutMs = provider.timeoutMs || 60_000;
         const params = {
             ...(model.params || {}),
             ...(runtimeParams || {}),
@@ -88,16 +88,7 @@ export class ProviderRegistry {
     }
 
     private buildModelString(provider: ProviderConfig, model: ModelConfig, _adapter: ProviderAdapter): string | undefined {
-        switch (provider.type) {
-            case 'google':
-                return model.modelId;
-            case 'anthropic':
-                return `anthropic-${model.modelId}`;
-            case 'ollama':
-                return `ollama-${model.modelId}`;
-            default:
-                return `${provider.type}-${model.modelId}`;
-        }
+        return `vloop://${provider.type}/${model.id}`;
     }
 
     private resolveEndpoint(provider: ProviderConfig, adapter: ProviderAdapter): string | undefined {

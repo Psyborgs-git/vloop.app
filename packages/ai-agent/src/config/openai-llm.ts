@@ -2,8 +2,8 @@ import { BaseLlm, type LlmRequest, type LlmResponse, type BaseLlmConnection } fr
 import type { Content, Part } from '@google/genai';
 import { activeRuntimes, type ResolvedModel } from './provider-registry.js';
 
-export class AnthropicLlm extends BaseLlm {
-    static readonly supportedModels = ['vloop://anthropic/.*'];
+export class OpenAILlm extends BaseLlm {
+    static readonly supportedModels = ['vloop://openai/.*', 'vloop://groq/.*', 'vloop://custom/.*'];
 
     private runtime: ResolvedModel;
 
@@ -11,42 +11,38 @@ export class AnthropicLlm extends BaseLlm {
         super({ model: params.model });
         const runtime = activeRuntimes.get(params.model);
         if (!runtime) {
-            throw new Error(`AnthropicLlm requires a ResolvedModel runtime for ${params.model}`);
+            throw new Error(`OpenAILlm requires a ResolvedModel runtime for ${params.model}`);
         }
         this.runtime = runtime;
     }
 
     async *generateContentAsync(llmRequest: LlmRequest, stream?: boolean): AsyncGenerator<LlmResponse, void> {
-        if (!this.runtime.endpoint) throw new Error('Anthropic endpoint is not configured');
+        if (!this.runtime.endpoint) throw new Error('OpenAI endpoint is not configured');
+
+        const normalizedBase = this.runtime.endpoint.endsWith('/') ? this.runtime.endpoint.slice(0, -1) : this.runtime.endpoint;
+        const apiUrl = `${normalizedBase}/chat/completions`;
 
         const messages = this.mapMessages(llmRequest.contents);
         const tools = this.mapTools(llmRequest.toolsDict);
-        const systemPrompt = this.extractSystemPrompt(llmRequest.contents);
 
         const payload: any = {
             model: this.runtime.model.modelId,
             messages,
-            max_tokens: this.runtime.params.maxTokens || 1024,
+            max_tokens: this.runtime.params.maxTokens,
             temperature: this.runtime.params.temperature,
             top_p: this.runtime.params.topP,
-            top_k: this.runtime.params.topK,
-            stop_sequences: this.runtime.params.stop,
+            stop: this.runtime.params.stop,
             stream: !!stream,
         };
-
-        if (systemPrompt) {
-            payload.system = systemPrompt;
-        }
 
         if (tools.length > 0) {
             payload.tools = tools;
         }
 
-        const res = await fetch(this.runtime.endpoint, {
+        const res = await fetch(apiUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'anthropic-version': '2023-06-01',
                 ...this.runtime.headers,
             },
             body: JSON.stringify(payload),
@@ -55,7 +51,7 @@ export class AnthropicLlm extends BaseLlm {
 
         if (!res.ok) {
             const body = await res.text();
-            throw new Error(`Anthropic request failed (${res.status}): ${body}`);
+            throw new Error(`OpenAI request failed (${res.status}): ${body}`);
         }
 
         if (!stream) {
@@ -96,38 +92,40 @@ export class AnthropicLlm extends BaseLlm {
     }
 
     async connect(_llmRequest: LlmRequest): Promise<BaseLlmConnection> {
-        throw new Error('Live connection not supported for Anthropic');
+        throw new Error('Live connection not supported for OpenAI');
     }
 
     private mapMessages(contents: Content[]): any[] {
         const messages: any[] = [];
         for (const c of contents) {
-            if (c.role === 'system') continue; // Handled separately
+            const role = c.role === 'model' ? 'assistant' : c.role === 'user' ? 'user' : 'system';
             
-            const role = c.role === 'model' ? 'assistant' : c.role === 'user' ? 'user' : 'user';
-            const content: any[] = [];
+            if (c.parts && c.parts.length > 0) {
+                // Handle tool calls and results
+                const toolCalls = c.parts.filter(p => p.functionCall).map(p => ({
+                    id: crypto.randomUUID(), // ADK doesn't provide IDs, generate one
+                    type: 'function',
+                    function: {
+                        name: p.functionCall!.name,
+                        arguments: JSON.stringify(p.functionCall!.args),
+                    }
+                }));
 
-            for (const p of c.parts || []) {
-                if (p.text) {
-                    content.push({ type: 'text', text: p.text });
-                } else if (p.functionCall) {
-                    content.push({
-                        type: 'tool_use',
-                        id: crypto.randomUUID(), // ADK doesn't provide IDs, generate one
-                        name: p.functionCall.name,
-                        input: p.functionCall.args,
-                    });
-                } else if (p.functionResponse) {
-                    content.push({
-                        type: 'tool_result',
-                        tool_use_id: (p.functionResponse as any).id || 'unknown', // Need ID mapping
-                        content: JSON.stringify(p.functionResponse.response),
-                    });
+                const toolResults = c.parts.filter(p => p.functionResponse).map(p => ({
+                    role: 'tool',
+                    tool_call_id: (p.functionResponse as any).id || 'unknown',
+                    content: JSON.stringify(p.functionResponse!.response),
+                }));
+
+                const textParts = c.parts.filter(p => p.text).map(p => p.text).join('\n');
+
+                if (toolResults.length > 0) {
+                    messages.push(...toolResults);
+                } else if (toolCalls.length > 0) {
+                    messages.push({ role, content: textParts || null, tool_calls: toolCalls });
+                } else if (textParts) {
+                    messages.push({ role, content: textParts });
                 }
-            }
-
-            if (content.length > 0) {
-                messages.push({ role, content });
             }
         }
         return messages;
@@ -135,28 +133,30 @@ export class AnthropicLlm extends BaseLlm {
 
     private mapTools(toolsDict: Record<string, any>): any[] {
         return Object.values(toolsDict).map(t => ({
-            name: t.name,
-            description: t.description,
-            input_schema: t.parameters || { type: 'object', properties: {} },
+            type: 'function',
+            function: {
+                name: t.name,
+                description: t.description,
+                parameters: t.parameters || { type: 'object', properties: {} },
+            }
         }));
     }
 
-    private extractSystemPrompt(contents: Content[]): string | undefined {
-        const systemContents = contents.filter(c => c.role === 'system');
-        if (systemContents.length === 0) return undefined;
-        return systemContents.map(c => c.parts?.map(p => p.text).join('\n')).join('\n');
-    }
-
     private mapResponse(json: any): LlmResponse {
+        const choice = json.choices[0];
+        const message = choice.message;
         const parts: Part[] = [];
-        for (const c of json.content || []) {
-            if (c.type === 'text') {
-                parts.push({ text: c.text });
-            } else if (c.type === 'tool_use') {
+
+        if (message.content) {
+            parts.push({ text: message.content });
+        }
+
+        if (message.tool_calls) {
+            for (const tc of message.tool_calls) {
                 parts.push({
                     functionCall: {
-                        name: c.name,
-                        args: c.input,
+                        name: tc.function.name,
+                        args: JSON.parse(tc.function.arguments),
                     }
                 });
             }
@@ -164,24 +164,30 @@ export class AnthropicLlm extends BaseLlm {
 
         return {
             content: { role: 'model', parts },
-            finishReason: (json.stop_reason === 'end_turn' ? 'STOP' : json.stop_reason === 'tool_use' ? 'STOP' : 'OTHER') as any,
+            finishReason: (choice.finish_reason === 'stop' ? 'STOP' : choice.finish_reason === 'tool_calls' ? 'STOP' : 'OTHER') as any,
             turnComplete: true,
         };
     }
 
     private mapStreamEvent(event: any): LlmResponse | null {
-        if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+        const choice = event.choices[0];
+        if (!choice) return null;
+
+        const delta = choice.delta;
+        if (delta.content) {
             return {
-                content: { role: 'model', parts: [{ text: event.delta.text }] },
+                content: { role: 'model', parts: [{ text: delta.content }] },
                 partial: true,
             };
         }
-        if (event.type === 'message_delta' && event.delta?.stop_reason) {
+
+        if (choice.finish_reason) {
             return {
-                finishReason: (event.delta.stop_reason === 'end_turn' ? 'STOP' : 'OTHER') as any,
+                finishReason: (choice.finish_reason === 'stop' ? 'STOP' : 'OTHER') as any,
                 turnComplete: true,
             };
         }
+
         // Tool use streaming is more complex, simplified here
         return null;
     }

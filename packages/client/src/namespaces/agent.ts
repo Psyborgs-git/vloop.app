@@ -13,8 +13,8 @@ interface ProviderConfig { id: string; name: string; type: string; adapter?: str
 interface ModelConfig { id: string; name: string; providerId: string; modelId: string; runtime?: string; supportsTools?: boolean; supportsStreaming?: boolean; params: Record<string, unknown>; createdAt: string; updatedAt: string; }
 interface ToolConfig { id: string; name: string; description: string; parametersSchema: Record<string, unknown>; handlerType: string; handlerConfig: Record<string, unknown>; createdAt: string; updatedAt: string; }
 interface AgentConfig { id: string; name: string; description: string; modelId: string; systemPrompt: string; toolIds: string[]; params?: Record<string, unknown>; createdAt: string; updatedAt: string; }
-interface WorkflowConfig { id: string; name: string; description: string; type: string; steps: unknown[]; createdAt: string; updatedAt: string; }
-interface ChatSession { id: string; agentId?: string; workflowId?: string; modelId?: string; providerId?: string; mode?: string; title: string; createdAt: string; updatedAt: string; }
+interface WorkflowConfig { id: string; name: string; description: string; type: string; nodes: unknown[]; edges: unknown[]; createdAt: string; updatedAt: string; }
+interface ChatSession { id: string; agentId?: string; workflowId?: string; modelId?: string; providerId?: string; mode?: string; title: string; toolIds: string[]; createdAt: string; updatedAt: string; }
 interface ChatMessage { id: string; sessionId: string; role: string; content: string; providerType?: string; modelId?: string; toolCalls?: unknown[]; toolResults?: unknown[]; finishReason?: string; usage?: Record<string, unknown>; latencyMs?: number; metadata?: Record<string, unknown>; createdAt: string; }
 interface MemoryEntry { id: string; sessionId?: string; agentId?: string; content: string; sourceType?: string; importance?: number; topic?: string; entities?: string[]; metadata?: Record<string, unknown>; createdAt: string; }
 
@@ -123,7 +123,7 @@ export class AgentClient {
 
     // ── Chat Sessions ──────────────────────────────────────────────────
 
-    public createChat(data?: { agentId?: string; workflowId?: string; modelId?: string; providerId?: string; mode?: 'chat' | 'agent' | 'workflow'; title?: string }): Promise<ChatSession> {
+    public createChat(data?: { agentId?: string; workflowId?: string; modelId?: string; providerId?: string; mode?: 'chat' | 'agent' | 'workflow'; title?: string; toolIds?: string[] }): Promise<ChatSession> {
         return this.client.request('agent', 'chat.create', data ?? {});
     }
     public listChats(): Promise<{ sessions: ChatSession[] }> {
@@ -132,7 +132,7 @@ export class AgentClient {
     public getChat(id: string): Promise<ChatSession> {
         return this.client.request('agent', 'chat.get', { id });
     }
-    public updateChat(id: string, data: { title?: string; agentId?: string; workflowId?: string; modelId?: string; providerId?: string; mode?: 'chat' | 'agent' | 'workflow' }): Promise<ChatSession> {
+    public updateChat(id: string, data: { title?: string; agentId?: string; workflowId?: string; modelId?: string; providerId?: string; mode?: 'chat' | 'agent' | 'workflow'; toolIds?: string[] }): Promise<ChatSession> {
         return this.client.request('agent', 'chat.update', { id, ...data });
     }
     public deleteChat(id: string): Promise<{ ok: boolean }> {
@@ -140,6 +140,24 @@ export class AgentClient {
     }
     public getChatHistory(sessionId: string): Promise<{ messages: ChatMessage[] }> {
         return this.client.request('agent', 'chat.history', { sessionId });
+    }
+
+    // ── Session ↔ Tool m2m ─────────────────────────────────────────────
+
+    public setSessionTools(sessionId: string, toolIds: string[]): Promise<{ ok: boolean }> {
+        return this.client.request('agent', 'session.tools.set', { sessionId, toolIds });
+    }
+    public getSessionTools(sessionId: string): Promise<{ tools: ToolConfig[] }> {
+        return this.client.request('agent', 'session.tools.get', { sessionId });
+    }
+
+    // ── Agent ↔ Tool m2m ───────────────────────────────────────────────
+
+    public setAgentTools(agentId: string, toolIds: string[]): Promise<{ ok: boolean }> {
+        return this.client.request('agent', 'agent.tools.set', { agentId, toolIds });
+    }
+    public getAgentTools(agentId: string): Promise<{ tools: ToolConfig[] }> {
+        return this.client.request('agent', 'agent.tools.get', { agentId });
     }
 
     /** Send a message to a chat session (streaming). */
@@ -185,6 +203,18 @@ export class AgentClient {
     }
 
     // ── Ollama Sync ────────────────────────────────────────────────────
+
+    // ── Workflow Executions ────────────────────────────────────────────
+
+    public listWorkflowExecutions(workflowId?: string): Promise<{ executions: any[] }> {
+        return this.client.request('agent', 'workflow.executions.list', { workflowId });
+    }
+    public getWorkflowExecution(id: string): Promise<any> {
+        return this.client.request('agent', 'workflow.execution.get', { id });
+    }
+    public listWorkflowStepExecutions(executionId: string): Promise<{ steps: any[] }> {
+        return this.client.request('agent', 'workflow.execution.steps', { executionId });
+    }
 
     /** Check if Ollama is available locally. */
     public checkOllama(baseUrl?: string): Promise<{ available: boolean }> {

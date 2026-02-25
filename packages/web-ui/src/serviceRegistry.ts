@@ -631,7 +631,8 @@ export const SERVICE_REGISTRY: TopicDef[] = [
                 action: 'agent.workflow.create', description: 'Create a workflow config', fields: [
                     { name: 'name', type: 'string', required: true, description: 'Workflow name' },
                     { name: 'type', type: 'select', required: true, description: 'Execution type', options: ['sequential', 'parallel', 'loop'] },
-                    { name: 'steps', type: 'json', required: true, description: 'Steps JSON array' },
+                    { name: 'nodes', type: 'json', required: true, description: 'Nodes JSON array' },
+                    { name: 'edges', type: 'json', required: true, description: 'Edges JSON array' },
                 ]
             },
             { action: 'agent.workflow.list', description: 'List all workflows', fields: [] },

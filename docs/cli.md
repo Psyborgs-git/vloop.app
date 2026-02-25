@@ -2,6 +2,25 @@
 
 The Orchestrator CLI (`orch`) is a command-line tool for interacting with the Orchestrator Daemon. It allows you to manage processes, containers, secrets, databases, AI agents, and authentication.
 
+## Logging and output
+
+The orchestrator and its sub‑packages use [pino](https://getpino.io) for
+structured JSON logging. By default the daemon emits a single JSON object per
+line for easy machine parsing and journal ingestion. If you prefer a human‑
+readable stream in your terminal, set one of the following before running any
+command that starts the daemon (or in the environment where the CLI invokes it):
+
+```bash
+# automatically enabled in non-production builds
+NODE_ENV=development
+
+# or force pretty mode explicitly
+PINO_PRETTY=1
+```
+
+Both will invoke `pino-pretty` internally and print coloured, multi‑line output
+with timestamps. Production containers keep the raw JSON for log shippers.
+
 ## Installation
 
 Ensure you have built the CLI package:

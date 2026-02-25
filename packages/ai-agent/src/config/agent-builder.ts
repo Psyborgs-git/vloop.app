@@ -50,11 +50,6 @@ export class AgentBuilder {
             throw new Error(`Agent config ${agentId} uses adapter '${resolved.adapter}' which is not ADK-native for LlmAgent build`);
         }
 
-        // Set API key in environment if available (ADK reads from env)
-        if (resolved.apiKey && resolved.provider.type === 'google') {
-            process.env.GOOGLE_API_KEY = resolved.apiKey;
-        }
-
         // Build tools
         const tools = this.resolveTools(agentConfig.toolIds, context);
 

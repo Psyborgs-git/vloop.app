@@ -28,7 +28,7 @@ export type {
     ModelConfig, CreateModelInput, ModelParams, ModelId,
     ToolConfig, CreateToolInput, ToolHandlerType, ToolConfigId,
     AgentConfig, CreateAgentInput, AgentConfigId,
-    WorkflowConfig, CreateWorkflowInput, WorkflowType, WorkflowStep, WorkflowId,
+    WorkflowConfig, CreateWorkflowInput, WorkflowType, WorkflowNode, WorkflowEdge, WorkflowId,
     ChatSession, CreateChatSessionInput, ChatSessionId,
     ChatMessage, CreateChatMessageInput, ChatMessageId, MessageRole,
     MemoryEntry, CreateMemoryInput, MemoryId,

@@ -111,7 +111,7 @@ describe('AgentOrchestrator - Multi-turn Tool Execution', () => {
                 // First turn: return a tool call
                 return {
                     ok: true,
-                    json: async () => ({
+                    text: async () => JSON.stringify({
                         model: 'llama3.1',
                         message: {
                             role: 'assistant',
@@ -126,7 +126,37 @@ describe('AgentOrchestrator - Multi-turn Tool Execution', () => {
                             ]
                         },
                         done_reason: 'tool_calls'
-                    })
+                    }),
+                    body: {
+                        getReader: () => {
+                            let done = false;
+                            return {
+                                read: async () => {
+                                    if (done) return { done: true };
+                                    done = true;
+                                    return {
+                                        done: false,
+                                        value: new TextEncoder().encode(JSON.stringify({
+                                            model: 'llama3.1',
+                                            message: {
+                                                role: 'assistant',
+                                                content: '',
+                                                tool_calls: [
+                                                    {
+                                                        function: {
+                                                            name: 'get_weather',
+                                                            arguments: { location: 'Toronto' }
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            done_reason: 'tool_calls'
+                                        }) + '\n')
+                                    };
+                                }
+                            };
+                        }
+                    }
                 };
             } else if (callCount === 2) {
                 // Second turn: verify tool result was passed, return final text
@@ -136,14 +166,36 @@ describe('AgentOrchestrator - Multi-turn Tool Execution', () => {
 
                 return {
                     ok: true,
-                    json: async () => ({
+                    text: async () => JSON.stringify({
                         model: 'llama3.1',
                         message: {
                             role: 'assistant',
                             content: 'The weather in Toronto is 22 degrees and Sunny.'
                         },
                         done_reason: 'stop'
-                    })
+                    }),
+                    body: {
+                        getReader: () => {
+                            let done = false;
+                            return {
+                                read: async () => {
+                                    if (done) return { done: true };
+                                    done = true;
+                                    return {
+                                        done: false,
+                                        value: new TextEncoder().encode(JSON.stringify({
+                                            model: 'llama3.1',
+                                            message: {
+                                                role: 'assistant',
+                                                content: 'The weather in Toronto is 22 degrees and Sunny.'
+                                            },
+                                            done_reason: 'stop'
+                                        }) + '\n')
+                                    };
+                                }
+                            };
+                        }
+                    }
                 };
             }
         });

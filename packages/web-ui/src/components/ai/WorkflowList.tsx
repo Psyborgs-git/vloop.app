@@ -18,7 +18,8 @@ const WORKFLOW_FIELDS: FieldDef[] = [
         { value: 'parallel', label: 'Parallel' },
         { value: 'loop', label: 'Loop' },
     ]},
-    { name: 'steps', label: 'Steps (JSON Array)', type: 'json', default: '[]' },
+    { name: 'nodes', label: 'Nodes (JSON Array)', type: 'json', default: '[]' },
+    { name: 'edges', label: 'Edges (JSON Array)', type: 'json', default: '[]' },
 ];
 
 const typeColors: Record<string, string> = {
@@ -70,7 +71,7 @@ export default function WorkflowList() {
                                             <Typography fontWeight={600}>{w.name}</Typography>
                                             <Chip label={w.type} size="small"
                                                 sx={{ bgcolor: typeColors[w.type] || '#6b7280', color: '#fff', fontWeight: 600, fontSize: '0.7rem' }} />
-                                            <Chip label={`${(w.steps || []).length} steps`} size="small" variant="outlined" />
+                                            <Chip label={`${(w.nodes || []).length} nodes`} size="small" variant="outlined" />
                                         </Box>
                                         {w.description && (
                                             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>

@@ -67,6 +67,9 @@ export class AIConfigStore {
         ensureColumn('ai_chat_sessions', 'provider_id', 'TEXT');
         ensureColumn('ai_chat_sessions', 'mode', 'TEXT');
 
+        ensureColumn('ai_workflows', 'nodes', "TEXT DEFAULT '[]'");
+        ensureColumn('ai_workflows', 'edges', "TEXT DEFAULT '[]'");
+
         ensureColumn('ai_chat_messages', 'provider_type', 'TEXT');
         ensureColumn('ai_chat_messages', 'model_id', 'TEXT');
         ensureColumn('ai_chat_messages', 'finish_reason', 'TEXT');
@@ -78,6 +81,50 @@ export class AIConfigStore {
         ensureColumn('ai_memories', 'importance', 'REAL');
         ensureColumn('ai_memories', 'topic', 'TEXT');
         ensureColumn('ai_memories', 'entities', 'TEXT');
+
+        ensureColumn('ai_tool_calls', 'tool_config_id', 'TEXT');
+
+        // Ensure m2m join tables exist (idempotent — also in AI_CONFIG_MIGRATION for new installs)
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS ai_agent_tools (
+                agent_id   TEXT NOT NULL REFERENCES ai_agents(id) ON DELETE CASCADE,
+                tool_id    TEXT NOT NULL REFERENCES ai_tools(id) ON DELETE CASCADE,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (agent_id, tool_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_agent_tools_agent ON ai_agent_tools(agent_id);
+            CREATE TABLE IF NOT EXISTS ai_chat_session_tools (
+                session_id TEXT NOT NULL REFERENCES ai_chat_sessions(id) ON DELETE CASCADE,
+                tool_id    TEXT NOT NULL REFERENCES ai_tools(id) ON DELETE CASCADE,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (session_id, tool_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_session_tools_session ON ai_chat_session_tools(session_id);
+        `);
+
+        // One-time migration: populate ai_agent_tools from legacy tool_ids JSON column
+        this.migrateAgentToolsJson();
+    }
+
+    /**
+     * Migrate legacy tool_ids JSON array from ai_agents into ai_agent_tools join table.
+     * Runs once per boot, skips agents that already have join table entries.
+     */
+    private migrateAgentToolsJson(): void {
+        const agents = this.db.prepare('SELECT id, tool_ids FROM ai_agents').all() as Array<{ id: string; tool_ids: string | null }>;
+        const insert = this.db.prepare('INSERT OR IGNORE INTO ai_agent_tools (agent_id, tool_id, sort_order) VALUES (?, ?, ?)');
+        const migrate = this.db.transaction((agentId: string, toolIds: string[]) => {
+            for (let i = 0; i < toolIds.length; i++) {
+                try { insert.run(agentId, toolIds[i], i); } catch (_) { /* tool may not exist */ }
+            }
+        });
+        for (const agent of agents) {
+            const existing = (this.db.prepare('SELECT COUNT(*) as cnt FROM ai_agent_tools WHERE agent_id = ?').get(agent.id) as { cnt: number }).cnt;
+            if (existing === 0 && agent.tool_ids) {
+                const ids: string[] = JSON.parse(agent.tool_ids) || [];
+                if (ids.length > 0) migrate(agent.id, ids);
+            }
+        }
     }
 
     // ── Providers ────────────────────────────────────────────────────────
@@ -279,6 +326,9 @@ export class AIConfigStore {
             INSERT INTO ai_agents (id, name, description, model_id, system_prompt, tool_ids, params, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(id, input.name, input.description ?? '', input.modelId, input.systemPrompt ?? '', toJSON(input.toolIds ?? []), toJSON(input.params), ts, ts);
+        if (input.toolIds && input.toolIds.length > 0) {
+            this.setAgentTools(id, input.toolIds);
+        }
         return this.getAgent(id)!;
     }
 
@@ -294,13 +344,17 @@ export class AIConfigStore {
     updateAgent(id: AgentConfigId, input: Partial<CreateAgentInput>): AgentConfig {
         const existing = this.getAgent(id);
         if (!existing) throw new Error(`Agent not found: ${id}`);
+        const mergedToolIds = input.toolIds ?? existing.toolIds;
         this.db.prepare(`
             UPDATE ai_agents SET name=?, description=?, model_id=?, system_prompt=?, tool_ids=?, params=?, updated_at=? WHERE id=?
         `).run(
             input.name ?? existing.name, input.description ?? existing.description,
             input.modelId ?? existing.modelId, input.systemPrompt ?? existing.systemPrompt,
-            toJSON(input.toolIds ?? existing.toolIds), toJSON(input.params ?? existing.params), now(), id,
+            toJSON(mergedToolIds), toJSON(input.params ?? existing.params), now(), id,
         );
+        if (input.toolIds !== undefined) {
+            this.setAgentTools(id, input.toolIds);
+        }
         return this.getAgent(id)!;
     }
 
@@ -308,11 +362,37 @@ export class AIConfigStore {
         this.db.prepare('DELETE FROM ai_agents WHERE id = ?').run(id);
     }
 
+    // ── Agent ↔ Tool m2m ───────────────────────────────────────────────────
+
+    /** Replace the full tool set for an agent (transactional). */
+    setAgentTools(agentId: AgentConfigId, toolIds: ToolConfigId[]): void {
+        this.db.transaction(() => {
+            this.db.prepare('DELETE FROM ai_agent_tools WHERE agent_id = ?').run(agentId);
+            const insert = this.db.prepare('INSERT OR IGNORE INTO ai_agent_tools (agent_id, tool_id, sort_order) VALUES (?, ?, ?)');
+            for (let i = 0; i < toolIds.length; i++) {
+                insert.run(agentId, toolIds[i], i);
+            }
+        })();
+    }
+
+    /** Get the full ToolConfig list for an agent. */
+    getAgentTools(agentId: AgentConfigId): ToolConfig[] {
+        const rows = this.db.prepare(
+            'SELECT t.* FROM ai_tools t JOIN ai_agent_tools at ON t.id = at.tool_id WHERE at.agent_id = ? ORDER BY at.sort_order'
+        ).all(agentId) as any[];
+        return rows.map(r => this.mapTool(r));
+    }
+
     private mapAgent(row: any): AgentConfig {
+        // Read tool IDs from the join table; fall back to legacy JSON column on first access
+        const joinRows = this.db.prepare('SELECT tool_id FROM ai_agent_tools WHERE agent_id = ? ORDER BY sort_order').all(row.id) as Array<{ tool_id: string }>;
+        const toolIds: ToolConfigId[] = joinRows.length > 0
+            ? joinRows.map(r => r.tool_id as ToolConfigId)
+            : (fromJSON<string[]>(row.tool_ids) as unknown as ToolConfigId[]);
         return {
             id: row.id, name: row.name, description: row.description,
             modelId: row.model_id, systemPrompt: row.system_prompt,
-            toolIds: fromJSON<string[]>(row.tool_ids) as any,
+            toolIds,
             params: fromJSON(row.params), createdAt: row.created_at, updatedAt: row.updated_at,
         };
     }
@@ -323,9 +403,9 @@ export class AIConfigStore {
         const id = generateId() as WorkflowId;
         const ts = now();
         this.db.prepare(`
-            INSERT INTO ai_workflows (id, name, description, type, steps, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(id, input.name, input.description ?? '', input.type, toJSON(input.steps), ts, ts);
+            INSERT INTO ai_workflows (id, name, description, type, nodes, edges, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(id, input.name, input.description ?? '', input.type, toJSON(input.nodes), toJSON(input.edges), ts, ts);
         return this.getWorkflow(id)!;
     }
 
@@ -342,10 +422,10 @@ export class AIConfigStore {
         const existing = this.getWorkflow(id);
         if (!existing) throw new Error(`Workflow not found: ${id}`);
         this.db.prepare(`
-            UPDATE ai_workflows SET name=?, description=?, type=?, steps=?, updated_at=? WHERE id=?
+            UPDATE ai_workflows SET name=?, description=?, type=?, nodes=?, edges=?, updated_at=? WHERE id=?
         `).run(
             input.name ?? existing.name, input.description ?? existing.description,
-            input.type ?? existing.type, toJSON(input.steps ?? existing.steps), now(), id,
+            input.type ?? existing.type, toJSON(input.nodes ?? existing.nodes), toJSON(input.edges ?? existing.edges), now(), id,
         );
         return this.getWorkflow(id)!;
     }
@@ -357,9 +437,99 @@ export class AIConfigStore {
     private mapWorkflow(row: any): WorkflowConfig {
         return {
             id: row.id, name: row.name, description: row.description,
-            type: row.type, steps: fromJSON<any[]>(row.steps) as any,
+            type: row.type, nodes: fromJSON<any[]>(row.nodes) as any, edges: fromJSON<any[]>(row.edges) as any,
             createdAt: row.created_at, updatedAt: row.updated_at,
         };
+    }
+
+    // ── Workflow Executions ──────────────────────────────────────────────
+
+    createWorkflowExecution(input: { workflowId: WorkflowId; input: string }): string {
+        const id = generateId();
+        const ts = now();
+        this.db.prepare(`
+            INSERT INTO ai_workflow_executions (id, workflow_id, status, input, started_at)
+            VALUES (?, ?, 'running', ?, ?)
+        `).run(id, input.workflowId, input.input, ts);
+        return id;
+    }
+
+    updateWorkflowExecution(id: string, input: { status: 'completed' | 'failed'; finalOutput?: string }): void {
+        const ts = now();
+        this.db.prepare(`
+            UPDATE ai_workflow_executions SET status = ?, final_output = ?, completed_at = ? WHERE id = ?
+        `).run(input.status, input.finalOutput ?? null, ts, id);
+    }
+
+    createWorkflowStepExecution(input: { executionId: string; nodeId: string }): string {
+        const id = generateId();
+        const ts = now();
+        this.db.prepare(`
+            INSERT INTO ai_workflow_step_executions (id, execution_id, node_id, status, started_at)
+            VALUES (?, ?, ?, 'running', ?)
+        `).run(id, input.executionId, input.nodeId, ts);
+        return id;
+    }
+
+    updateWorkflowStepExecution(id: string, input: { status: 'completed' | 'failed'; output?: string; error?: string }): void {
+        const ts = now();
+        this.db.prepare(`
+            UPDATE ai_workflow_step_executions SET status = ?, output = ?, error = ?, completed_at = ? WHERE id = ?
+        `).run(input.status, input.output ?? null, input.error ?? null, ts, id);
+    }
+
+    listWorkflowExecutions(workflowId?: string): import('./types.js').WorkflowExecution[] {
+        const rows = workflowId
+            ? (this.db.prepare(`
+                SELECT e.*, w.name AS workflow_name
+                FROM ai_workflow_executions e
+                LEFT JOIN ai_workflows w ON e.workflow_id = w.id
+                WHERE e.workflow_id = ?
+                ORDER BY e.started_at DESC LIMIT 200
+              `).all(workflowId) as any[])
+            : (this.db.prepare(`
+                SELECT e.*, w.name AS workflow_name
+                FROM ai_workflow_executions e
+                LEFT JOIN ai_workflows w ON e.workflow_id = w.id
+                ORDER BY e.started_at DESC LIMIT 200
+              `).all() as any[]);
+        return rows.map(r => ({
+            id: r.id,
+            workflowId: r.workflow_id,
+            workflowName: r.workflow_name ?? undefined,
+            status: r.status,
+            input: r.input,
+            finalOutput: r.final_output,
+            startedAt: r.started_at,
+            completedAt: r.completed_at,
+        }));
+    }
+
+    getWorkflowExecution(id: string): import('./types.js').WorkflowExecution | undefined {
+        const r = this.db.prepare(`
+            SELECT e.*, w.name AS workflow_name
+            FROM ai_workflow_executions e
+            LEFT JOIN ai_workflows w ON e.workflow_id = w.id
+            WHERE e.id = ?
+        `).get(id) as any;
+        if (!r) return undefined;
+        return { id: r.id, workflowId: r.workflow_id, workflowName: r.workflow_name ?? undefined, status: r.status, input: r.input, finalOutput: r.final_output, startedAt: r.started_at, completedAt: r.completed_at };
+    }
+
+    listWorkflowStepExecutions(executionId: string): import('./types.js').WorkflowStepExecution[] {
+        const rows = this.db.prepare(`
+            SELECT * FROM ai_workflow_step_executions WHERE execution_id = ? ORDER BY started_at ASC
+        `).all(executionId) as any[];
+        return rows.map(r => ({
+            id: r.id,
+            executionId: r.execution_id,
+            nodeId: r.node_id,
+            status: r.status,
+            output: r.output,
+            error: r.error,
+            startedAt: r.started_at,
+            completedAt: r.completed_at,
+        }));
     }
 
     // ── Chat Sessions ────────────────────────────────────────────────────
@@ -381,6 +551,18 @@ export class AIConfigStore {
             ts,
             ts,
         );
+        // If explicit toolIds OR agentId provided, resolve the initial tool set
+        if (input.toolIds && input.toolIds.length > 0) {
+            this.setSessionTools(id, input.toolIds);
+        } else if (input.agentId) {
+            // Inherit the agent's tool set
+            const agentToolIds = this.db
+                .prepare('SELECT tool_id FROM ai_agent_tools WHERE agent_id = ? ORDER BY sort_order')
+                .all(input.agentId) as Array<{ tool_id: string }>;
+            if (agentToolIds.length > 0) {
+                this.setSessionTools(id, agentToolIds.map(r => r.tool_id as ToolConfigId));
+            }
+        }
         return this.getChatSession(id)!;
     }
 
@@ -407,6 +589,9 @@ export class AIConfigStore {
             input.mode ?? existing.mode ?? null,
             now(), id,
         );
+        if (input.toolIds !== undefined) {
+            this.setSessionTools(id, input.toolIds);
+        }
         return this.getChatSession(id)!;
     }
 
@@ -414,7 +599,31 @@ export class AIConfigStore {
         this.db.prepare('DELETE FROM ai_chat_sessions WHERE id = ?').run(id);
     }
 
+    // ── Session ↔ Tool m2m ──────────────────────────────────────────────────
+
+    /** Replace the full tool set for a session (transactional). */
+    setSessionTools(sessionId: ChatSessionId, toolIds: ToolConfigId[]): void {
+        this.db.transaction(() => {
+            this.db.prepare('DELETE FROM ai_chat_session_tools WHERE session_id = ?').run(sessionId);
+            const insert = this.db.prepare('INSERT OR IGNORE INTO ai_chat_session_tools (session_id, tool_id, sort_order) VALUES (?, ?, ?)');
+            for (let i = 0; i < toolIds.length; i++) {
+                insert.run(sessionId, toolIds[i], i);
+            }
+        })();
+    }
+
+    /** Get the full ToolConfig list for a session. */
+    getSessionTools(sessionId: ChatSessionId): ToolConfig[] {
+        const rows = this.db.prepare(
+            'SELECT t.* FROM ai_tools t JOIN ai_chat_session_tools st ON t.id = st.tool_id WHERE st.session_id = ? ORDER BY st.sort_order'
+        ).all(sessionId) as any[];
+        return rows.map(r => this.mapTool(r));
+    }
+
     private mapChatSession(row: any): ChatSession {
+        const toolRows = this.db.prepare(
+            'SELECT tool_id FROM ai_chat_session_tools WHERE session_id = ? ORDER BY sort_order'
+        ).all(row.id) as Array<{ tool_id: string }>;
         return {
             id: row.id,
             agentId: row.agent_id ?? undefined,
@@ -422,7 +631,10 @@ export class AIConfigStore {
             modelId: row.model_id ?? undefined,
             providerId: row.provider_id ?? undefined,
             mode: row.mode ?? undefined,
-            title: row.title, createdAt: row.created_at, updatedAt: row.updated_at,
+            title: row.title,
+            toolIds: toolRows.map(r => r.tool_id as ToolConfigId),
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
         };
     }
 
@@ -475,6 +687,33 @@ export class AIConfigStore {
             metadata: fromJSON(row.metadata),
             createdAt: row.created_at,
         };
+    }
+
+    // ── Tool Calls ───────────────────────────────────────────────────────
+
+    createToolCall(input: {
+        sessionId: ChatSessionId;
+        messageId: ChatMessageId;
+        toolName: string;
+        arguments: string;
+        result?: string;
+        latencyMs?: number;
+    }): void {
+        const id = generateId();
+        const ts = now();
+        this.db.prepare(`
+            INSERT INTO ai_tool_calls (id, session_id, message_id, tool_name, arguments, result, latency_ms, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            id,
+            input.sessionId,
+            input.messageId,
+            input.toolName,
+            input.arguments,
+            input.result ?? null,
+            input.latencyMs ?? null,
+            ts,
+        );
     }
 
     // ── Memory ───────────────────────────────────────────────────────────

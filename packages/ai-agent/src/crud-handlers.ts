@@ -63,6 +63,33 @@ export function registerCrudHandlers(
     handlers.set('chat.delete', (p) => { configStore.deleteChatSession(p.id); return { ok: true }; });
     handlers.set('chat.history', (p) => ({ messages: configStore.listChatMessages(p.sessionId) }));
 
+    // ── Session ↔ Tool m2m ────────────────────────────────────────
+    handlers.set('session.tools.set', (p) => {
+        configStore.setSessionTools(p.sessionId, p.toolIds ?? []);
+        return { ok: true };
+    });
+    handlers.set('session.tools.get', (p) => ({
+        tools: configStore.getSessionTools(p.sessionId),
+    }));
+
+    // ── Agent ↔ Tool m2m ──────────────────────────────────────────
+    handlers.set('agent.tools.set', (p) => {
+        configStore.setAgentTools(p.agentId, p.toolIds ?? []);
+        return { ok: true };
+    });
+    handlers.set('agent.tools.get', (p) => ({
+        tools: configStore.getAgentTools(p.agentId),
+    }));
+
+    // ── Workflow Execution Read ───────────────────────────────────
+    handlers.set('workflow.executions.list', (p) => ({
+        executions: configStore.listWorkflowExecutions(p.workflowId),
+    }));
+    handlers.set('workflow.execution.get', (p) => configStore.getWorkflowExecution(p.id));
+    handlers.set('workflow.execution.steps', (p) => ({
+        steps: configStore.listWorkflowStepExecutions(p.executionId),
+    }));
+
     // ── Memory CRUD ───────────────────────────────────────────────
     handlers.set('memory.add', (p) => orchestrator.memoryStore.add(p));
     handlers.set('memory.list', (p) => ({ memories: orchestrator.memoryStore.list(p.agentId) }));

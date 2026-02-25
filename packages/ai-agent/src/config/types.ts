@@ -144,22 +144,24 @@ export interface CreateAgentInput {
     params?: ModelParams;
 }
 
-// ─── Workflow Config (ADK-inspired) ──────────────────────────────────────────
+// ─── Workflow Config (React Flow-inspired) ───────────────────────────────────
 
 export type WorkflowType = 'sequential' | 'parallel' | 'loop';
 
-export interface WorkflowStep {
-    /** Unique step identifier within the workflow. */
-    stepId: string;
-    /** Either an agent config ID or a nested workflow ID. */
-    agentId?: AgentConfigId;
-    workflowId?: WorkflowId;
-    /** Input mapping: maps step input keys to previous step output keys. */
-    inputMapping?: Record<string, string>;
-    /** For loop workflows: condition expression to continue looping. */
-    condition?: string;
-    /** Max iterations for loop workflows. */
-    maxIterations?: number;
+export interface WorkflowNode {
+    id: string;
+    type: 'agent' | 'tool' | 'condition' | 'input' | 'output';
+    position: { x: number; y: number };
+    data: Record<string, any>;
+}
+
+export interface WorkflowEdge {
+    id: string;
+    source: string;
+    target: string;
+    sourceHandle?: string;
+    targetHandle?: string;
+    label?: string;
 }
 
 export interface WorkflowConfig {
@@ -167,7 +169,8 @@ export interface WorkflowConfig {
     name: string;
     description: string;
     type: WorkflowType;
-    steps: WorkflowStep[];
+    nodes: WorkflowNode[];
+    edges: WorkflowEdge[];
     createdAt: string;
     updatedAt: string;
 }
@@ -176,7 +179,34 @@ export interface CreateWorkflowInput {
     name: string;
     description?: string;
     type: WorkflowType;
-    steps: WorkflowStep[];
+    nodes: WorkflowNode[];
+    edges: WorkflowEdge[];
+}
+
+// ─── Workflow Executions ─────────────────────────────────────────────────────
+
+export type WorkflowExecutionStatus = 'running' | 'completed' | 'failed';
+
+export interface WorkflowExecution {
+    id: string;
+    workflowId: WorkflowId;
+    workflowName?: string;
+    status: WorkflowExecutionStatus;
+    input: string;
+    finalOutput: string | null;
+    startedAt: string;
+    completedAt: string | null;
+}
+
+export interface WorkflowStepExecution {
+    id: string;
+    executionId: string;
+    nodeId: string;
+    status: WorkflowExecutionStatus;
+    output: string | null;
+    error: string | null;
+    startedAt: string;
+    completedAt: string | null;
 }
 
 // ─── Chat Session ────────────────────────────────────────────────────────────
@@ -189,6 +219,8 @@ export interface ChatSession {
     providerId?: ProviderId;
     mode?: 'chat' | 'agent' | 'workflow';
     title: string;
+    /** Active tool set for this session (m2m via ai_chat_session_tools). */
+    toolIds: ToolConfigId[];
     createdAt: string;
     updatedAt: string;
 }
@@ -200,6 +232,8 @@ export interface CreateChatSessionInput {
     providerId?: ProviderId;
     mode?: 'chat' | 'agent' | 'workflow';
     title?: string;
+    /** Initial tool set to attach to this session. */
+    toolIds?: ToolConfigId[];
 }
 
 // ─── Chat Message ────────────────────────────────────────────────────────────

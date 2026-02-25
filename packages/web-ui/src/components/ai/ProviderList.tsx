@@ -9,7 +9,7 @@ import {
     Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
     Alert, CircularProgress, Collapse,
 } from '@mui/material';
-import { Plus, Pencil, Trash2, Server, RefreshCw, Check, X as XIcon } from 'lucide-react';
+import { Plus, Pencil, Trash2, Server, RefreshCw } from 'lucide-react';
 import { ClientContext } from '../../ClientContext.js';
 import ConfigFormDialog, { type FieldDef } from './ConfigFormDialog.js';
 

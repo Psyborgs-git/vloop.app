@@ -5,10 +5,11 @@
  * enabling scrollback retrieval and session export.
  */
 
-import { mkdirSync, createWriteStream, existsSync, readdirSync } from 'node:fs';
+import { mkdirSync, createWriteStream, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { WriteStream } from 'node:fs';
 import type { Logger } from '@orch/daemon';
+import type { TerminalSessionStore } from './sessions.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -21,6 +22,18 @@ export interface SessionLoggerOptions {
     persistToDisk?: boolean;
     /** Logger instance. */
     logger: Logger;
+    /** Optional DB store for persisting session metadata. */
+    sessionStore?: TerminalSessionStore;
+}
+
+export interface StartRecordingOptions {
+    sessionId: string;
+    owner: string;
+    shell: string;
+    cwd: string;
+    cols: number;
+    rows: number;
+    profileId?: string;
 }
 
 interface SessionBuffer {
@@ -37,12 +50,14 @@ export class SessionLogger {
     private readonly maxChars: number;
     private readonly persistToDisk: boolean;
     private readonly logger: Logger;
+    private readonly sessionStore?: TerminalSessionStore;
 
     constructor(options: SessionLoggerOptions) {
         this.logDir = options.logDir;
         this.maxChars = options.maxScrollbackChars ?? 100_000;
         this.persistToDisk = options.persistToDisk ?? true;
         this.logger = options.logger.child({ component: 'session-logger' });
+        this.sessionStore = options.sessionStore;
 
         if (this.persistToDisk && !existsSync(this.logDir)) {
             mkdirSync(this.logDir, { recursive: true });
@@ -52,12 +67,15 @@ export class SessionLogger {
     /**
      * Start recording for a session.
      */
-    startRecording(sessionId: string): void {
+    startRecording(opts: StartRecordingOptions): void {
+        const { sessionId } = opts;
         if (this.sessions.has(sessionId)) return;
 
         let fileStream: WriteStream | null = null;
+        let logPath: string | undefined;
+
         if (this.persistToDisk) {
-            const logPath = join(this.logDir, `${sessionId}.log`);
+            logPath = join(this.logDir, `${sessionId}.log`);
             fileStream = createWriteStream(logPath, { flags: 'a' });
             fileStream.write(`--- Session ${sessionId} started at ${new Date().toISOString()} ---\n`);
         }
@@ -66,6 +84,18 @@ export class SessionLogger {
             buffer: '',
             fileStream,
             lineCount: 0,
+        });
+
+        // Persist metadata to DB if store is available
+        this.sessionStore?.create({
+            id: sessionId,
+            owner: opts.owner,
+            shell: opts.shell,
+            cwd: opts.cwd,
+            cols: opts.cols,
+            rows: opts.rows,
+            profileId: opts.profileId,
+            logPath,
         });
 
         this.logger.debug({ sessionId }, 'Started recording session');
@@ -114,7 +144,7 @@ export class SessionLogger {
     /**
      * Stop recording and close file stream.
      */
-    stopRecording(sessionId: string): void {
+    stopRecording(sessionId: string, exitCode?: number): void {
         const session = this.sessions.get(sessionId);
         if (!session) return;
 
@@ -124,7 +154,22 @@ export class SessionLogger {
         }
 
         this.sessions.delete(sessionId);
-        this.logger.debug({ sessionId }, 'Stopped recording session');
+        this.sessionStore?.end(sessionId, exitCode ?? null);
+        this.logger.debug({ sessionId, exitCode }, 'Stopped recording session');
+    }
+
+    /**
+     * Read the full on-disk log for a session (past or present).
+     * Returns null if no log file exists.
+     */
+    getLogContent(sessionId: string): string | null {
+        const logPath = join(this.logDir, `${sessionId}.log`);
+        if (!existsSync(logPath)) return null;
+        try {
+            return readFileSync(logPath, 'utf8');
+        } catch {
+            return null;
+        }
     }
 
     /**

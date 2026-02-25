@@ -48,7 +48,7 @@ interface PendingRequest {
 
 export interface ServerMessage {
     id: string;
-    type: 'response' | 'result' | 'error' | 'stream' | 'auth_ok';
+    type: 'response' | 'result' | 'error' | 'stream' | 'event' | 'auth_ok';
 }
 
 export interface PayloadMessage extends ServerMessage {
@@ -431,7 +431,7 @@ export class OrchestratorClient {
                     );
                     req.reject(err);
                 }
-            } else if (msg.type === 'stream') {
+            } else if (msg.type === 'stream' || msg.type === 'event') {
                 const handler = this.streamHandlers.get(msg.id);
                 if (handler) {
                     handler((msg as StreamMessage).payload);

@@ -14,7 +14,7 @@ export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
  * Create the root logger for the daemon.
  */
 export function createLogger(level: LogLevel = 'info'): Logger {
-    return pino({
+    const opts: pino.LoggerOptions = {
         level,
         name: 'orchestrator',
         timestamp: pino.stdTimeFunctions.isoTime,
@@ -29,5 +29,22 @@ export function createLogger(level: LogLevel = 'info'): Logger {
             req: pino.stdSerializers.req,
             res: pino.stdSerializers.res,
         },
-    });
+    };
+
+    // pretty‑print to the terminal when running in development or when
+    // explicitly requested. the environment variable avoids pulling in the
+    // transport in production containers, but we still include pino-pretty in
+    // devDependencies so tests and dev runs work.
+    if (process.env.NODE_ENV !== 'production' || process.env.PINO_PRETTY) {
+        opts.transport = {
+            target: 'pino-pretty',
+            options: {
+                colorize: true,
+                ignore: 'pid,hostname',
+                translateTime: true,
+            },
+        };
+    }
+
+    return pino(opts);
 }

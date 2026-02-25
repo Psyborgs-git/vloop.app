@@ -10,6 +10,7 @@ import type { HandlerContext } from '@orch/daemon';
 import type { TerminalManager } from './manager.js';
 import type { TerminalProfileManager } from './profiles.js';
 import type { SessionLogger } from './logger.js';
+import type { TerminalSessionStore } from './sessions.js';
 import {
     checkAccess,
     validateShell,
@@ -24,6 +25,7 @@ export function createTerminalHandler(
     manager: TerminalManager,
     profileManager: TerminalProfileManager,
     sessionLogger: SessionLogger,
+    sessionStore?: TerminalSessionStore,
     policy: TerminalPolicy = DEFAULT_TERMINAL_POLICY,
 ) {
     return async (action: string, payload: unknown, context: HandlerContext): Promise<unknown> => {
@@ -71,8 +73,16 @@ export function createTerminalHandler(
                     profileId: data['profileId'] as string | undefined,
                 });
 
-                // Start recording
-                sessionLogger.startRecording(sessionId);
+                // Start recording (with DB metadata)
+                sessionLogger.startRecording({
+                    sessionId,
+                    owner: info.owner,
+                    shell: info.shell,
+                    cwd: info.cwd,
+                    cols: info.cols,
+                    rows: info.rows,
+                    profileId: info.profileId,
+                });
 
                 // Wire PTY output → WebSocket stream
                 const dataHandler = (_sid: string, output: string) => {
@@ -83,7 +93,7 @@ export function createTerminalHandler(
                 };
                 const exitHandler = (_sid: string, exitCode: number, signal?: number) => {
                     if (_sid === sessionId && context.emit) {
-                        sessionLogger.stopRecording(sessionId);
+                        sessionLogger.stopRecording(sessionId, exitCode);
                         context.emit('stream', { sessionId, type: 'exit', exitCode, signal });
                         // Clean up listeners
                         manager.removeListener('data', dataHandler);
@@ -144,9 +154,62 @@ export function createTerminalHandler(
                 if (session.owner !== identity && !roles.includes('admin')) {
                     throw new OrchestratorError(ErrorCode.PERMISSION_DENIED, 'Not session owner');
                 }
-                sessionLogger.stopRecording(sessionId);
+                sessionLogger.stopRecording(sessionId, undefined);
                 manager.kill(sessionId);
                 return { ok: true, sessionId };
+            }
+
+            // ── Session history actions ─────────────────────────────────
+
+            case 'session.list': {
+                if (!sessionStore) return { sessions: [] };
+                const owner = roles.includes('admin')
+                    ? (data['owner'] as string | undefined)
+                    : identity;
+                const limitRaw = (data['limit'] as number | undefined) ?? 100;
+                const limit = Number.isFinite(limitRaw)
+                    ? Math.max(1, Math.min(500, Math.floor(limitRaw)))
+                    : 100;
+                return { sessions: sessionStore.list(owner, limit) };
+            }
+
+            case 'session.get': {
+                if (!sessionStore) throw new OrchestratorError(ErrorCode.NOT_FOUND, 'Session store not available');
+                const sessionId = requireString(data, 'sessionId');
+                const record = sessionStore.get(sessionId);
+                if (!record) {
+                    throw new OrchestratorError(ErrorCode.NOT_FOUND, `Session record not found: ${sessionId}`);
+                }
+                if (record.owner !== identity && !roles.includes('admin')) {
+                    throw new OrchestratorError(ErrorCode.PERMISSION_DENIED, 'Not session owner');
+                }
+                return record;
+            }
+
+            case 'session.logs': {
+                const sessionId = requireString(data, 'sessionId');
+                // Check ownership via live sessions first, then DB records
+                const live = manager.get(sessionId);
+                if (live && live.owner !== identity && !roles.includes('admin')) {
+                    throw new OrchestratorError(ErrorCode.PERMISSION_DENIED, 'Not session owner');
+                }
+                if (!live) {
+                    if (!sessionStore) {
+                        throw new OrchestratorError(
+                            ErrorCode.NOT_FOUND,
+                            `Session not found: ${sessionId}`,
+                        );
+                    }
+                    const record = sessionStore.get(sessionId);
+                    if (!record) {
+                        throw new OrchestratorError(ErrorCode.NOT_FOUND, `Session not found: ${sessionId}`);
+                    }
+                    if (record.owner !== identity && !roles.includes('admin')) {
+                        throw new OrchestratorError(ErrorCode.PERMISSION_DENIED, 'Not session owner');
+                    }
+                }
+                const content = sessionLogger.getLogContent(sessionId);
+                return { sessionId, content: content ?? '' };
             }
 
             case 'list': {
@@ -237,6 +300,7 @@ export function createTerminalHandler(
                         availableActions: [
                             'spawn', 'write', 'resize', 'kill', 'list', 'scrollback',
                             'profile.list', 'profile.create', 'profile.update', 'profile.delete',
+                            'session.list', 'session.get', 'session.logs',
                         ],
                     },
                 );

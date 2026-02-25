@@ -69,4 +69,16 @@ export class TerminalClient {
     public async deleteProfile(id: string): Promise<any> {
         return this.client.request('terminal', 'profile.delete', { id });
     }
+
+    public async listSessions(limit?: number): Promise<any> {
+        return this.client.request('terminal', 'session.list', limit ? { limit } : {});
+    }
+
+    public async getSession(sessionId: string): Promise<any> {
+        return this.client.request('terminal', 'session.get', { sessionId });
+    }
+
+    public async sessionLogs(sessionId: string): Promise<any> {
+        return this.client.request('terminal', 'session.logs', { sessionId });
+    }
 }
