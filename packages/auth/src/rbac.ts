@@ -5,7 +5,7 @@
  * using the format: topic:action:resource with glob matching.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { parse as parseTOML } from 'smol-toml';
 import { minimatch } from 'minimatch';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
@@ -35,9 +35,9 @@ export class PolicyEngine {
     /**
      * Load policies from a TOML file.
      */
-    load(policyPath: string): void {
+    async load(policyPath: string): Promise<void> {
         try {
-            const content = readFileSync(policyPath, 'utf-8');
+            const content = await readFile(policyPath, 'utf-8');
             const parsed = parseTOML(content) as unknown as RbacPolicy;
 
             this.roles.clear();
@@ -117,8 +117,8 @@ export class PolicyEngine {
     /**
      * Reload policies from the same or different path.
      */
-    reload(policyPath: string): void {
-        this.load(policyPath);
+    async reload(policyPath: string): Promise<void> {
+        await this.load(policyPath);
     }
 
     /**

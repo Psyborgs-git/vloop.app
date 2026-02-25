@@ -191,7 +191,7 @@ async function main(): Promise<void> {
     logger.info("Session manager initialized");
 
     const policyEngine = new PolicyEngine();
-    policyEngine.load(resolve("./config/policies.toml"));
+    await policyEngine.load(resolve("./config/policies.toml"));
     logger.info({ roles: policyEngine.roleNames() }, "RBAC policies loaded");
 
     const auditLogger = new AuditLogger(db);
@@ -665,12 +665,13 @@ async function main(): Promise<void> {
 
     // ── Config reload handler ──────────────────────────────────────────
     onReload(() => {
-        try {
-            policyEngine.reload(resolve("./config/policies.toml"));
-            logger.info("RBAC policies reloaded");
-        } catch (err) {
-            logger.error({ err }, "Failed to reload policies");
-        }
+        policyEngine.reload(resolve("./config/policies.toml"))
+            .then(() => {
+                logger.info("RBAC policies reloaded");
+            })
+            .catch((err) => {
+                logger.error({ err }, "Failed to reload policies");
+            });
     });
 
     // ── Await shutdown ─────────────────────────────────────────────────

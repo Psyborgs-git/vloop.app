@@ -50,7 +50,7 @@ describe('Auth Middleware Pipeline', () => {
     let router: Router;
     let policyPath: string;
 
-    beforeEach(() => {
+    beforeEach(async () => {
         tempDir = mkdtempSync(join(tmpdir(), 'orch-auth-integ-'));
         db = new Database(join(tempDir, 'test.db'));
 
@@ -80,7 +80,7 @@ permissions = [
 ]
 `);
         policyEngine = new PolicyEngine();
-        policyEngine.load(policyPath);
+        await policyEngine.load(policyPath);
 
         // Audit logger
         auditLogger = new AuditLogger(db);
