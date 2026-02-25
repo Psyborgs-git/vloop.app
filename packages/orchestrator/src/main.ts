@@ -56,6 +56,8 @@ import {
     createProcessHandler,
 } from "@orch/process";
 import type { ScheduledJob } from "@orch/process";
+import { ProcessGuard } from "./process-guard.js";
+import { OrchestratorError, ErrorCode } from "@orch/shared";
 import {
     DatabaseProvisioner,
     DatabasePool,
@@ -158,6 +160,21 @@ async function main(): Promise<void> {
 
     const db = dbManager.open();
     logger.info({ path: config.database.path }, "Encrypted database opened");
+
+    const processGuard = new ProcessGuard(db);
+    processGuard.init();
+    logger.info("Process guard initialized");
+
+    const processValidator = async (command: string) => {
+        try {
+            await processGuard.check(command);
+        } catch (err) {
+            if (err instanceof OrchestratorError && err.code === ErrorCode.PERMISSION_REQUIRED) {
+                logger.debug({ command, requestId: err.details?.requestId }, "Process permission required");
+            }
+            throw err;
+        }
+    };
 
     // ── 6. Init vault ──────────────────────────────────────────────────
     const vaultKeyPath = resolve("./data/keys/vault.key");
@@ -501,6 +518,13 @@ async function main(): Promise<void> {
 
     // Hook up cron executor to spawn processes
     cronScheduler.setExecutor(async (job: ScheduledJob) => {
+        try {
+            await processValidator(job.command);
+        } catch (err) {
+            logger.error({ err, job }, "Scheduled job permission denied/failed");
+            return { exitCode: 1 };
+        }
+
         const managed = processManager.start({
             id: `cron - ${job.id} -${Date.now()} `,
             command: job.command,
@@ -548,12 +572,48 @@ async function main(): Promise<void> {
     );
     router.register(
         "process",
-        createProcessHandler(processManager, cronScheduler, processLogManager),
+        createProcessHandler(processManager, cronScheduler, processLogManager, processValidator),
     );
     router.register(
         "schedule",
-        createProcessHandler(processManager, cronScheduler, processLogManager),
+        createProcessHandler(processManager, cronScheduler, processLogManager, processValidator),
     );
+    router.register("permissions", async (action, payload) => {
+        const data = (payload ?? {}) as Record<string, unknown>;
+        switch (action) {
+            case "list_allowed":
+                return { commands: processGuard.listAllowlist() };
+            case "list_requests":
+                return { requests: processGuard.listPending() };
+            case "approve": {
+                const requestId = data['requestId'] as string;
+                if (!requestId) throw new Error("Missing requestId");
+                processGuard.approve(requestId);
+                return { ok: true };
+            }
+            case "deny": {
+                const requestId = data['requestId'] as string;
+                if (!requestId) throw new Error("Missing requestId");
+                processGuard.deny(requestId);
+                return { ok: true };
+            }
+            case "add": {
+                const command = data['command'] as string;
+                if (!command) throw new Error("Missing command");
+                processGuard.add(command);
+                return { ok: true };
+            }
+            case "remove": {
+                const command = data['command'] as string;
+                if (!command) throw new Error("Missing command");
+                processGuard.remove(command);
+                return { ok: true };
+            }
+            default:
+                throw new Error(`Unknown permissions action: ${action}`);
+        }
+    });
+
     router.register(
         "terminal",
         createTerminalHandler(terminalManager, terminalProfileManager, sessionLogger, terminalSessionStore),

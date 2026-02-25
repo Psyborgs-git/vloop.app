@@ -13,6 +13,7 @@ export function createProcessHandler(
     processManager: ProcessManager,
     scheduler: CronScheduler,
     logManager: ProcessLogManager,
+    validator?: (command: string) => Promise<void>,
 ) {
     return async (action: string, payload: unknown): Promise<unknown> => {
         const data = (payload ?? {}) as Record<string, unknown>;
@@ -20,9 +21,14 @@ export function createProcessHandler(
         switch (action) {
             // ── Process actions ─────────────────────────────────────────
             case 'process.spawn': {
+                const command = requireString(data, 'command');
+                if (validator) {
+                    await validator(command);
+                }
+
                 const definition: ProcessDefinition = {
                     id: requireString(data, 'id'),
-                    command: requireString(data, 'command'),
+                    command,
                     args: (data['args'] as string[]) ?? [],
                     cwd: data['cwd'] as string | undefined,
                     env: data['env'] as Record<string, string> | undefined,
@@ -85,11 +91,16 @@ export function createProcessHandler(
 
             // ── Scheduler actions ───────────────────────────────────────
             case 'schedule.create': {
+                const command = requireString(data, 'command');
+                if (validator) {
+                    await validator(command);
+                }
+
                 const options: CreateJobOptions = {
                     id: requireString(data, 'id'),
                     cron: data['cron'] as string | undefined,
                     runAt: data['runAt'] as string | undefined,
-                    command: requireString(data, 'command'),
+                    command,
                     args: (data['args'] as string[]) ?? [],
                     cwd: data['cwd'] as string | undefined,
                     env: data['env'] as Record<string, string> | undefined,

@@ -23,6 +23,7 @@ export enum ErrorCode {
 
     // RBAC errors
     PERMISSION_DENIED = 'PERMISSION_DENIED',
+    PERMISSION_REQUIRED = 'PERMISSION_REQUIRED',
 
     // Vault errors
     VAULT_LOCKED = 'VAULT_LOCKED',
