@@ -10,7 +10,7 @@
 
 import type { DatabaseManager } from '@orch/shared/db';
 import type { Logger } from '@orch/daemon';
-import { PaginationOptions, PaginatedResult } from '@orch/shared';
+import type { PaginationOptions, PaginatedResult } from '@orch/shared';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
