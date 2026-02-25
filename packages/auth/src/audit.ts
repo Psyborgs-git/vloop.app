@@ -141,8 +141,18 @@ export class AuditLogger {
         }
 
         const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const limit = options.limit ?? 100;
-        const offset = options.offset ?? 0;
+        const defaultLimit = 100;
+        const defaultOffset = 0;
+        const rawLimit = options.limit;
+        const rawOffset = options.offset;
+        const limit =
+            Number.isFinite(rawLimit as number) && (rawLimit as number) >= 0
+                ? Math.trunc(rawLimit as number)
+                : defaultLimit;
+        const offset =
+            Number.isFinite(rawOffset as number) && (rawOffset as number) >= 0
+                ? Math.trunc(rawOffset as number)
+                : defaultOffset;
 
         const countRow = this.db.prepare(`SELECT COUNT(*) as count FROM audit_log ${where}`).get(...params) as { count: number };
         const total = countRow.count;
