@@ -233,7 +233,7 @@ export class VaultStore {
 		}
 
 		// ACL: unless requester is admin or system, must be the owner
-		if (requester && (row as any).owner !== "__system__") {
+		if (requester) {
 			const owner = (row as any).owner;
 			if (owner !== requester.identity && !requester.roles.includes("admin")) {
 				throw new OrchestratorError(
@@ -292,7 +292,7 @@ export class VaultStore {
 		}
 
 		// ACL check
-		if (requester && latest.owner && latest.owner !== "__system__") {
+		if (requester && latest.owner) {
 			if (
 				latest.owner !== requester.identity &&
 				!requester.roles.includes("admin")
