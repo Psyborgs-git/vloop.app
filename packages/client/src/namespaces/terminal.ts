@@ -1,4 +1,5 @@
 import type { OrchestratorClient } from '../client.js';
+import { PaginationOptions, PaginatedResult } from '@orch/shared';
 
 export interface TerminalSpawnOptions {
     sessionId?: string;
@@ -70,8 +71,8 @@ export class TerminalClient {
         return this.client.request('terminal', 'profile.delete', { id });
     }
 
-    public async listSessions(limit?: number): Promise<any> {
-        return this.client.request('terminal', 'session.list', limit ? { limit } : {});
+    public async listSessions(options: PaginationOptions = {}): Promise<PaginatedResult<any>> {
+        return this.client.request('terminal', 'session.list', options);
     }
 
     public async getSession(sessionId: string): Promise<any> {

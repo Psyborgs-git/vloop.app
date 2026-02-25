@@ -7,6 +7,7 @@
 
 import { createHash } from 'node:crypto';
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
+import { PaginationOptions, PaginatedResult } from '@orch/shared';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -23,14 +24,12 @@ export interface AuditEntry {
     entryHash: string;
 }
 
-export interface AuditQueryOptions {
+export interface AuditQueryOptions extends PaginationOptions {
     from?: string;
     to?: string;
     identity?: string;
     topic?: string;
     outcome?: 'allowed' | 'denied';
-    limit?: number;
-    offset?: number;
 }
 
 // ─── Implementation ─────────────────────────────────────────────────────────
@@ -116,7 +115,7 @@ export class AuditLogger {
     /**
      * Query audit log with filters.
      */
-    query(options: AuditQueryOptions = {}): AuditEntry[] {
+    query(options: AuditQueryOptions = {}): PaginatedResult<AuditEntry> {
         const conditions: string[] = [];
         const params: unknown[] = [];
 
@@ -145,6 +144,9 @@ export class AuditLogger {
         const limit = options.limit ?? 100;
         const offset = options.offset ?? 0;
 
+        const countRow = this.db.prepare(`SELECT COUNT(*) as count FROM audit_log ${where}`).get(...params) as { count: number };
+        const total = countRow.count;
+
         const rows = this.db.prepare(
             `SELECT * FROM audit_log ${where} ORDER BY id DESC LIMIT ? OFFSET ?`,
         ).all(...params, limit, offset) as Array<{
@@ -160,7 +162,7 @@ export class AuditLogger {
             entry_hash: string;
         }>;
 
-        return rows.map((row) => ({
+        const items = rows.map((row) => ({
             id: row.id,
             timestamp: row.timestamp,
             sessionId: row.session_id,
@@ -172,5 +174,7 @@ export class AuditLogger {
             traceId: row.trace_id,
             entryHash: row.entry_hash,
         }));
+
+        return { items, total, limit, offset };
     }
 }

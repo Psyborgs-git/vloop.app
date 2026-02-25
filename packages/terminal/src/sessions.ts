@@ -10,6 +10,7 @@
 
 import type { DatabaseManager } from '@orch/shared/db';
 import type { Logger } from '@orch/daemon';
+import { PaginationOptions, PaginatedResult } from '@orch/shared';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -113,15 +114,29 @@ export class TerminalSessionStore {
      * List session records, most-recent first.
      * Admins can pass `undefined` to list all; others should pass their identity.
      */
-    list(owner?: string, limit = 100): TerminalSessionRecord[] {
-        const rows = owner
-            ? (this.db.prepare(
-                'SELECT * FROM terminal_sessions WHERE owner = ? ORDER BY started_at DESC LIMIT ?',
-            ).all(owner, limit) as any[])
-            : (this.db.prepare(
-                'SELECT * FROM terminal_sessions ORDER BY started_at DESC LIMIT ?',
-            ).all(limit) as any[]);
-        return rows.map((r) => this.toRecord(r));
+    list(owner?: string, options: PaginationOptions = {}): PaginatedResult<TerminalSessionRecord> {
+        const limit = options.limit ?? 50;
+        const offset = options.offset ?? 0;
+
+        let countQuery = 'SELECT COUNT(*) as count FROM terminal_sessions';
+        let dataQuery = 'SELECT * FROM terminal_sessions';
+        const params: unknown[] = [];
+
+        if (owner) {
+            countQuery += ' WHERE owner = ?';
+            dataQuery += ' WHERE owner = ?';
+            params.push(owner);
+        }
+
+        dataQuery += ' ORDER BY started_at DESC LIMIT ? OFFSET ?';
+
+        const countRow = this.db.prepare(countQuery).get(...params) as { count: number };
+        const total = countRow.count;
+
+        const rows = this.db.prepare(dataQuery).all(...params, limit, offset) as any[];
+        const items = rows.map((r) => this.toRecord(r));
+
+        return { items, total, limit, offset };
     }
 
     private toRecord(row: any): TerminalSessionRecord {

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
-import { OrchestratorError, ErrorCode } from '@orch/shared';
+import { OrchestratorError, ErrorCode, PaginationOptions, PaginatedResult } from '@orch/shared';
 
 export interface JwtProvider {
     id: string;
@@ -36,6 +36,7 @@ export class JwtProviderManager {
                 created_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_jwt_providers_issuer ON jwt_providers(issuer);
+            CREATE INDEX IF NOT EXISTS idx_jwt_providers_created_at ON jwt_providers(created_at DESC);
         `);
     }
 
@@ -90,14 +91,22 @@ export class JwtProviderManager {
     /**
      * List all JWT providers.
      */
-    list(): JwtProvider[] {
-        const rows = this.db.prepare('SELECT * FROM jwt_providers ORDER BY created_at DESC').all() as JwtProviderRow[];
-        return rows.map(row => ({
+    list(options: PaginationOptions = {}): PaginatedResult<JwtProvider> {
+        const limit = options.limit ?? 50;
+        const offset = options.offset ?? 0;
+
+        const countRow = this.db.prepare('SELECT COUNT(*) as count FROM jwt_providers').get() as { count: number };
+        const total = countRow.count;
+
+        const rows = this.db.prepare('SELECT * FROM jwt_providers ORDER BY created_at DESC LIMIT ? OFFSET ?').all(limit, offset) as JwtProviderRow[];
+        const items = rows.map(row => ({
             id: row.id,
             issuer: row.issuer,
             jwksUrl: row.jwks_url,
             audience: row.audience,
             createdAt: row.created_at,
         }));
+
+        return { items, total, limit, offset };
     }
 }
