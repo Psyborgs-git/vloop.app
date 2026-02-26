@@ -82,28 +82,32 @@ describe('JwtValidator', () => {
     it('should throw TOKEN_INVALID if issuer is missing in token', async () => {
         vi.mocked(jose.decodeJwt).mockReturnValue({}); // No iss
 
-        await expect(validator.validate(validToken)).rejects.toThrow(OrchestratorError);
-        await expect(validator.validate(validToken)).rejects.toThrow('JWT missing required "iss" claim');
-
+        let error: any;
         try {
             await validator.validate(validToken);
         } catch (err: any) {
-            expect(err.code).toBe(ErrorCode.TOKEN_INVALID);
+            error = err;
         }
+
+        expect(error).toBeInstanceOf(OrchestratorError);
+        expect(error.message).toContain('JWT missing required "iss" claim');
+        expect(error.code).toBe(ErrorCode.TOKEN_INVALID);
     });
 
     it('should throw AUTH_FAILED if provider is not found', async () => {
         vi.mocked(jose.decodeJwt).mockReturnValue({ iss: 'unknown-issuer' });
         vi.mocked(mockProviderManager.findByIssuer).mockReturnValue(undefined);
 
-        await expect(validator.validate(validToken)).rejects.toThrow(OrchestratorError);
-        await expect(validator.validate(validToken)).rejects.toThrow('is not a registered provider');
-
+        let error: any;
         try {
             await validator.validate(validToken);
         } catch (err: any) {
-            expect(err.code).toBe(ErrorCode.AUTH_FAILED);
+            error = err;
         }
+
+        expect(error).toBeInstanceOf(OrchestratorError);
+        expect(error.message).toContain('is not a registered provider');
+        expect(error.code).toBe(ErrorCode.AUTH_FAILED);
     });
 
     it('should cache JWKS for the same issuer', async () => {
