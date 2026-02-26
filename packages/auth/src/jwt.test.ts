@@ -197,13 +197,13 @@ describe('JwtValidator', () => {
     });
 
     it('should rethrow OrchestratorError if thrown inside try block', async () => {
-         // Force decodeJwt to throw OrchestratorError (e.g. somehow)
-         // Or easier: make jwtVerify throw one
-         const orchError = new OrchestratorError(ErrorCode.INTERNAL_ERROR, 'Internal error');
-         vi.mocked(jose.decodeJwt).mockReturnValue({ iss: mockProvider.issuer });
-         vi.mocked(mockProviderManager.findByIssuer).mockReturnValue(mockProvider);
-         vi.mocked(jose.jwtVerify).mockRejectedValue(orchError);
+        // Force decodeJwt to throw OrchestratorError (e.g. somehow)
+        // Or easier: make jwtVerify throw one
+        const orchError = new OrchestratorError(ErrorCode.INTERNAL_ERROR, 'Internal error');
+        vi.mocked(jose.decodeJwt).mockReturnValue({ iss: mockProvider.issuer });
+        vi.mocked(mockProviderManager.findByIssuer).mockReturnValue(mockProvider);
+        vi.mocked(jose.jwtVerify).mockRejectedValue(orchError);
 
-         await expect(validator.validate(validToken)).rejects.toThrow(orchError);
+        await expect(validator.validate(validToken)).rejects.toThrow(orchError);
     });
 });
