@@ -7,6 +7,7 @@
 
 import { EventEmitter } from 'node:events';
 import * as pty from 'node-pty';
+import * as fs from 'node:fs';
 import type { Logger } from '@orch/daemon';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -83,7 +84,9 @@ export class TerminalManager extends EventEmitter {
         const shell = options.shell ?? detectDefaultShell();
         const cols = options.cols ?? 80;
         const rows = options.rows ?? 24;
-        const cwd = options.cwd ?? process.env['HOME'] ?? '/';
+        // treat empty string as unspecified so we fall back to HOME
+        let cwd = options.cwd && options.cwd.length > 0 ? options.cwd : undefined;
+        cwd = cwd ?? process.env['HOME'] ?? '/';
         const args = options.args ?? [];
 
         const env: Record<string, string> = {
@@ -93,18 +96,42 @@ export class TerminalManager extends EventEmitter {
             ...options.env,
         };
 
+        // validate the working directory before spawning
+        try {
+            // ensure path exists and is a directory
+            const stat = fs.statSync(cwd);
+            if (!stat.isDirectory()) {
+                throw new Error('not a directory');
+            }
+        } catch (err: any) {
+            // throw a clearer error to caller
+            throw new Error(
+                `Invalid working directory "${cwd}": ${err.message}`,
+            );
+        }
+
         this.logger.info(
             { sessionId: options.sessionId, shell, cols, rows, cwd },
             `Spawning terminal session: ${options.sessionId}`,
         );
 
-        const ptyProcess = pty.spawn(shell, args, {
-            name: 'xterm-256color',
-            cols,
-            rows,
-            cwd,
-            env,
-        });
+        let ptyProcess;
+        try {
+            ptyProcess = pty.spawn(shell, args, {
+                name: 'xterm-256color',
+                cols,
+                rows,
+                cwd,
+                env,
+            });
+        } catch (err: any) {
+            this.logger.error(
+                { sessionId: options.sessionId, cwd, err: err.message },
+                'Failed to spawn terminal session',
+            );
+            // rethrow with understandable message
+            throw new Error(`Failed to spawn terminal: ${err.message}`);
+        }
 
         const info: TerminalSessionInfo = {
             sessionId: options.sessionId,

@@ -15,7 +15,12 @@ const createdPtys: MockPty[] = [];
 
 vi.mock('node-pty', () => {
     return {
-        spawn: vi.fn(() => {
+        spawn: vi.fn((shell: string, args: string[], options: any) => {
+            // simulate failure for certain cwd to exercise error handling
+            if (options.cwd === '/throw') {
+                throw new Error('simulated spawn failure');
+            }
+
             const pty = new EventEmitter() as MockPty;
             pty.pid = Math.floor(Math.random() * 10_000);
 
@@ -61,6 +66,15 @@ function createLoggerStub() {
 describe('TerminalManager', () => {
     beforeEach(() => {
         createdPtys.splice(0, createdPtys.length);
+        // prevent filesystem dependency by pretending any cwd exists and is a dir
+        const fsModule = require('fs');
+        vi.spyOn(fsModule, 'statSync').mockImplementation((p: string) => {
+            return { isDirectory: () => true } as any;
+        });
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
     });
 
     it('spawns a session and lists it', () => {
@@ -77,6 +91,38 @@ describe('TerminalManager', () => {
         expect(info.owner).toBe('alice');
         expect(manager.list()).toHaveLength(1);
         expect(manager.get('s1')?.cols).toBe(120);
+    });
+
+    it('defaults to HOME when cwd is an empty string', () => {
+        const manager = new TerminalManager(createLoggerStub());
+        process.env.HOME = '/home/test';
+        const info = manager.spawn({
+            sessionId: 's-empty',
+            owner: 'eve',
+            cwd: '',
+        });
+        expect(info.cwd).toBe('/home/test');
+    });
+
+    it('throws when provided working directory does not exist', () => {
+        const manager = new TerminalManager(createLoggerStub());
+        const badPath = '/definitely-does-not-exist';
+        // override fs to simulate missing path for this test
+        const fsModule = require('fs');
+        vi.spyOn(fsModule, 'statSync').mockImplementation(() => {
+            throw new Error('ENOENT');
+        });
+
+        expect(() =>
+            manager.spawn({ sessionId: 's-bad', owner: 'frank', cwd: badPath }),
+        ).toThrow(/Invalid working directory/);
+    });
+
+    it('converts underlying pty errors into readable messages', () => {
+        const manager = new TerminalManager(createLoggerStub());
+        expect(() =>
+            manager.spawn({ sessionId: 's-throw', owner: 'gary', cwd: '/throw' }),
+        ).toThrow(/Failed to spawn terminal/);
     });
 
     it('writes and resizes active sessions', () => {

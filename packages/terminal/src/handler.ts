@@ -61,17 +61,26 @@ export function createTerminalHandler(
                 const sessionId = (data['sessionId'] as string) ||
                     `term_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-                const info = manager.spawn({
-                    sessionId,
-                    shell,
-                    args: data['args'] as string[] | undefined,
-                    cwd: data['cwd'] as string | undefined,
-                    env: data['env'] as Record<string, string> | undefined,
-                    cols: data['cols'] as number | undefined,
-                    rows: data['rows'] as number | undefined,
-                    owner: identity,
-                    profileId: data['profileId'] as string | undefined,
-                });
+                let info;
+                try {
+                    info = manager.spawn({
+                        sessionId,
+                        shell,
+                        args: data['args'] as string[] | undefined,
+                        cwd: data['cwd'] as string | undefined,
+                        env: data['env'] as Record<string, string> | undefined,
+                        cols: data['cols'] as number | undefined,
+                        rows: data['rows'] as number | undefined,
+                        owner: identity,
+                        profileId: data['profileId'] as string | undefined,
+                    });
+                } catch (err: any) {
+                    // convert lower‑level errors into OrchestratorError for the handler
+                    throw new OrchestratorError(
+                        ErrorCode.TERMINAL_ERROR,
+                        err.message || 'Failed to spawn terminal session',
+                    );
+                }
 
                 // Start recording (with DB metadata)
                 sessionLogger.startRecording({
@@ -136,7 +145,10 @@ export function createTerminalHandler(
                 const rows = data['rows'] as number ?? 24;
                 const session = manager.get(sessionId);
                 if (!session) {
-                    throw new OrchestratorError(ErrorCode.NOT_FOUND, `Session not found: ${sessionId}`);
+                    // missing session can happen if the workspace closed or spawn failed;
+                    // treat as harmless no-op and avoid polluting logs with NOT_FOUND errors.
+                    // caller already swallows errors, so we simply return success without taking action.
+                    return { ok: true, cols, rows };
                 }
                 if (session.owner !== identity && !roles.includes('admin')) {
                     throw new OrchestratorError(ErrorCode.PERMISSION_DENIED, 'Not session owner');
@@ -171,7 +183,7 @@ export function createTerminalHandler(
                     ? Math.max(1, Math.min(500, Math.floor(limitRaw)))
                     : 100;
 
-                return sessionStore.list(owner, limit);
+                return sessionStore.list(owner, { limit });
             }
 
             case 'session.get': {

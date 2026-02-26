@@ -108,6 +108,57 @@ describe('terminal handler session history actions', () => {
         const handler = createTerminalHandler(manager as any, profileManager, sessionLogger, sessionStore);
         await handler('session.list', { limit: 10000 }, context('alice', ['admin']));
 
-        expect(sessionStore.list).toHaveBeenCalledWith(undefined, 500);
+        expect(sessionStore.list).toHaveBeenCalledWith(undefined, { limit: 500 });
+    });
+
+    it('converts manager.spawn errors into OrchestratorError', async () => {
+        const manager = new FakeManager();
+        manager.countByOwner.mockReturnValue(0);
+        manager.spawn.mockImplementation(() => {
+            throw new Error('boom');
+        });
+
+        const profileManager = {
+            list: vi.fn(() => []),
+            create: vi.fn(),
+            get: vi.fn(),
+            update: vi.fn(),
+            delete: vi.fn(),
+        } as any;
+
+        const sessionLogger = {
+            startRecording: vi.fn(),
+            appendData: vi.fn(),
+            stopRecording: vi.fn(),
+            getScrollback: vi.fn(() => ''),
+            getLogContent: vi.fn(() => ''),
+        } as any;
+
+        const handler = createTerminalHandler(manager as any, profileManager, sessionLogger);
+        await expect(
+            handler('spawn', { sessionId: 'x' }, context('alice', ['admin'])),
+        ).rejects.toMatchObject({ code: ErrorCode.TERMINAL_ERROR, message: 'boom' });
+    });
+
+    it('resize returns ok when session missing', async () => {
+        const manager = new FakeManager();
+        manager.get.mockReturnValue(undefined);
+        const profileManager = {
+            list: vi.fn(() => []),
+            create: vi.fn(),
+            get: vi.fn(),
+            update: vi.fn(),
+            delete: vi.fn(),
+        } as any;
+        const sessionLogger = {
+            startRecording: vi.fn(),
+            appendData: vi.fn(),
+            stopRecording: vi.fn(),
+            getScrollback: vi.fn(() => ''),
+            getLogContent: vi.fn(() => ''),
+        } as any;
+        const handler = createTerminalHandler(manager as any, profileManager, sessionLogger);
+        const result = await handler('resize', { sessionId: 'missing', cols: 10, rows: 5 }, context('alice', ['admin']));
+        expect(result).toEqual({ ok: true, cols: 10, rows: 5 });
     });
 });

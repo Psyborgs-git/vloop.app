@@ -257,7 +257,8 @@ export default function TerminalView() {
         if (!container) return;
         const ro = new ResizeObserver(() => {
             const tab = tabsRef.current.find((t) => t.id === activeTabId);
-            if (!tab?.fit || !tab?.term || !terminalApi) return;
+            // only resize when the terminal has been created successfully
+            if (!tab?.fit || !tab?.term || !terminalApi || !tab.requestId || !tab.running) return;
             tab.fit.fit();
             if (typeof terminalApi?.resize === 'function') {
                 terminalApi.resize(tab.sessionId, tab.term.cols, tab.term.rows).catch(() => undefined);

@@ -48,6 +48,8 @@ Topic: `terminal`
 - output chunk payload: `{ sessionId, data }`
 - exit payload: `{ sessionId, type: 'exit', exitCode, signal }`
 
+> **Resizing behaviour:** requests for unknown or prematurely‑created sessions are now silently ignored to avoid noise in the orchestrator logs. The client will only start emitting resize calls once the session stream has been established.
+
 ## Permission Model
 
 Default policy (`DEFAULT_TERMINAL_POLICY`):
@@ -85,7 +87,7 @@ The UI route `/terminal` supports:
 
 - multi-session tabs
 - profile selection
-- optional shell/cwd overrides
+- optional shell/cwd overrides (empty string is treated as unset and will default to the user's HOME; invalid paths cause a spawn error)
 - live stream output in xterm
 - session kill, clear, and scrollback export
 

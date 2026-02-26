@@ -11,3 +11,7 @@ dist/
 *.cert
 coverage/
 .DS_Store
+
+tsconfig.tsbuildinfo/
+data/terminal-logs/*
+data/media/*
