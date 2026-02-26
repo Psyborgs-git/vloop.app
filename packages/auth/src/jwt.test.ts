@@ -1,3 +1,6 @@
+/**
+ * Tests for @orch/auth/jwt — JwtValidator unit tests
+ */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { JwtValidator } from './jwt.js';
 import { JwtProviderManager } from './jwt-provider.js';
