@@ -62,6 +62,11 @@ import {
     TerminalSessionStore,
     createTerminalHandler,
 } from "@orch/terminal";
+import {
+    PluginManager,
+    PluginStore,
+    HookService,
+} from "@orch/plugin";
 import { createMediaHandler } from "@orch/media";
 import { createMcpHttpHandler } from "./mcp-server.js";
 import { registerAITools } from "./ai-tools.js";
@@ -88,6 +93,8 @@ export class OrchestratorApp {
     private processLogManager!: ProcessLogManager;
     private terminalManager!: TerminalManager;
     private sessionLogger!: SessionLogger;
+    private pluginManager!: PluginManager;
+    private hookService!: HookService;
     private dbPool!: DatabasePool;
     private wsHandle!: any;
     private healthServer!: any;
@@ -127,6 +134,8 @@ export class OrchestratorApp {
                 dbProvisioner,
                 externalDbRegistry
             } = this.initDatabaseSubsystem(db);
+
+            this.initPluginSubsystem(db, dbProvisioner);
 
             const {
                 agentOrchestrator,
@@ -320,6 +329,29 @@ export class OrchestratorApp {
         return { dbProvisioner, externalDbRegistry };
     }
 
+    private initPluginSubsystem(db: any, dbProvisioner: DatabaseProvisioner) {
+        const pluginStore = new PluginStore(db, this.logger);
+        this.hookService = new HookService(this.logger);
+
+        this.pluginManager = new PluginManager(
+            this.logger,
+            pluginStore,
+            this.hookService,
+            this.vaultStore,
+            resolve("./data/plugins")
+        );
+
+        // Auto-start active plugins
+        const plugins = pluginStore.list();
+        for (const p of plugins) {
+            if (p.status === "active") {
+                this.pluginManager.start(p.id).catch(err => {
+                    this.logger.error({ err, pluginId: p.id }, "Failed to auto-start plugin");
+                });
+            }
+        }
+    }
+
     private initAgentSubsystem(db: any) {
         const agentSandbox = new AgentSandbox(this.logger);
         const toolRegistry = new ToolRegistry(this.logger);
@@ -395,6 +427,24 @@ export class OrchestratorApp {
         router.register("media", createMediaHandler(resolve("./data/media")));
         router.register("db", createDatabaseHandler(dbProvisioner, this.dbPool, this.dbManager, externalDbRegistry));
         router.register("agent", createAgentHandler(agentOrchestrator, aiConfigStore));
+
+        // Plugin Handler
+        router.register("plugin", async (action, payload: any) => {
+            switch (action) {
+                case "install":
+                    return this.pluginManager.install(payload.url);
+                case "approve":
+                    return this.pluginManager.approve(payload.id, payload.permissions || []);
+                case "list":
+                    return this.pluginManager.list();
+                case "start":
+                    return this.pluginManager.start(payload.id);
+                case "stop":
+                    return this.pluginManager.stop(payload.id);
+                default:
+                    throw new Error(`Unknown plugin action: ${action}`);
+            }
+        });
 
         // Session topic handler
         router.register("session", async (action, payload, context) => {
