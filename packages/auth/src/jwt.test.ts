@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { JwtValidator } from './jwt.js';
 import { JwtProviderManager } from './jwt-provider.js';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
