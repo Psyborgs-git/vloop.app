@@ -1,0 +1,15 @@
+{
+    "extends": "../../tsconfig.json",
+    "compilerOptions": {
+        "outDir": "dist",
+        "rootDir": "src",
+        "composite": true,
+        "declaration": true
+    },
+    "include": ["src/**/*"],
+    "references": [
+        { "path": "../daemon" },
+        { "path": "../shared" },
+        { "path": "../db-manager" }
+    ]
+}

@@ -1,0 +1,29 @@
+{
+    "name": "@orch/plugin",
+    "version": "0.1.0",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc -b",
+        "clean": "rm -rf dist tsconfig.tsbuildinfo",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "@orch/daemon": "workspace:*",
+        "@orch/db-manager": "workspace:*",
+        "@orch/shared": "workspace:*",
+        "@types/uuid": "^11.0.0",
+        "better-sqlite3-multiple-ciphers": "^11.5.0",
+        "node-fetch": "^2.7.0",
+        "unzipper": "^0.10.14",
+        "uuid": "^13.0.0",
+        "zod": "^4.3.6"
+    },
+    "devDependencies": {
+        "@types/better-sqlite3": "^7.6.12",
+        "@types/node": "^22.0.0",
+        "@types/node-fetch": "^2.6.13",
+        "@types/unzipper": "^0.10.10",
+        "vitest": "^3.0.0"
+    }
+}
