@@ -36,46 +36,44 @@ The following diagram illustrates how the core components interact within the vl
 ```mermaid
 graph TD
     subgraph Clients
-        CLI[CLI Tool]
-        WebUI[Web Dashboard]
-        MCP[MCP Clients]
+        CLI[CLI tool]
+        WebUI[Web dashboard]
+        MCP[MCP clients]
     end
 
     subgraph "vloop Daemon"
         API[WebSocket API / Router]
 
-        subgraph "Security Kernel"
-            Auth[Auth & Session Mgr]
-            RBAC[Policy Engine]
-            Audit[Audit Logger]
+        subgraph "Security kernel"
+            Auth[Auth & session manager]
+            RBAC[Policy engine]
+            Audit[Audit logger]
         end
 
-        subgraph "Orchestration Engine"
-            AgentOrch[AI Agent Orchestrator]
-            ProcMgr[Process Manager]
-            ContMgr[Container Manager]
-            TermMgr[Terminal Manager]
-            DBMgr[Database Manager]
+        subgraph "Orchestration engine"
+            AgentOrch[AI‑agent orchestrator]
+            ProcMgr[Process manager]
+            ContMgr[Container manager]
+            TermMgr[Terminal manager]
+            DBMgr[Database manager]
         end
 
-        subgraph "Data & State"
-            Vault[(Encrypted Vault)]
-            StateDB[(State Database)]
+        subgraph "Data & state"
+            Vault[(Encrypted vault)]
+            StateDB[(State database)]
         end
     end
 
-    subgraph "External Systems"
-        Docker[Docker Engine]
-        LLM[LLM Providers (Ollama/OpenAI)]
-        OS[Operating System]
+    subgraph "External systems"
+        Docker[Docker engine]
+        LLM["LLM providers (Ollama / OpenAI)"]
+        OS[Operating system]
     end
 
-    %% Client Connections
     CLI -->|WebSocket| API
     WebUI -->|WebSocket| API
-    MCP -->|SSE/Stdio| API
+    MCP -->|SSE / stdio| API
 
-    %% Internal Flow
     API --> Auth
     Auth --> RBAC
     RBAC --> Audit
@@ -85,17 +83,15 @@ graph TD
     Audit --> TermMgr
     Audit --> DBMgr
 
-    %% Component Actions
-    ProcMgr -->|Spawn/Kill| OS
+    ProcMgr -->|spawn / kill| OS
     ContMgr -->|API| Docker
     TermMgr -->|PTY| OS
-    AgentOrch -->|Inference| LLM
+    AgentOrch -->|inference| LLM
 
-    %% Data Access
     AgentOrch --> StateDB
-    Vault -.->|Inject Secrets| ProcMgr
-    Vault -.->|Inject Secrets| ContMgr
-    Vault -.->|API Keys| AgentOrch
+    Vault -.->|inject secrets| ProcMgr
+    Vault -.->|inject secrets| ContMgr
+    Vault -.->|API keys| AgentOrch
 ```
 
 ## Key Architectural Decisions

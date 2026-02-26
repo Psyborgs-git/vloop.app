@@ -32,7 +32,7 @@ The following sequence diagram details the flow of a user requesting to spawn a 
 
 ```mermaid
 sequenceDiagram
-    participant User as CLI / Client
+    participant User as "CLI / Client"
     participant API as WebSocket Router
     participant Auth as Security Kernel
     participant Handler as Process Handler
