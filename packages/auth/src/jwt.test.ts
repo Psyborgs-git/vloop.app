@@ -1,4 +1,7 @@
-import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
+/**
+ * Tests for @orch/auth/jwt — JwtValidator unit tests
+ */
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { JwtValidator } from './jwt.js';
 import { JwtProviderManager } from './jwt-provider.js';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
@@ -82,28 +85,32 @@ describe('JwtValidator', () => {
     it('should throw TOKEN_INVALID if issuer is missing in token', async () => {
         vi.mocked(jose.decodeJwt).mockReturnValue({}); // No iss
 
-        await expect(validator.validate(validToken)).rejects.toThrow(OrchestratorError);
-        await expect(validator.validate(validToken)).rejects.toThrow('JWT missing required "iss" claim');
-
+        let error: any;
         try {
             await validator.validate(validToken);
         } catch (err: any) {
-            expect(err.code).toBe(ErrorCode.TOKEN_INVALID);
+            error = err;
         }
+
+        expect(error).toBeInstanceOf(OrchestratorError);
+        expect(error.message).toContain('JWT missing required "iss" claim');
+        expect(error.code).toBe(ErrorCode.TOKEN_INVALID);
     });
 
     it('should throw AUTH_FAILED if provider is not found', async () => {
         vi.mocked(jose.decodeJwt).mockReturnValue({ iss: 'unknown-issuer' });
         vi.mocked(mockProviderManager.findByIssuer).mockReturnValue(undefined);
 
-        await expect(validator.validate(validToken)).rejects.toThrow(OrchestratorError);
-        await expect(validator.validate(validToken)).rejects.toThrow('is not a registered provider');
-
+        let error: any;
         try {
             await validator.validate(validToken);
         } catch (err: any) {
-            expect(err.code).toBe(ErrorCode.AUTH_FAILED);
+            error = err;
         }
+
+        expect(error).toBeInstanceOf(OrchestratorError);
+        expect(error.message).toContain('is not a registered provider');
+        expect(error.code).toBe(ErrorCode.AUTH_FAILED);
     });
 
     it('should cache JWKS for the same issuer', async () => {
@@ -197,13 +204,13 @@ describe('JwtValidator', () => {
     });
 
     it('should rethrow OrchestratorError if thrown inside try block', async () => {
-         // Force decodeJwt to throw OrchestratorError (e.g. somehow)
-         // Or easier: make jwtVerify throw one
-         const orchError = new OrchestratorError(ErrorCode.INTERNAL_ERROR, 'Internal error');
-         vi.mocked(jose.decodeJwt).mockReturnValue({ iss: mockProvider.issuer });
-         vi.mocked(mockProviderManager.findByIssuer).mockReturnValue(mockProvider);
-         vi.mocked(jose.jwtVerify).mockRejectedValue(orchError);
+        // Force decodeJwt to throw OrchestratorError (e.g. somehow)
+        // Or easier: make jwtVerify throw one
+        const orchError = new OrchestratorError(ErrorCode.INTERNAL_ERROR, 'Internal error');
+        vi.mocked(jose.decodeJwt).mockReturnValue({ iss: mockProvider.issuer });
+        vi.mocked(mockProviderManager.findByIssuer).mockReturnValue(mockProvider);
+        vi.mocked(jose.jwtVerify).mockRejectedValue(orchError);
 
-         await expect(validator.validate(validToken)).rejects.toThrow(orchError);
+        await expect(validator.validate(validToken)).rejects.toThrow(orchError);
     });
 });
