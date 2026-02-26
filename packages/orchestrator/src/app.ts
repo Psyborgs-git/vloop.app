@@ -526,7 +526,7 @@ export async function runOrchestrator(): Promise<void> {
         }
 
         const managed = processManager.start({
-            id: `cron - ${job.id} -${Date.now()} `,
+            id: `cron-${job.id}-${Date.now()}`,
             command: job.command,
             args: job.args,
             cwd: job.cwd,
