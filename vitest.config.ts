@@ -1,6 +1,15 @@
 import { defineConfig } from 'vitest/config';
+import path from 'path';
 
 export default defineConfig({
+    resolve: {
+        alias: {
+            '@orch/shared': path.resolve(__dirname, 'packages/shared/src/index.ts'),
+            '@orch/daemon': path.resolve(__dirname, 'packages/daemon/src/index.ts'),
+            '@orch/container': path.resolve(__dirname, 'packages/container/src/index.ts'),
+            '@orch/auth': path.resolve(__dirname, 'packages/auth/src/index.ts'),
+        }
+    },
     test: {
         globals: true,
         environment: 'node',
