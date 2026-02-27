@@ -1,5 +1,5 @@
 import { mkdir, readdir, stat } from 'node:fs/promises';
-import { join, extname } from 'node:path';
+import { join, extname, resolve, sep } from 'node:path';
 
 export interface MediaFile {
     id: string;
@@ -15,9 +15,27 @@ export interface MediaFile {
 export class LocalMediaAdapter {
     constructor(private readonly rootPath: string) {}
 
-    async listFiles(subPath: string = ''): Promise<MediaFile[]> {
-        const targetPath = join(this.rootPath, subPath);
+    private validatePath(subPath: string): string {
+        const targetPath = resolve(this.rootPath, subPath);
+        const resolvedRoot = resolve(this.rootPath);
+
+        // Ensure the path is within the root directory
+        // We add a path separator to the end of the root path to prevent partial matches
+        // e.g. /var/www vs /var/www-secret
+        if (targetPath !== resolvedRoot && !targetPath.startsWith(resolvedRoot + sep)) {
+            throw new Error('Access denied: Path traversal detected');
+        }
+        return targetPath;
+    }
+
+    async createDirectory(subPath: string): Promise<void> {
+        const targetPath = this.validatePath(subPath);
         await mkdir(targetPath, { recursive: true });
+    }
+
+    async listFiles(subPath: string = ''): Promise<MediaFile[]> {
+        const targetPath = this.validatePath(subPath);
+
         const entries = await readdir(targetPath, { withFileTypes: true });
         
         const files: MediaFile[] = [];
