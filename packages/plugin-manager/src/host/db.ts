@@ -24,9 +24,10 @@ export class DbHostFunctions {
         const creds = await this.dbProvisioner.getCredentials('plugin-' + this.pluginId, this.dbId);
 
         try {
-            const db = new Database(creds.path);
-            db.pragma(`cipher='sqlcipher'`);
-            db.pragma(`key='${creds.key}'`);
+            const db = new Database(creds.path, {
+                cipher: 'sqlcipher',
+                key: creds.key,
+            });
 
             // Execute
             // CAUTION: This allows arbitrary SQL.
