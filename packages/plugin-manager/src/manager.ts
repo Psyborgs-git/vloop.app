@@ -81,13 +81,8 @@ export class PluginManager {
         // For now, we just load it.
         this.logger.info({ pluginId: record.id }, 'Plugin loaded');
 
-        try {
-             if (await sandbox.call('on_start').catch(() => false)) {
-                 this.logger.info({ pluginId: record.id }, 'Plugin on_start executed');
-             }
-        } catch (e) {
-            // ignore if on_start doesn't exist or fails (it might not be exported)
-            // Extism throws if function not found
+        if (await sandbox.call('on_start').catch(() => false)) {
+            this.logger.info({ pluginId: record.id }, 'Plugin on_start executed');
         }
     }
 
