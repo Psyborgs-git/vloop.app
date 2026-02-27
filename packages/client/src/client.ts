@@ -85,6 +85,7 @@ export class OrchestratorClient {
     public readonly agent: AgentClient;
     public readonly auth: AuthClient;
     public readonly terminal: TerminalClient;
+    public readonly plugin: any; // Dynamic namespace for now
 
     constructor(private config: ClientConfig) {
         this.process = new ProcessClient(this);
@@ -94,6 +95,14 @@ export class OrchestratorClient {
         this.agent = new AgentClient(this);
         this.auth = new AuthClient(this);
         this.terminal = new TerminalClient(this);
+        // Minimal typed client wrapper for plugin
+        this.plugin = {
+            list: async () => this.request('plugin', 'list', {}),
+            install: async (url: string) => this.request('plugin', 'install', { url }),
+            grant: async (id: string, permissions: string[]) => this.request('plugin', 'grant', { id, permissions }),
+            cancel: async (id: string) => this.request('plugin', 'cancel', { id }),
+            uninstall: async (id: string) => this.request('plugin', 'uninstall', { id }),
+        };
         this.config = config;
     }
 

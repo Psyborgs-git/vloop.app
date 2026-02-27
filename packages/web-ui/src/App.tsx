@@ -15,6 +15,7 @@ import AIConfigView from './views/AIConfigView.js';
 import WorkflowBuilderView from './views/WorkflowBuilderView.js';
 import WorkflowRunsView from './views/WorkflowRunsView.js';
 import MediaView from './views/MediaView.js';
+import PluginsView from './views/PluginsView.js';
 import { lightTheme, darkTheme } from './theme.js';
 import {
     Box,
@@ -49,6 +50,7 @@ import {
     X,
     Sparkles,
     FolderOpen,
+    Puzzle,
 } from 'lucide-react';
 
 import { ToastProvider } from './components/ToastContext.js';
@@ -81,6 +83,7 @@ const Sidebar = ({
         { path: '/terminal', label: 'Terminal', icon: SquareTerminal },
         { path: '/data', label: 'Data Explorer', icon: Database },
         { path: '/media', label: 'Media & Files', icon: FolderOpen },
+        { path: '/plugins', label: 'Plugins', icon: Puzzle },
         { path: '/canvas', label: 'Dynamic Canvas', icon: Paintbrush },
         { path: '/auth', label: 'Access Control', icon: Users },
     ];
@@ -335,6 +338,7 @@ export default function App() {
                             <Route path="/terminal" element={<TerminalView />} />
                             <Route path="/data" element={<DataView />} />
                             <Route path="/media" element={<MediaView />} />
+                            <Route path="/plugins" element={<PluginsView />} />
                             <Route path="/canvas" element={<CanvasView />} />
                             <Route path="/auth" element={<AuthView />} />
                         </Routes>
