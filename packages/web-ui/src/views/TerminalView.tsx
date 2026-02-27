@@ -123,6 +123,7 @@ export default function TerminalView() {
     const tabsRef = useRef<TerminalTab[]>([]);
     const resizeObserverRef = useRef<ResizeObserver | null>(null);
     const termContainerRef = useRef<HTMLDivElement | null>(null);
+    const resizeTimeoutRef = useRef<any>(null);
 
     const [tabs, setTabs] = useState<TerminalTab[]>([]);
     const [activeTabId, setActiveTabId] = useState<string>('');
@@ -259,17 +260,27 @@ export default function TerminalView() {
             const tab = tabsRef.current.find((t) => t.id === activeTabId);
             // only resize when the terminal has been created successfully
             if (!tab?.fit || !tab?.term || !terminalApi || !tab.requestId || !tab.running) return;
+
+            // Always fit the terminal UI immediately for responsiveness
             tab.fit.fit();
-            if (typeof terminalApi?.resize === 'function') {
-                terminalApi.resize(tab.sessionId, tab.term.cols, tab.term.rows).catch(() => undefined);
-            } else {
-                requestTerminal('resize', { sessionId: tab.sessionId, cols: tab.term.cols, rows: tab.term.rows })
-                    .catch(() => undefined);
-            }
+
+            // Debounce the backend resize request to avoid flooding the websocket
+            if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
+            resizeTimeoutRef.current = setTimeout(() => {
+                if (typeof terminalApi?.resize === 'function') {
+                    terminalApi.resize(tab.sessionId, tab.term.cols, tab.term.rows).catch(() => undefined);
+                } else {
+                    requestTerminal('resize', { sessionId: tab.sessionId, cols: tab.term.cols, rows: tab.term.rows })
+                        .catch(() => undefined);
+                }
+            }, 200);
         });
         ro.observe(container);
         resizeObserverRef.current = ro;
-        return () => ro.disconnect();
+        return () => {
+            ro.disconnect();
+            if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
+        };
     }, [activeTabId, terminalApi, requestTerminal]);
 
     // ── Spawn a new session ───────────────────────────────────────────
