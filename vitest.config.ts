@@ -8,6 +8,9 @@ export default defineConfig({
             '@orch/daemon': path.resolve(__dirname, 'packages/daemon/src/index.ts'),
             '@orch/container': path.resolve(__dirname, 'packages/container/src/index.ts'),
             '@orch/auth': path.resolve(__dirname, 'packages/auth/src/index.ts'),
+            '@orch/db-manager': path.resolve(__dirname, 'packages/db-manager/src/index.ts'),
+            '@orch/vault': path.resolve(__dirname, 'packages/vault/src/index.ts'),
+            '@orch/client': path.resolve(__dirname, 'packages/client/src/index.ts'),
         }
     },
     test: {
