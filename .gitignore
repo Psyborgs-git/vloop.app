@@ -15,3 +15,6 @@ coverage/
 tsconfig.tsbuildinfo/
 data/terminal-logs/*
 data/media/*
+**/terminal-logs/*
+**/media/*
+**/tsconfig.tsbuildinfo
