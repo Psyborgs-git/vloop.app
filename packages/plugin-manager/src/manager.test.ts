@@ -47,33 +47,4 @@ describe('PluginManager', () => {
         expect(plugins).toEqual([]);
         expect(mockDb.prepare).toHaveBeenCalledWith('SELECT * FROM plugins');
     });
-
-    it('should throw if plugin already exists during install preparation', async () => {
-        // Mock existing plugin
-        const mockGet = vi.fn().mockReturnValue({ id: 'test-plugin' });
-        (mockDb.prepare as any).mockImplementation((sql: string) => {
-            if (sql.includes('SELECT * FROM plugins WHERE id = ?')) {
-                return { get: mockGet };
-            }
-            return { run: vi.fn(), get: vi.fn(), all: vi.fn() };
-        });
-
-        // Mock downloader to return a manifest
-        // We can spy on the private downloader property or mock the download method if we extract it.
-        // For unit test, we might want to mock the downloader instance.
-        // But since it's instantiated inside, let's mock the file system or fetch?
-        // Actually, let's just test the logic we can control.
-
-        // Testing `commitInstall`
-        const manifest = {
-             id: 'test-plugin',
-             name: 'Test',
-             version: '1.0.0',
-             permissions: ['db:read'],
-             entrypoint: 'plugin.wasm'
-        };
-
-        // We need to mock fs.readFileSync to return the manifest JSON
-        // This is getting complicated without proper DI or mocking fs.
-    });
 });
