@@ -14,14 +14,9 @@
         "**/*.test.ts"
     ],
     "references": [
-        {
-            "path": "../shared"
-        },
-        {
-            "path": "../daemon"
-        },
-        {
-            "path": "../vault"
-        }
+        { "path": "../shared" },
+        { "path": "../daemon" },
+        { "path": "../db-manager" },
+        { "path": "../vault" }
     ]
 }

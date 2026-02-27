@@ -10,6 +10,7 @@ import { registerAgentCommands } from './commands/agent.js';
 import { registerDaemonCommands } from './commands/daemon.js';
 import { registerDbCommands } from './commands/db.js';
 import { registerAuthCommands } from './commands/auth.js';
+import { registerPluginCommands } from './commands/plugin.js';
 
 const program = new Command();
 
@@ -49,5 +50,6 @@ registerAgentCommands(program);
 registerDaemonCommands(program);
 registerDbCommands(program);
 registerAuthCommands(program);
+registerPluginCommands(program);
 
 program.parse(process.argv);

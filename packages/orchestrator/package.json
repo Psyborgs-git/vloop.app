@@ -19,6 +19,7 @@
         "@orch/daemon": "workspace:*",
         "@orch/db-manager": "workspace:*",
         "@orch/media": "workspace:*",
+        "@orch/plugin-manager": "workspace:*",
         "@orch/process": "workspace:*",
         "@orch/shared": "workspace:*",
         "@orch/terminal": "workspace:*",

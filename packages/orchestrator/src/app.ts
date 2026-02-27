@@ -63,6 +63,7 @@ import {
     createTerminalHandler,
 } from "@orch/terminal";
 import { createMediaHandler } from "@orch/media";
+import { PluginManager, createPluginHandler } from "@orch/plugin-manager";
 import { createMcpHttpHandler } from "./mcp-server.js";
 import { registerAITools } from "./ai-tools.js";
 
@@ -89,6 +90,7 @@ export class OrchestratorApp {
     private terminalManager!: TerminalManager;
     private sessionLogger!: SessionLogger;
     private dbPool!: DatabasePool;
+    private pluginManager!: PluginManager;
     private wsHandle!: any;
     private healthServer!: any;
 
@@ -127,6 +129,8 @@ export class OrchestratorApp {
                 dbProvisioner,
                 externalDbRegistry
             } = this.initDatabaseSubsystem(db);
+
+            this.initPluginSubsystem(db, dbProvisioner);
 
             const {
                 agentOrchestrator,
@@ -320,6 +324,13 @@ export class OrchestratorApp {
         return { dbProvisioner, externalDbRegistry };
     }
 
+    private initPluginSubsystem(db: any, dbProvisioner: DatabaseProvisioner) {
+        this.pluginManager = new PluginManager(db, dbProvisioner, this.logger);
+        this.pluginManager.start().catch(err => {
+            this.logger.error({ err }, "Failed to start plugins");
+        });
+    }
+
     private initAgentSubsystem(db: any) {
         const agentSandbox = new AgentSandbox(this.logger);
         const toolRegistry = new ToolRegistry(this.logger);
@@ -395,6 +406,7 @@ export class OrchestratorApp {
         router.register("media", createMediaHandler(resolve("./data/media")));
         router.register("db", createDatabaseHandler(dbProvisioner, this.dbPool, this.dbManager, externalDbRegistry));
         router.register("agent", createAgentHandler(agentOrchestrator, aiConfigStore));
+        router.register("plugin", createPluginHandler(this.pluginManager));
 
         // Session topic handler
         router.register("session", async (action, payload, context) => {
@@ -746,6 +758,7 @@ export class OrchestratorApp {
         if (this.terminalManager) this.terminalManager.shutdownAll();
         if (this.sessionLogger) this.sessionLogger.shutdownAll();
         if (this.dbPool) this.dbPool.shutdownAll();
+        if (this.pluginManager) await this.pluginManager.stop();
 
         if (this.wsHandle) await this.wsHandle.close();
         if (this.healthServer) await this.healthServer.close();
