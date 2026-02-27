@@ -100,6 +100,7 @@ export class OrchestratorClient {
             list: async () => this.request('plugin', 'list', {}),
             install: async (url: string) => this.request('plugin', 'install', { url }),
             grant: async (id: string, permissions: string[]) => this.request('plugin', 'grant', { id, permissions }),
+            cancel: async (id: string) => this.request('plugin', 'cancel', { id }),
             uninstall: async (id: string) => this.request('plugin', 'uninstall', { id }),
         };
         this.config = config;

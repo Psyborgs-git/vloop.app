@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useContext } from 'react';
+import React, { useCallback, useEffect, useState, useContext } from 'react';
 import {
     Box,
     Typography,
@@ -19,7 +19,7 @@ import {
     Grid,
     Alert
 } from '@mui/material';
-import { Plus, Trash2, Power, Download, ShieldCheck, PlayCircle, StopCircle } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { ClientContext } from '../ClientContext.js';
 import { useToast } from '../components/ToastContext.js';
 
@@ -47,8 +47,9 @@ export default function PluginsView() {
     const [installUrl, setInstallUrl] = useState('');
     const [installing, setInstalling] = useState(false);
     const [pendingManifest, setPendingManifest] = useState<any>(null);
+    const [confirmUninstallId, setConfirmUninstallId] = useState<string | null>(null);
 
-    const refreshPlugins = async () => {
+    const refreshPlugins = useCallback(async () => {
         if (!client) return;
         try {
             const res = await client.request('plugin', 'list');
@@ -58,11 +59,24 @@ export default function PluginsView() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [client, showToast]);
 
     useEffect(() => {
         refreshPlugins();
-    }, [client]);
+    }, [refreshPlugins]);
+
+    const handleCloseInstallDialog = async () => {
+        if (pendingManifest && client) {
+            try {
+                await client.request('plugin', 'cancel', { id: pendingManifest.id });
+            } catch {
+                // best-effort cleanup
+            }
+        }
+        setInstallDialogOpen(false);
+        setPendingManifest(null);
+        setInstallUrl('');
+    };
 
     const handleAnalyze = async () => {
         if (!client || !installUrl) return;
@@ -99,10 +113,10 @@ export default function PluginsView() {
 
     const handleUninstall = async (id: string) => {
         if (!client) return;
-        if (!confirm('Are you sure you want to uninstall this plugin?')) return;
         try {
             await client.request('plugin', 'uninstall', { id });
             showToast('Plugin uninstalled', 'info');
+            setConfirmUninstallId(null);
             refreshPlugins();
         } catch (err: any) {
             showToast('Uninstall failed: ' + err.message, 'error');
@@ -165,7 +179,7 @@ export default function PluginsView() {
                                     </Box>
 
                                     <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
-                                        <IconButton size="small" color="error" onClick={() => handleUninstall(plugin.id)}>
+                                        <IconButton size="small" color="error" onClick={() => setConfirmUninstallId(plugin.id)}>
                                             <Trash2 size={18} />
                                         </IconButton>
                                     </Box>
@@ -176,7 +190,8 @@ export default function PluginsView() {
                 </Grid>
             )}
 
-            <Dialog open={installDialogOpen} onClose={() => setInstallDialogOpen(false)} maxWidth="sm" fullWidth>
+            {/* Install Dialog */}
+            <Dialog open={installDialogOpen} onClose={handleCloseInstallDialog} maxWidth="sm" fullWidth>
                 <DialogTitle>Install New Plugin</DialogTitle>
                 <DialogContent>
                     {!pendingManifest ? (
@@ -197,7 +212,7 @@ export default function PluginsView() {
                         </>
                     ) : (
                         <Box>
-                            <Alert severity="warning" icon={<ShieldCheck />} sx={{ mb: 2 }}>
+                            <Alert severity="warning" sx={{ mb: 2 }}>
                                 This plugin requests the following permissions. Review carefully before granting access.
                             </Alert>
                             <Typography variant="h6">{pendingManifest.name} <Typography component="span" variant="body2" color="text.secondary">v{pendingManifest.version}</Typography></Typography>
@@ -220,7 +235,7 @@ export default function PluginsView() {
                     )}
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => { setInstallDialogOpen(false); setPendingManifest(null); setInstallUrl(''); }}>Cancel</Button>
+                    <Button onClick={handleCloseInstallDialog}>Cancel</Button>
                     {!pendingManifest ? (
                         <Button onClick={handleAnalyze} disabled={!installUrl || installing}>
                             {installing ? <CircularProgress size={24} /> : 'Next'}
@@ -230,6 +245,24 @@ export default function PluginsView() {
                             {installing ? <CircularProgress size={24} /> : 'Install & Grant'}
                         </Button>
                     )}
+                </DialogActions>
+            </Dialog>
+
+            {/* Confirm Uninstall Dialog */}
+            <Dialog open={!!confirmUninstallId} onClose={() => setConfirmUninstallId(null)} maxWidth="xs" fullWidth>
+                <DialogTitle>Uninstall Plugin</DialogTitle>
+                <DialogContent>
+                    <Typography>Are you sure you want to uninstall this plugin?</Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setConfirmUninstallId(null)}>Cancel</Button>
+                    <Button
+                        variant="contained"
+                        color="error"
+                        onClick={() => confirmUninstallId && handleUninstall(confirmUninstallId)}
+                    >
+                        Uninstall
+                    </Button>
                 </DialogActions>
             </Dialog>
         </Box>

@@ -326,7 +326,7 @@ export class OrchestratorApp {
 
     private initPluginSubsystem(db: any, dbProvisioner: DatabaseProvisioner) {
         this.pluginManager = new PluginManager(db, dbProvisioner, this.logger);
-        this.pluginManager.start().catch(err => {
+        void this.pluginManager.start().catch(err => {
             this.logger.error({ err }, "Failed to start plugins");
         });
     }

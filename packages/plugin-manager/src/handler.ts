@@ -28,6 +28,15 @@ export function createPluginHandler(pluginManager: PluginManager) {
                 await pluginManager.commitInstall(payload.id, payload.permissions);
                 return { success: true, message: `Plugin ${payload.id} installed.` };
 
+            case 'cancel':
+                // payload: { id: string }
+                // Cleans up a staged plugin that was never granted permissions
+                if (!context.roles?.includes('admin')) {
+                    throw new Error("Permission denied");
+                }
+                pluginManager.cancelInstall(payload.id);
+                return { success: true };
+
             case 'list':
                 return { items: pluginManager.list() };
 
