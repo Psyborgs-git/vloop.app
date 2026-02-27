@@ -12,21 +12,7 @@ export function registerPluginCommands(program: Command) {
         .action(async () => {
             const client = await getClient();
             try {
-                // We need to add plugin methods to the client SDK first, or use raw dispatch
-                // For now, raw dispatch is easiest since we haven't updated the client package yet.
-                // But wait, getClient returns OrchestratorClient. We should probably update the client too.
-                // Let's use raw `client.emit` or similar if exposed?
-                // OrchestratorClient usually has typed namespaces.
-                // Let's inspect OrchestratorClient.
-
-                // Assuming we update client or use a workaround.
-                // Actually, OrchestratorClient is in @orch/client.
-                // I should update @orch/client to include the 'plugin' namespace.
-                // But for this step, I can probably cast client to any to access the underlying transport or add the namespace.
-
-                // Let's implement the client update in this step too as it's required for CLI.
-
-                const response = await (client as any).send('plugin', 'list', {});
+                const response = await client.plugin.list();
                 if (response.items.length === 0) {
                     console.log('No plugins installed.');
                 } else {
@@ -46,7 +32,7 @@ export function registerPluginCommands(program: Command) {
             const client = await getClient();
             try {
                 console.log(chalk.blue(`Fetching plugin manifest from ${url}...`));
-                const manifest = await (client as any).send('plugin', 'install', { url });
+                const manifest = await client.plugin.install(url);
 
                 console.log(chalk.green(`\nPlugin Found: ${manifest.name} (${manifest.version})`));
                 console.log(`ID: ${manifest.id}`);
@@ -61,10 +47,7 @@ export function registerPluginCommands(program: Command) {
                 const approved = await confirm({ message: 'Do you want to install this plugin and grant these permissions?' });
 
                 if (approved) {
-                    await (client as any).send('plugin', 'grant', {
-                        id: manifest.id,
-                        permissions: manifest.permissions
-                    });
+                    await client.plugin.grant(manifest.id, manifest.permissions);
                     console.log(chalk.green(`\nPlugin ${manifest.name} installed successfully!`));
                 } else {
                     console.log(chalk.yellow('Installation cancelled.'));
@@ -83,7 +66,7 @@ export function registerPluginCommands(program: Command) {
         .action(async (id) => {
             const client = await getClient();
             try {
-                await (client as any).send('plugin', 'uninstall', { id });
+                await client.plugin.uninstall(id);
                 console.log(chalk.green(`Plugin ${id} uninstalled.`));
             } catch (err: any) {
                 console.error(chalk.red(`Error: ${err.message}`));

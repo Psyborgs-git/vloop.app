@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import type { Logger } from '@orch/daemon';
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
 import { PluginStore, PluginRecord } from './store.js';
@@ -125,6 +125,17 @@ export class PluginManager {
         // Immediately load it
         const record = this.store.get(id)!;
         await this.loadPlugin(record);
+    }
+
+    /**
+     * Cancel a staged installation and remove downloaded files.
+     */
+    public cancelInstall(id: string): void {
+        const pluginDir = join(this.pluginsDir, id);
+        if (existsSync(pluginDir)) {
+            rmSync(pluginDir, { recursive: true, force: true });
+            this.logger.info({ id }, 'Cancelled staged plugin installation, files removed');
+        }
     }
 
     public list() {

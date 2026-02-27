@@ -23,8 +23,9 @@ export class DbHostFunctions {
 
         const creds = await this.dbProvisioner.getCredentials('plugin-' + this.pluginId, this.dbId);
 
+        let db: InstanceType<typeof Database> | undefined;
         try {
-            const db = new Database(creds.path, {
+            db = new Database(creds.path, {
                 cipher: 'sqlcipher',
                 key: creds.key,
             });
@@ -44,13 +45,11 @@ export class DbHostFunctions {
                  // ok
             } else {
                 if (!this.permissions.includes('db:write')) {
-                     db.close();
                      throw new OrchestratorError(ErrorCode.PERMISSION_DENIED, 'Plugin lacks db:write permission');
                 }
             }
 
             const result = stmt.reader ? stmt.all(params) : stmt.run(params);
-            db.close();
 
             // If it's a run result, return it differently?
             // The host function signature must be consistent.
@@ -60,6 +59,8 @@ export class DbHostFunctions {
         } catch (err: any) {
             this.logger.error({ err, sql }, 'Plugin DB query failed');
             throw new OrchestratorError(ErrorCode.DB_ERROR, err.message);
+        } finally {
+            db?.close();
         }
     }
 }
