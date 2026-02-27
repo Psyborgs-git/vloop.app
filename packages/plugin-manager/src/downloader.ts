@@ -3,7 +3,8 @@ import { join, resolve } from 'node:path';
 import JSZip from 'jszip';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
 import type { Logger } from '@orch/daemon';
-import { PluginManifest, PluginManifestSchema } from './manifest.js';
+import { PluginManifestSchema } from './manifest.js';
+import type { PluginManifest } from './manifest.js';
 
 export class PluginDownloader {
     constructor(

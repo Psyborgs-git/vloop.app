@@ -1,8 +1,4 @@
-import { resolve } from 'node:path';
-import type { Logger } from '@orch/daemon';
 import { PluginManager } from './manager.js';
-import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
-import { DatabaseProvisioner } from '@orch/db-manager';
 
 export function createPluginHandler(pluginManager: PluginManager) {
     return async (action: string, payload: any, context: import('@orch/daemon').HandlerContext) => {

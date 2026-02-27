@@ -23,6 +23,7 @@ Built on a robust, multi-tenant architecture, vloop provides a unified interface
 ### [Getting Started](./getting-started/installation.md)
 *   [Installation](./getting-started/installation.md): Set up vloop on your machine.
 *   [Quickstart](./getting-started/quickstart.md): Run your first autonomous AI workflow in 5 minutes.
+*   [Plugin Development](./getting-started/plugin.md): Create custom plugins to extend functionality.
 
 ### [Architecture](./architecture/overview.md)
 *   [System Overview](./architecture/overview.md): High-level design and component interaction.
