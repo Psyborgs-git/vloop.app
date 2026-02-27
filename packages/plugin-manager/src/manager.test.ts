@@ -1,9 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { join } from 'node:path';
+import { rm } from 'node:fs/promises';
 import { PluginManager } from '../src/manager.js';
-import { PluginStore } from '../src/store.js';
 import { DatabaseProvisioner } from '@orch/db-manager';
 import type { Logger } from '@orch/daemon';
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
+
+// Mock node:fs/promises
+vi.mock('node:fs/promises', () => ({
+    rm: vi.fn(),
+}));
 
 // Mock dependencies
 const mockDb = {
@@ -26,11 +32,10 @@ const mockDbProvisioner = {
 
 describe('PluginManager', () => {
     let manager: PluginManager;
+    const testDataDir = './test-data/plugins';
 
     beforeEach(() => {
         vi.clearAllMocks();
-        // We mock PluginStore internal usage or just instantiate with mockDb
-        // Since PluginManager instantiates PluginStore internally, we rely on mockDb behavior
 
         // Setup default mock returns for DB
         (mockDb.prepare as any).mockReturnValue({
@@ -39,12 +44,55 @@ describe('PluginManager', () => {
             all: vi.fn().mockReturnValue([]),
         });
 
-        manager = new PluginManager(mockDb, mockDbProvisioner, mockLogger, './test-data/plugins');
+        manager = new PluginManager(mockDb, mockDbProvisioner, mockLogger, testDataDir);
     });
 
     it('should list plugins from store', () => {
         const plugins = manager.list();
         expect(plugins).toEqual([]);
         expect(mockDb.prepare).toHaveBeenCalledWith('SELECT * FROM plugins');
+    });
+
+    it('should uninstall plugin: delete files then remove from store', async () => {
+        const pluginId = 'test-plugin';
+        const expectedPath = join(process.cwd(), testDataDir, pluginId);
+
+        // Mock DB prepare for uninstall
+        const mockRun = vi.fn();
+        (mockDb.prepare as any).mockImplementation((query: string) => {
+            if (query.includes('DELETE FROM plugins')) {
+                return { run: mockRun };
+            }
+            return { run: vi.fn(), get: vi.fn(), all: vi.fn().mockReturnValue([]) };
+        });
+
+        await manager.uninstall(pluginId);
+
+        // Check rm called
+        expect(rm).toHaveBeenCalledWith(expectedPath, { recursive: true, force: true });
+
+        // Check store uninstall called
+        expect(mockRun).toHaveBeenCalledWith(pluginId);
+    });
+
+    it('should not remove from store if file deletion fails', async () => {
+        const pluginId = 'fail-plugin';
+        const expectedPath = join(process.cwd(), testDataDir, pluginId);
+
+        // Mock rm rejection
+        (rm as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('Deletion failed'));
+
+         const mockRun = vi.fn();
+        (mockDb.prepare as any).mockImplementation((query: string) => {
+             if (query.includes('DELETE FROM plugins')) {
+                return { run: mockRun };
+            }
+            return { run: vi.fn(), get: vi.fn(), all: vi.fn().mockReturnValue([]) };
+        });
+
+        await expect(manager.uninstall(pluginId)).rejects.toThrow('Deletion failed');
+
+        expect(rm).toHaveBeenCalledWith(expectedPath, { recursive: true, force: true });
+        expect(mockRun).not.toHaveBeenCalled();
     });
 });

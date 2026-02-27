@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import type { Logger } from '@orch/daemon';
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
 import { PluginStore, PluginRecord } from './store.js';
@@ -147,8 +148,12 @@ export class PluginManager {
             await this.sandboxes.get(id)?.close();
             this.sandboxes.delete(id);
         }
+
+        const pluginDir = join(this.pluginsDir, id);
+        await rm(pluginDir, { recursive: true, force: true });
+        this.logger.info({ id }, 'Plugin files removed');
+
         this.store.uninstall(id);
-        // TODO: Delete files from disk?
     }
 }
 
