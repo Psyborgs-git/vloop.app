@@ -26,7 +26,6 @@
         "better-sqlite3-multiple-ciphers": "^11.0.0"
     },
     "devDependencies": {
-        "@types/jszip": "^3.4.1",
         "typescript": "^5.7.0",
         "vitest": "^3.0.0"
     },
