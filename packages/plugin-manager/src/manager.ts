@@ -61,18 +61,20 @@ export class PluginManager {
         if (this.sandboxes.has(record.id)) return;
 
         const pluginDir = join(this.pluginsDir, record.id);
+        const dbHost = new DbHostFunctions(
+            this.dbProvisioner,
+            record.id,
+            record.granted_permissions,
+            this.logger,
+            record.db_id
+        );
         const sandbox = new PluginSandbox(
             record.manifest,
             pluginDir,
             record.granted_permissions,
-            this.logger
+            this.logger,
+            dbHost
         );
-
-        // Inject Host Functions
-        // const dbHost = new DbHostFunctions(this.dbProvisioner, record.id, record.granted_permissions, this.logger, record.db_id);
-        // We need to pass these to PluginSandbox, which then constructs the Extism plugin with these functions.
-        // For now, let's update PluginSandbox to accept host functions map or builder.
-
         this.sandboxes.set(record.id, sandbox);
 
         // Optional: Call an 'on_start' function if it exists?
