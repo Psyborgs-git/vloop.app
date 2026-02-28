@@ -75,7 +75,7 @@ export class AgentOrchestrator {
 		public readonly tools: ToolRegistry,
 		public readonly sandbox: AgentSandbox,
 		private readonly logger: Logger,
-		private readonly configStore?: AIConfigStore,
+		private readonly configStore: AIConfigStore,
 		private readonly vaultGet?: (ref: string) => Promise<string | undefined>,
 	) {
 		// Register custom LLMs with ADK
@@ -85,23 +85,23 @@ export class AgentOrchestrator {
 		LLMRegistry.register(OpenAILlm);
 
 		// Initialize config-based subsystems if store is available
-		this.providerRegistry = new ProviderRegistry(configStore!, logger);
+		this.providerRegistry = new ProviderRegistry(configStore, logger);
 		this.mcpClientManager = new McpClientManager(logger);
 		this.agentBuilder = new AgentBuilder(
-			configStore!,
+			configStore,
 			this.providerRegistry,
 			tools,
 			this.mcpClientManager,
 			logger,
 		);
 		this.workflowRunner = new WorkflowRunner(
-			configStore!,
+			configStore,
 			this.agentBuilder,
 			logger,
 		);
-		this.memoryStore = new MemoryStore(configStore!, logger);
-		this.ollamaSync = new OllamaSync(configStore!, logger);
-		this.knowledgeGraph = new KnowledgeGraphService(configStore!, logger);
+		this.memoryStore = new MemoryStore(configStore, logger);
+		this.ollamaSync = new OllamaSync(configStore, logger);
+		this.knowledgeGraph = new KnowledgeGraphService(configStore, logger);
 		this.ragService = new RAGService(this.memoryStore, this.knowledgeGraph);
 		this.contextManager = new ContextManager(this.ragService);
 	}
@@ -263,7 +263,16 @@ export class AgentOrchestrator {
 		// Log individual tool calls
 		if (toolCalls.length > 0) {
 			const toolCallInputs = toolCalls.map((call, i) => {
-				const result = toolResults[i];
+				const callId = (call as any)?.id ?? (call as any)?.callId;
+				const result =
+					toolResults.find((candidate) => {
+						const candidateId =
+							(candidate as any)?.callId ??
+							(candidate as any)?.id ??
+							(candidate as any)?.toolCallId ??
+							(candidate as any)?.tool_call_id;
+						return Boolean(callId && candidateId && callId === candidateId);
+					}) ?? toolResults[i];
 				return {
 					sessionId: opts.sessionId,
 					messageId: assistantMessage.id,

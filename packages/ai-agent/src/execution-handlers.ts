@@ -6,7 +6,7 @@ import type { AIConfigStore } from "./config/store.js";
 export function registerExecutionHandlers(
 	handlers: Map<string, (payload: any, ctx: HandlerContext) => any>,
 	orchestrator: AgentOrchestrator,
-	configStore?: AIConfigStore,
+	configStore: AIConfigStore,
 ) {
 	// ── Legacy compat ─────────────────────────────────────────────
 	handlers.set("workflow", (p, _ctx) => {
@@ -24,11 +24,6 @@ export function registerExecutionHandlers(
 
 	// ── Chat Send (streaming) ─────────────────────────────────────
 	handlers.set("chat.send", (p, ctx) => {
-		if (!configStore)
-			throw new OrchestratorError(
-				ErrorCode.SERVICE_UNAVAILABLE,
-				"AI config store not initialized",
-			);
 		if (!p.sessionId || !p.content) {
 			throw new OrchestratorError(
 				ErrorCode.VALIDATION_ERROR,
@@ -76,12 +71,6 @@ export function registerExecutionHandlers(
 	});
 
 	handlers.set("chat.rerun", (p, ctx) => {
-		if (!configStore) {
-			throw new OrchestratorError(
-				ErrorCode.SERVICE_UNAVAILABLE,
-				"AI config store not initialized",
-			);
-		}
 		if (!p.sessionId || !p.messageId) {
 			throw new OrchestratorError(
 				ErrorCode.VALIDATION_ERROR,
@@ -104,12 +93,6 @@ export function registerExecutionHandlers(
 	});
 
 	handlers.set("chat.fork", (p) => {
-		if (!configStore) {
-			throw new OrchestratorError(
-				ErrorCode.SERVICE_UNAVAILABLE,
-				"AI config store not initialized",
-			);
-		}
 		if (!p.sessionId || !p.messageId) {
 			throw new OrchestratorError(
 				ErrorCode.VALIDATION_ERROR,
@@ -128,12 +111,6 @@ export function registerExecutionHandlers(
 	});
 
 	handlers.set("chat.compact", (p) => {
-		if (!configStore) {
-			throw new OrchestratorError(
-				ErrorCode.SERVICE_UNAVAILABLE,
-				"AI config store not initialized",
-			);
-		}
 		if (!p.sessionId) {
 			throw new OrchestratorError(
 				ErrorCode.VALIDATION_ERROR,

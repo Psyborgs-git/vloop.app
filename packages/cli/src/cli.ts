@@ -18,7 +18,7 @@ program
     .name('orch')
     .description('Orchestrator CLI')
     .version('0.1.0')
-    .option('-h, --host <url>', 'Orchestrator WebSocket URL', process.env.ORCH_HOST || 'ws://localhost:9000')
+    .option('-h, --host <url>', 'Orchestrator WebSocket URL', process.env.ORCH_HOST || 'ws://localhost:9443')
     .option('-t, --token <jwt>', 'Authentication token', process.env.ORCH_TOKEN);
 
 /**

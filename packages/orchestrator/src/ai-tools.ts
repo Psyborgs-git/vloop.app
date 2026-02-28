@@ -1,8 +1,21 @@
-import type { ToolDefinition } from '@orch/ai-agent';
+import type { ToolRegistry } from '@orch/ai-agent';
 import type { Router } from '@orch/daemon';
+import type { HandlerContext, Response } from '@orch/daemon';
 
-export function registerAITools(toolRegistry: any, router: Router) {
-    const resolveAuthSessionId = (context: import('@orch/daemon').HandlerContext): string => {
+type AgentSummary = { id: string; name: string; description?: string; systemPrompt?: string };
+type WorkflowSummary = { id: string; name: string; description?: string; type?: string };
+
+type AgentListPayload = { agents?: AgentSummary[] };
+type WorkflowListPayload = { workflows?: WorkflowSummary[] };
+
+const getPayload = <T>(response: Response): T => (response.payload as T);
+const asRecord = (value: unknown): Record<string, unknown> =>
+    value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+const asString = (value: unknown): string | undefined =>
+    typeof value === 'string' ? value : undefined;
+
+export function registerAITools(toolRegistry: ToolRegistry, router: Router) {
+    const resolveAuthSessionId = (context: HandlerContext): string => {
         const fromRequest = context.request?.meta?.session_id;
         if (fromRequest) return fromRequest;
         if (context.sessionId) return context.sessionId;
@@ -22,9 +35,10 @@ export function registerAITools(toolRegistry: any, router: Router) {
                 },
             },
         },
-        execute: async (args: any, context?: import('@orch/daemon').HandlerContext) => {
+        execute: async (args: unknown, context?: HandlerContext) => {
             if (!context) throw new Error("Context required for tool execution");
             const authSessionId = resolveAuthSessionId(context);
+            const input = asRecord(args);
 
             const request = {
                 id: `tool-${Date.now()}`,
@@ -43,18 +57,18 @@ export function registerAITools(toolRegistry: any, router: Router) {
                 return { success: false, error: response.payload };
             }
 
-            let agents = (response.payload as any).agents || [];
-            if (args.query) {
-                const q = args.query.toLowerCase();
-                agents = agents.filter((a: any) => 
-                    a.name.toLowerCase().includes(q) || 
-                    (a.description && a.description.toLowerCase().includes(q))
+            let agents = getPayload<AgentListPayload>(response).agents ?? [];
+            const query = asString(input.query)?.toLowerCase();
+            if (query) {
+                agents = agents.filter((a) => 
+                    a.name.toLowerCase().includes(query) || 
+                    (a.description && a.description.toLowerCase().includes(query))
                 );
             }
 
             return {
                 success: true,
-                agents: agents.map((a: any) => ({
+                agents: agents.map((a) => ({
                     id: a.id,
                     name: a.name,
                     description: a.description,
@@ -82,9 +96,16 @@ export function registerAITools(toolRegistry: any, router: Router) {
             },
             required: ["agentId", "task"],
         },
-        execute: async (args: any, context?: import('@orch/daemon').HandlerContext) => {
+        execute: async (args: unknown, context?: HandlerContext) => {
             if (!context) throw new Error("Context required for tool execution");
             const authSessionId = resolveAuthSessionId(context);
+            const input = asRecord(args);
+
+            const agentId = asString(input.agentId);
+            const task = asString(input.task);
+            if (!agentId || !task) {
+                throw new Error('agentId and task are required');
+            }
 
             // First, create a new chat session for the delegation
             const createSessionReq = {
@@ -92,8 +113,8 @@ export function registerAITools(toolRegistry: any, router: Router) {
                 topic: 'agent',
                 action: 'chat.create',
                 payload: {
-                    agentId: args.agentId,
-                    title: `Delegated Task: ${args.task.substring(0, 30)}...`
+                    agentId,
+                    title: `Delegated Task: ${task.substring(0, 30)}...`
                 },
                 meta: {
                     timestamp: new Date().toISOString(),
@@ -107,7 +128,11 @@ export function registerAITools(toolRegistry: any, router: Router) {
                 return { success: false, error: sessionRes.payload };
             }
 
-            const sessionId = (sessionRes.payload as any).id;
+            const sessionPayload = getPayload<{ id?: string }>(sessionRes);
+            const sessionId = sessionPayload.id;
+            if (!sessionId) {
+                return { success: false, error: 'Failed to create delegation session' };
+            }
 
             // Then, run the chat with the agent
             const runChatReq = {
@@ -115,9 +140,9 @@ export function registerAITools(toolRegistry: any, router: Router) {
                 topic: 'agent',
                 action: 'run.chat',
                 payload: {
-                    agentId: args.agentId,
+                    agentId,
                     sessionId: sessionId,
-                    prompt: args.task
+                    prompt: task
                 },
                 meta: {
                     timestamp: new Date().toISOString(),
@@ -157,17 +182,23 @@ export function registerAITools(toolRegistry: any, router: Router) {
             },
             required: ["workflowId", "input"],
         },
-        execute: async (args: any, context?: import('@orch/daemon').HandlerContext) => {
+        execute: async (args: unknown, context?: HandlerContext) => {
             if (!context) throw new Error("Context required for tool execution");
             const authSessionId = resolveAuthSessionId(context);
+            const input = asRecord(args);
+
+            const workflowId = asString(input.workflowId);
+            if (!workflowId) {
+                throw new Error('workflowId is required');
+            }
 
             const request = {
                 id: `tool-${Date.now()}`,
                 topic: 'agent',
                 action: 'run.workflow',
                 payload: {
-                    workflowId: args.workflowId,
-                    input: args.input
+                    workflowId,
+                    input: input.input
                 },
                 meta: {
                     timestamp: new Date().toISOString(),
@@ -201,9 +232,10 @@ export function registerAITools(toolRegistry: any, router: Router) {
                 },
             },
         },
-        execute: async (args: any, context?: import('@orch/daemon').HandlerContext) => {
+        execute: async (args: unknown, context?: HandlerContext) => {
             if (!context) throw new Error("Context required for tool execution");
             const authSessionId = resolveAuthSessionId(context);
+            const input = asRecord(args);
 
             const request = {
                 id: `tool-${Date.now()}`,
@@ -222,18 +254,18 @@ export function registerAITools(toolRegistry: any, router: Router) {
                 return { success: false, error: response.payload };
             }
 
-            let workflows = (response.payload as any).workflows || [];
-            if (args.query) {
-                const q = args.query.toLowerCase();
-                workflows = workflows.filter((w: any) => 
-                    w.name.toLowerCase().includes(q) || 
-                    (w.description && w.description.toLowerCase().includes(q))
+            let workflows = getPayload<WorkflowListPayload>(response).workflows ?? [];
+            const query = asString(input.query)?.toLowerCase();
+            if (query) {
+                workflows = workflows.filter((w) => 
+                    w.name.toLowerCase().includes(query) || 
+                    (w.description && w.description.toLowerCase().includes(query))
                 );
             }
 
             return {
                 success: true,
-                workflows: workflows.map((w: any) => ({
+                workflows: workflows.map((w) => ({
                     id: w.id,
                     name: w.name,
                     description: w.description,

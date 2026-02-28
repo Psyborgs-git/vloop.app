@@ -76,16 +76,6 @@ describe('registerExecutionHandlers', () => {
     });
 
     describe('chat.send handler', () => {
-        it('should throw service unavailable if configStore is missing', () => {
-            registerExecutionHandlers(mockHandlers, mockOrchestrator, undefined);
-            const handler = mockHandlers.get('chat.send');
-            try {
-                handler({ sessionId: 's1', content: 'hello' }, mockContext);
-            } catch (e: any) {
-                expect(e.code).toBe(ErrorCode.SERVICE_UNAVAILABLE);
-            }
-        });
-
         it('should throw validation error if sessionId or content are missing', () => {
             registerExecutionHandlers(mockHandlers, mockOrchestrator, mockConfigStore);
             const handler = mockHandlers.get('chat.send');
@@ -219,16 +209,6 @@ describe('registerExecutionHandlers', () => {
     });
 
     describe('chat.rerun handler', () => {
-        it('should throw service unavailable if configStore is missing', () => {
-            registerExecutionHandlers(mockHandlers, mockOrchestrator, undefined);
-            const handler = mockHandlers.get('chat.rerun');
-            try {
-                handler({ sessionId: 's1', messageId: 'm1' }, mockContext);
-            } catch (e: any) {
-                expect(e.code).toBe(ErrorCode.SERVICE_UNAVAILABLE);
-            }
-        });
-
         it('should throw validation error if required params are missing', () => {
             registerExecutionHandlers(mockHandlers, mockOrchestrator, mockConfigStore);
             const handler = mockHandlers.get('chat.rerun');
@@ -266,16 +246,6 @@ describe('registerExecutionHandlers', () => {
     });
 
     describe('chat.fork handler', () => {
-        it('should throw service unavailable if configStore is missing', () => {
-            registerExecutionHandlers(mockHandlers, mockOrchestrator, undefined);
-            const handler = mockHandlers.get('chat.fork');
-            try {
-                handler({ sessionId: 's1', messageId: 'm1' }, mockContext);
-            } catch (e: any) {
-                expect(e.code).toBe(ErrorCode.SERVICE_UNAVAILABLE);
-            }
-        });
-
         it('should throw validation error if required params are missing', () => {
             registerExecutionHandlers(mockHandlers, mockOrchestrator, mockConfigStore);
             const handler = mockHandlers.get('chat.fork');
@@ -311,16 +281,6 @@ describe('registerExecutionHandlers', () => {
     });
 
     describe('chat.compact handler', () => {
-        it('should throw service unavailable if configStore is missing', () => {
-            registerExecutionHandlers(mockHandlers, mockOrchestrator, undefined);
-            const handler = mockHandlers.get('chat.compact');
-            try {
-                handler({ sessionId: 's1' }, mockContext);
-            } catch (e: any) {
-                expect(e.code).toBe(ErrorCode.SERVICE_UNAVAILABLE);
-            }
-        });
-
         it('should throw validation error if sessionId is missing', () => {
             registerExecutionHandlers(mockHandlers, mockOrchestrator, mockConfigStore);
             const handler = mockHandlers.get('chat.compact');

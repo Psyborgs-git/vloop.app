@@ -303,10 +303,7 @@ private mapTools(configTools?: any[]): any[] {
 			}
 		}
 
-		const thoughtSignature =
-			tc?.function?.thought_signature ??
-			tc?.function?.thoughtSignature ??
-			"ollama";
+		const thoughtSignature = this.resolveThoughtSignature(tc?.function);
 
 		return {
 			functionCall: {
@@ -324,6 +321,20 @@ private mapTools(configTools?: any[]): any[] {
 		} catch {
 			return null;
 		}
+	}
+
+	private resolveThoughtSignature(source: unknown): string {
+		const sig = (source as any)?.thought_signature ?? (source as any)?.thoughtSignature;
+		if (typeof sig === "string" && sig.trim().length > 0) {
+			return sig;
+		}
+
+		const metadataSig = (this.runtime.provider.metadata as any)?.thoughtSignature;
+		if (typeof metadataSig === "string" && metadataSig.trim().length > 0) {
+			return metadataSig;
+		}
+
+		return this.runtime.provider.type;
 	}
 
 	/**

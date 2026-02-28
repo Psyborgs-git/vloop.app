@@ -4,6 +4,7 @@ import { activeRuntimes, type ResolvedModel } from './provider-registry.js';
 
 export class OpenAILlm extends BaseLlm {
     static readonly supportedModels = ['vloop://openai/.*', 'vloop://groq/.*', 'vloop://custom/.*'];
+    private static readonly MAX_RETRY_ATTEMPTS = 3;
 
     private runtime: ResolvedModel;
 
@@ -39,19 +40,10 @@ export class OpenAILlm extends BaseLlm {
             payload.tools = tools;
         }
 
-        const res = await fetch(apiUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...this.runtime.headers,
-            },
-            body: JSON.stringify(payload),
-            signal: AbortSignal.timeout(this.runtime.timeoutMs),
-        });
+        const res = await this.requestWithRetry(apiUrl, payload);
 
         if (!res.ok) {
-            const body = await res.text();
-            throw new Error(`OpenAI request failed (${res.status}): ${body}`);
+            throw await this.mapHttpError(res, apiUrl);
         }
 
         if (!stream) {
@@ -81,6 +73,15 @@ export class OpenAILlm extends BaseLlm {
                     if (data === '[DONE]') continue;
                     try {
                         const event = JSON.parse(data);
+                        if (event?.error) {
+                            const msg =
+                                typeof event.error?.message === 'string'
+                                    ? event.error.message
+                                    : 'OpenAI stream returned an error event';
+                            throw this.toModelError('OPENAI_STREAM_ERROR', msg, {
+                                endpoint: apiUrl,
+                            });
+                        }
                         const mapped = this.mapStreamEvent(event);
                         if (mapped) yield mapped;
                     } catch {
@@ -152,8 +153,11 @@ export class OpenAILlm extends BaseLlm {
     }
 
     private mapResponse(json: any): LlmResponse {
-        const choice = json.choices[0];
-        const message = choice.message;
+        const choice = json?.choices?.[0];
+        const message = choice?.message;
+        if (!message || typeof message !== 'object') {
+            throw new Error('OpenAI response missing choices[0].message');
+        }
         const parts: Part[] = [];
 
         if (message.content) {
@@ -162,14 +166,11 @@ export class OpenAILlm extends BaseLlm {
 
         if (message.tool_calls) {
             for (const tc of message.tool_calls) {
-                const thoughtSignature =
-                    tc.function?.thought_signature ??
-                    tc.function?.thoughtSignature ??
-                    'openai';
+                const thoughtSignature = this.resolveThoughtSignature(tc.function);
                 parts.push({
                     functionCall: {
                         name: tc.function.name,
-                        args: JSON.parse(tc.function.arguments),
+                        args: this.parseToolArguments(tc.function.arguments),
                         thoughtSignature,
                     } as any
                 });
@@ -184,7 +185,7 @@ export class OpenAILlm extends BaseLlm {
     }
 
     private mapStreamEvent(event: any): LlmResponse | null {
-        const choice = event.choices[0];
+        const choice = event?.choices?.[0];
         if (!choice) return null;
 
         const delta = choice.delta;
@@ -204,5 +205,148 @@ export class OpenAILlm extends BaseLlm {
 
         // Tool use streaming is more complex, simplified here
         return null;
+    }
+
+    private parseToolArguments(value: unknown): Record<string, unknown> {
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+            return value as Record<string, unknown>;
+        }
+        if (typeof value !== 'string') return {};
+        try {
+            const parsed = JSON.parse(value);
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+                ? parsed as Record<string, unknown>
+                : {};
+        } catch {
+            return {};
+        }
+    }
+
+    private resolveThoughtSignature(source: unknown): string {
+        const sig = (source as any)?.thought_signature ?? (source as any)?.thoughtSignature;
+        if (typeof sig === 'string' && sig.trim().length > 0) {
+            return sig;
+        }
+
+        const metadataSig = (this.runtime.provider.metadata as any)?.thoughtSignature;
+        if (typeof metadataSig === 'string' && metadataSig.trim().length > 0) {
+            return metadataSig;
+        }
+
+        return this.runtime.provider.type;
+    }
+
+    private async requestWithRetry(apiUrl: string, payload: unknown): Promise<Response> {
+        let lastError: unknown;
+        for (let attempt = 1; attempt <= OpenAILlm.MAX_RETRY_ATTEMPTS; attempt++) {
+            try {
+                const res = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...this.runtime.headers,
+                    },
+                    body: JSON.stringify(payload),
+                    signal: AbortSignal.timeout(this.runtime.timeoutMs),
+                });
+
+                if (this.shouldRetryStatus(res.status) && attempt < OpenAILlm.MAX_RETRY_ATTEMPTS) {
+                    await this.sleep(this.retryDelayMs(attempt));
+                    continue;
+                }
+                return res;
+            } catch (err: any) {
+                lastError = err;
+                if (!this.isRetryableNetworkError(err) || attempt >= OpenAILlm.MAX_RETRY_ATTEMPTS) {
+                    const message =
+                        err?.name === 'TimeoutError'
+                            ? `OpenAI request timed out after ${this.runtime.timeoutMs}ms`
+                            : `Failed to reach OpenAI endpoint at ${apiUrl}`;
+                    throw this.toModelError('NETWORK_ERROR', message, {
+                        endpoint: apiUrl,
+                        cause: err?.message,
+                    });
+                }
+                await this.sleep(this.retryDelayMs(attempt));
+            }
+        }
+
+        throw this.toModelError('NETWORK_ERROR', 'OpenAI request failed after retries', {
+            endpoint: apiUrl,
+            cause: (lastError as any)?.message,
+        });
+    }
+
+    private async mapHttpError(res: Response, apiUrl: string): Promise<Error> {
+        const raw = await res.text();
+        const parsed = this.tryParseJson(raw);
+        const modelMsg =
+            typeof parsed?.error?.message === 'string'
+                ? parsed.error.message
+                : typeof parsed?.message === 'string'
+                ? parsed.message
+                : undefined;
+
+        if (res.status === 401 || res.status === 403) {
+            return this.toModelError(
+                'AUTH_ERROR',
+                modelMsg || 'Unauthorized OpenAI request. Check configured API key/auth headers.',
+                { status: res.status, endpoint: apiUrl },
+            );
+        }
+
+        if (res.status === 429) {
+            return this.toModelError('RATE_LIMIT', modelMsg || 'OpenAI rate limit exceeded', {
+                status: res.status,
+                endpoint: apiUrl,
+            });
+        }
+
+        return this.toModelError(
+            'OPENAI_HTTP_ERROR',
+            modelMsg || `OpenAI request failed with status ${res.status}`,
+            { status: res.status, endpoint: apiUrl, body: raw.slice(0, 500) },
+        );
+    }
+
+    private shouldRetryStatus(status: number): boolean {
+        return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+    }
+
+    private isRetryableNetworkError(err: unknown): boolean {
+        const name = (err as any)?.name;
+        return name === 'TimeoutError' || name === 'AbortError' || name === 'TypeError';
+    }
+
+    private retryDelayMs(attempt: number): number {
+        return Math.min(1500, 150 * 2 ** (attempt - 1));
+    }
+
+    private sleep(ms: number): Promise<void> {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    private tryParseJson(value: string): any | null {
+        try {
+            return JSON.parse(value);
+        } catch {
+            return null;
+        }
+    }
+
+    private toModelError(
+        code: string,
+        message: string,
+        details?: Record<string, unknown>,
+    ): Error {
+        return new Error(
+            JSON.stringify({
+                error: {
+                    code,
+                    message,
+                    ...(details ? { details } : {}),
+                },
+            }),
+        );
     }
 }

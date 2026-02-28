@@ -4,6 +4,7 @@ import { activeRuntimes, type ResolvedModel } from './provider-registry.js';
 
 export class AnthropicLlm extends BaseLlm {
     static readonly supportedModels = ['vloop://anthropic/.*'];
+    private static readonly MAX_RETRY_ATTEMPTS = 3;
 
     private runtime: ResolvedModel;
 
@@ -42,20 +43,10 @@ export class AnthropicLlm extends BaseLlm {
             payload.tools = tools;
         }
 
-        const res = await fetch(this.runtime.endpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'anthropic-version': '2023-06-01',
-                ...this.runtime.headers,
-            },
-            body: JSON.stringify(payload),
-            signal: AbortSignal.timeout(this.runtime.timeoutMs),
-        });
+        const res = await this.requestWithRetry(payload);
 
         if (!res.ok) {
-            const body = await res.text();
-            throw new Error(`Anthropic request failed (${res.status}): ${body}`);
+            throw await this.mapHttpError(res);
         }
 
         if (!stream) {
@@ -85,6 +76,15 @@ export class AnthropicLlm extends BaseLlm {
                     if (data === '[DONE]') continue;
                     try {
                         const event = JSON.parse(data);
+                        if (event?.type === 'error') {
+                            const msg =
+                                typeof event?.error?.message === 'string'
+                                    ? event.error.message
+                                    : 'Anthropic stream returned an error event';
+                            throw this.toModelError('ANTHROPIC_STREAM_ERROR', msg, {
+                                endpoint: this.runtime.endpoint,
+                            });
+                        }
                         const mapped = this.mapStreamEvent(event);
                         if (mapped) yield mapped;
                     } catch {
@@ -162,10 +162,7 @@ export class AnthropicLlm extends BaseLlm {
             if (c.type === 'text') {
                 parts.push({ text: c.text });
             } else if (c.type === 'tool_use') {
-                const thoughtSignature =
-                    c.thought_signature ??
-                    c.thoughtSignature ??
-                    'anthropic';
+                const thoughtSignature = this.resolveThoughtSignature(c);
                 parts.push({
                     functionCall: {
                         name: c.name,
@@ -198,5 +195,139 @@ export class AnthropicLlm extends BaseLlm {
         }
         // Tool use streaming is more complex, simplified here
         return null;
+    }
+
+    private resolveThoughtSignature(source: unknown): string {
+        const sig = (source as any)?.thought_signature ?? (source as any)?.thoughtSignature;
+        if (typeof sig === 'string' && sig.trim().length > 0) {
+            return sig;
+        }
+
+        const metadataSig = (this.runtime.provider.metadata as any)?.thoughtSignature;
+        if (typeof metadataSig === 'string' && metadataSig.trim().length > 0) {
+            return metadataSig;
+        }
+
+        return this.runtime.provider.type;
+    }
+
+    private async requestWithRetry(payload: unknown): Promise<Response> {
+        const endpoint = this.runtime.endpoint;
+        if (!endpoint) {
+            throw this.toModelError('CONFIG_ERROR', 'Anthropic endpoint is not configured');
+        }
+        let lastError: unknown;
+        for (let attempt = 1; attempt <= AnthropicLlm.MAX_RETRY_ATTEMPTS; attempt++) {
+            try {
+                const res = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'anthropic-version': '2023-06-01',
+                        ...this.runtime.headers,
+                    },
+                    body: JSON.stringify(payload),
+                    signal: AbortSignal.timeout(this.runtime.timeoutMs),
+                });
+
+                if (this.shouldRetryStatus(res.status) && attempt < AnthropicLlm.MAX_RETRY_ATTEMPTS) {
+                    await this.sleep(this.retryDelayMs(attempt));
+                    continue;
+                }
+
+                return res;
+            } catch (err: any) {
+                lastError = err;
+                if (!this.isRetryableNetworkError(err) || attempt >= AnthropicLlm.MAX_RETRY_ATTEMPTS) {
+                    const message =
+                        err?.name === 'TimeoutError'
+                            ? `Anthropic request timed out after ${this.runtime.timeoutMs}ms`
+                            : `Failed to reach Anthropic endpoint at ${endpoint}`;
+                    throw this.toModelError('NETWORK_ERROR', message, {
+                        endpoint,
+                        cause: err?.message,
+                    });
+                }
+                await this.sleep(this.retryDelayMs(attempt));
+            }
+        }
+
+        throw this.toModelError('NETWORK_ERROR', 'Anthropic request failed after retries', {
+            endpoint,
+            cause: (lastError as any)?.message,
+        });
+    }
+
+    private async mapHttpError(res: Response): Promise<Error> {
+        const raw = await res.text();
+        const parsed = this.tryParseJson(raw);
+        const modelMsg =
+            typeof parsed?.error?.message === 'string'
+                ? parsed.error.message
+                : typeof parsed?.message === 'string'
+                ? parsed.message
+                : undefined;
+
+        if (res.status === 401 || res.status === 403) {
+            return this.toModelError(
+                'AUTH_ERROR',
+                modelMsg || 'Unauthorized Anthropic request. Check configured API key/auth headers.',
+                { status: res.status, endpoint: this.runtime.endpoint },
+            );
+        }
+
+        if (res.status === 429) {
+            return this.toModelError('RATE_LIMIT', modelMsg || 'Anthropic rate limit exceeded', {
+                status: res.status,
+                endpoint: this.runtime.endpoint,
+            });
+        }
+
+        return this.toModelError(
+            'ANTHROPIC_HTTP_ERROR',
+            modelMsg || `Anthropic request failed with status ${res.status}`,
+            { status: res.status, endpoint: this.runtime.endpoint, body: raw.slice(0, 500) },
+        );
+    }
+
+    private shouldRetryStatus(status: number): boolean {
+        return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+    }
+
+    private isRetryableNetworkError(err: unknown): boolean {
+        const name = (err as any)?.name;
+        return name === 'TimeoutError' || name === 'AbortError' || name === 'TypeError';
+    }
+
+    private retryDelayMs(attempt: number): number {
+        return Math.min(1500, 150 * 2 ** (attempt - 1));
+    }
+
+    private sleep(ms: number): Promise<void> {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    private tryParseJson(value: string): any | null {
+        try {
+            return JSON.parse(value);
+        } catch {
+            return null;
+        }
+    }
+
+    private toModelError(
+        code: string,
+        message: string,
+        details?: Record<string, unknown>,
+    ): Error {
+        return new Error(
+            JSON.stringify({
+                error: {
+                    code,
+                    message,
+                    ...(details ? { details } : {}),
+                },
+            }),
+        );
     }
 }

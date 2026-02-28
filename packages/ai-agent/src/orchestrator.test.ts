@@ -1,14 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import Database from 'better-sqlite3-multiple-ciphers';
 import { AgentOrchestrator } from './orchestrator.js';
 import { ToolRegistry } from './tools.js';
 import { AgentSandbox } from './sandbox.js';
 import { Logger } from '@orch/daemon';
+import { AIConfigStore } from './config/store.js';
 
 describe('AgentOrchestrator', () => {
     let orchestrator: AgentOrchestrator;
     let mockTools: ToolRegistry;
     let mockSandbox: AgentSandbox;
     let mockLogger: vi.Mocked<Logger>;
+    let store: AIConfigStore;
 
     beforeEach(() => {
         mockLogger = {
@@ -21,7 +24,11 @@ describe('AgentOrchestrator', () => {
         mockTools = new ToolRegistry(mockLogger);
         mockSandbox = new AgentSandbox(mockLogger);
 
-        orchestrator = new AgentOrchestrator(mockTools, mockSandbox, mockLogger);
+        const db = new Database(':memory:');
+        store = new AIConfigStore(db as any, mockLogger);
+        store.migrate();
+
+        orchestrator = new AgentOrchestrator(mockTools, mockSandbox, mockLogger, store);
     });
 
     it('initializes core services', async () => {
