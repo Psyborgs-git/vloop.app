@@ -49,6 +49,7 @@ export interface AgentChatOptions {
 	agentId: AgentConfigId;
 	sessionId: ChatSessionId;
 	prompt: string;
+	toolIds?: string[];
 }
 
 export class AgentOrchestrator {
@@ -140,11 +141,23 @@ export class AgentOrchestrator {
 
 		const startedAt = Date.now();
 
+		const sessionToolIds = this.configStore
+			.getSessionTools(opts.sessionId)
+			.map((t) => t.id as unknown as string);
+		const effectiveToolIds = opts.toolIds ?? sessionToolIds;
+		const sessionMcpServerIds = this.configStore
+			.getSessionMcpServers(opts.sessionId)
+			.map((s) => s.id);
+
 		// Build ADK-native agent from config
 		const built = await this.agentBuilder.build(
 			opts.agentId,
 			this.vaultGet,
 			context,
+			{
+				toolIds: effectiveToolIds,
+				mcpServerIds: sessionMcpServerIds,
+			},
 		);
 
 		const appName = sanitizeName(`chat_${opts.agentId}`);
@@ -299,12 +312,22 @@ export class AgentOrchestrator {
 			prompt: string;
 			systemPrompt?: string;
 			sessionId?: ChatSessionId;
+			toolIds?: string[];
 		},
 		emit?: (type: "stream" | "event", payload: unknown, seq?: number) => void,
 	): Promise<any> {
 		const resolved = await this.resolveRuntimeForCompletion(opts);
 		this.logger.info(
-			{ model: resolved.model.modelId, adapter: resolved.adapter },
+			{
+				model: resolved.model.modelId,
+				adapter: resolved.adapter,
+				sessionId: opts.sessionId,
+				toolCount:
+					opts.toolIds?.length ??
+					(opts.sessionId && this.configStore
+						? this.configStore.getSessionTools(opts.sessionId).length
+						: 0),
+			},
 			"Starting chat completion",
 		);
 
@@ -320,6 +343,20 @@ export class AgentOrchestrator {
 
 		const startedAt = Date.now();
 
+		const sessionToolIds = opts.sessionId && this.configStore
+			? this.configStore
+				.getSessionTools(opts.sessionId)
+				.map((t) => t.id as unknown as string)
+			: [];
+		const sessionMcpServerIds = opts.sessionId && this.configStore
+			? this.configStore.getSessionMcpServers(opts.sessionId).map((s) => s.id)
+			: [];
+		const effectiveToolIds = opts.toolIds ?? sessionToolIds;
+		const tools = await this.agentBuilder.resolveFunctionTools(
+			effectiveToolIds,
+			sessionMcpServerIds,
+		);
+
 		const agent = new LlmAgent({
 			name: "chat_completion",
 			model: resolved.modelString!,
@@ -327,7 +364,7 @@ export class AgentOrchestrator {
 			instruction:
 				opts.systemPrompt ||
 				"You are a helpful AI assistant. Respond clearly and concisely.",
-			tools: [],
+			tools,
 			generateContentConfig: {
 				temperature: resolved.params.temperature,
 				maxOutputTokens:
@@ -352,6 +389,8 @@ export class AgentOrchestrator {
 
 		let seq = 0;
 		let fullText = "";
+		const toolCalls: any[] = [];
+		const toolResults: any[] = [];
 
 		const events = runner.runAsync({
 			userId: "chat_user",
@@ -368,6 +407,8 @@ export class AgentOrchestrator {
 				);
 			}
 
+			const chunkToolCalls: any[] = [];
+			const chunkToolResults: any[] = [];
 			let chunkText = "";
 			if (event.content?.parts) {
 				for (const part of event.content.parts) {
@@ -375,11 +416,33 @@ export class AgentOrchestrator {
 						chunkText += part.text;
 						fullText += part.text;
 					}
+					if ("functionCall" in part) {
+						chunkToolCalls.push(part.functionCall);
+						toolCalls.push(part.functionCall);
+					}
+					if ("functionResponse" in part) {
+						chunkToolResults.push(part.functionResponse);
+						toolResults.push(part.functionResponse);
+					}
 				}
 			}
 			if (emit) {
 				const mappedEvent: any = { ...event };
 				if (chunkText) mappedEvent.text = chunkText;
+				if (chunkToolCalls.length > 0)
+					mappedEvent.toolCalls = chunkToolCalls;
+				if (chunkToolResults.length > 0)
+					mappedEvent.toolResult = chunkToolResults[0];
+				if (
+					event.actions?.requestedToolConfirmations &&
+					Object.keys(event.actions.requestedToolConfirmations).length > 0
+				) {
+					mappedEvent.requestedToolConfirmations =
+						event.actions.requestedToolConfirmations;
+				}
+				if (event.longRunningToolIds && event.longRunningToolIds.length > 0) {
+					mappedEvent.longRunningToolIds = event.longRunningToolIds;
+				}
 				emit("stream", mappedEvent, seq++);
 			}
 		}
@@ -389,6 +452,8 @@ export class AgentOrchestrator {
 				sessionId: opts.sessionId,
 				role: "assistant",
 				content: fullText,
+				toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+				toolResults: toolResults.length > 0 ? toolResults : undefined,
 				providerType: resolved.provider.type,
 				modelId: resolved.model.modelId,
 				latencyMs: Date.now() - startedAt,
@@ -411,6 +476,7 @@ export class AgentOrchestrator {
 			status: "completed",
 			model: resolved.model.modelId,
 			result: fullText,
+			toolCalls,
 		};
 	}
 

@@ -67,3 +67,7 @@ vloop is model-agnostic and supports:
 *   **Anthropic** (Claude 3.5 Sonnet, Haiku)
 *   **Google** (Gemini 1.5 Pro/Flash)
 *   **Groq** (Llama 3 70b, fast inference)
+
+## Related Runtime Surface
+
+For dynamic AI-generated UIs and realtime backend/frontend state sync, see the [Canvas Runtime](./canvas.md).

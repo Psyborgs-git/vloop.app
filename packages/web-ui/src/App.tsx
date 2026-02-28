@@ -340,6 +340,7 @@ export default function App() {
                             <Route path="/media" element={<MediaView />} />
                             <Route path="/plugins" element={<PluginsView />} />
                             <Route path="/canvas" element={<CanvasView />} />
+                            <Route path="/canvas/:id" element={<CanvasView />} />
                             <Route path="/auth" element={<AuthView />} />
                         </Routes>
                     </Box>

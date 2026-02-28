@@ -1,6 +1,5 @@
-import { OrchestratorError, ErrorCode } from '@orch/shared';
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
-import { PluginManifest } from './manifest.js';
+import type { PluginManifest } from './manifest.js';
 
 export interface PluginRecord {
     id: string;

@@ -186,19 +186,29 @@ export class AgentClient {
 
     // ── Execution ──────────────────────────────────────────────────────
 
-    /** Simple LLM chat completion (no tools / agent config). */
-    public chatCompletion(payload: { model?: string; modelId?: string; prompt: string; systemPrompt?: string; sessionId?: string }): Promise<any> {
+    /** Simple LLM chat completion (optionally with selected tools). */
+    public chatCompletion(payload: { model?: string; modelId?: string; prompt: string; systemPrompt?: string; sessionId?: string; toolIds?: string[] }): Promise<any> {
         return this.client.request('agent', 'chat.completions', payload);
     }
 
     /** Simple LLM chat completion with streaming. */
-    public chatCompletionStream(payload: { model?: string; modelId?: string; prompt: string; systemPrompt?: string; sessionId?: string }): AsyncGenerator<any, any, undefined> {
+    public chatCompletionStream(payload: { model?: string; modelId?: string; prompt: string; systemPrompt?: string; sessionId?: string; toolIds?: string[] }): AsyncGenerator<any, any, undefined> {
         return this.client.requestStream<any, any>('agent', 'chat.completions', payload);
     }
 
     /** Run an agent chat with specific config (streaming). */
-    public runAgentChat(agentId: string, sessionId: string, prompt: string): AsyncGenerator<any, any, undefined> {
-        return this.client.requestStream<any, any>('agent', 'run.chat', { agentId, sessionId, prompt });
+    public runAgentChat(
+        agentId: string,
+        sessionId: string,
+        prompt: string,
+        options?: { toolIds?: string[] },
+    ): AsyncGenerator<any, any, undefined> {
+        return this.client.requestStream<any, any>('agent', 'run.chat', {
+            agentId,
+            sessionId,
+            prompt,
+            toolIds: options?.toolIds,
+        });
     }
 
     /** Run a workflow with initial input (streaming). */

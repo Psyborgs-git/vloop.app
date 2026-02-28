@@ -12,12 +12,14 @@ import type { AgentOrchestrator } from './orchestrator.js';
 import type { AIConfigStore } from './config/store.js';
 import { registerCrudHandlers } from './crud-handlers.js';
 import { registerExecutionHandlers } from './execution-handlers.js';
+import { registerCanvasHandlers } from './canvas-handlers.js';
 
 export function createAgentHandler(orchestrator: AgentOrchestrator, configStore?: AIConfigStore) {
     const handlers = new Map<string, (payload: any, ctx: HandlerContext) => any>();
 
     if (configStore) {
         registerCrudHandlers(handlers, configStore, orchestrator);
+        registerCanvasHandlers(handlers, configStore);
     }
     registerExecutionHandlers(handlers, orchestrator, configStore);
 

@@ -7,6 +7,9 @@
 
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
 import type { Logger } from '@orch/daemon';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as diff from 'diff';
 import { AI_CONFIG_MIGRATION } from './migrations.js';
 import {
     generateId,
@@ -22,6 +25,8 @@ import {
     type ChatSession, type CreateChatSessionInput,
     type ChatMessage, type CreateChatMessageInput,
     type MemoryEntry, type CreateMemoryInput,
+    type CanvasId, type CanvasConfig, type CreateCanvasInput, type UpdateCanvasInput,
+    type CanvasCommit, type CanvasCommitId,
 } from './types.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -36,6 +41,7 @@ export class AIConfigStore {
     constructor(
         private readonly db: BetterSqlite3.Database,
         private readonly logger: Logger,
+        private readonly canvasesPath: string = './data/canvases',
     ) { }
 
     /** Run the idempotent migration. */
@@ -941,6 +947,239 @@ export class AIConfigStore {
             topic: row.topic ?? undefined,
             entities: fromJSON(row.entities),
             metadata: fromJSON(row.metadata),
+            createdAt: row.created_at,
+        };
+    }
+
+    // ── Canvases ──────────────────────────────────────────────────────────
+
+    private writeCanvasFiles(canvasId: CanvasId, files: { path: string; content: string }[]) {
+        if (!this.canvasesPath) return; 
+        const targetDir = path.join(this.canvasesPath, canvasId);
+        fs.mkdirSync(targetDir, { recursive: true });
+        
+        for (const f of files) {
+            const fullPath = path.join(targetDir, f.path);
+            const dir = path.dirname(fullPath);
+            fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(fullPath, f.content, 'utf8');
+        }
+    }
+
+    private readCanvasFiles(canvasId: CanvasId): { path: string; content: string }[] {
+        if (!this.canvasesPath) return [];
+        const targetDir = path.join(this.canvasesPath, canvasId);
+        if (!fs.existsSync(targetDir)) return [];
+        
+        const files: { path: string; content: string }[] = [];
+        
+        const scanDir = (dir: string) => {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    scanDir(fullPath);
+                } else if (entry.isFile()) {
+                    const content = fs.readFileSync(fullPath, 'utf8');
+                    const relPath = path.relative(targetDir, fullPath);
+                    files.push({ path: relPath, content });
+                }
+            }
+        };
+        
+        scanDir(targetDir);
+        return files;
+    }
+
+    private generateDiff(oldFiles: { path: string; content: string }[], newFiles: { path: string; content: string }[]): string {
+        let diffText = '';
+        
+        for (const nf of newFiles) {
+            const of = oldFiles.find(o => o.path === nf.path);
+            if (of) {
+                if (of.content !== nf.content) {
+                    diffText += diff.createPatch(nf.path, of.content, nf.content) + '\n';
+                }
+            } else {
+                diffText += diff.createPatch(nf.path, '', nf.content) + '\n';
+            }
+        }
+        
+        for (const of of oldFiles) {
+            if (!newFiles.find(n => n.path === of.path)) {
+                diffText += diff.createPatch(of.path, of.content, '') + '\n';
+            }
+        }
+        
+        return diffText;
+    }
+
+    createCanvas(input: CreateCanvasInput): CanvasConfig {
+        const id = (input.id || generateId()) as CanvasId;
+        const ts = now();
+        
+        if (input.files?.length) {
+            this.writeCanvasFiles(id, input.files);
+        }
+
+        const initialContent = input.content ?? '';
+
+        this.db.prepare(`
+            INSERT INTO canvases (id, name, description, content, metadata, owner, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(id, input.name, input.description ?? '', initialContent, toJSON(input.metadata), input.owner, ts, ts);
+        
+        const oldFiles: {path: string, content: string}[] = [];
+        const diffText = this.generateDiff(oldFiles, input.files || []);
+        
+        this.createCanvasCommit({
+            canvasId: id,
+            content: initialContent,
+            diff: diffText,
+            metadata: input.metadata ?? {},
+            changeType: 'created',
+            changedBy: input.owner,
+            message: input.message ?? 'Initial creation',
+        });
+        
+        return this.getCanvas(id)!;
+    }
+
+    getCanvas(id: CanvasId): CanvasConfig | undefined {
+        const row = this.db.prepare('SELECT * FROM canvases WHERE id = ?').get(id) as any;
+        return row ? this.mapCanvas(row) : undefined;
+    }
+
+    listCanvases(owner?: string): CanvasConfig[] {
+        const query = owner
+            ? 'SELECT * FROM canvases WHERE owner = ? ORDER BY created_at DESC'
+            : 'SELECT * FROM canvases ORDER BY created_at DESC';
+        const rows = (owner ? this.db.prepare(query).all(owner) : this.db.prepare(query).all()) as any[];
+        return rows.map(r => this.mapCanvas(r));
+    }
+
+    updateCanvas(id: CanvasId, input: UpdateCanvasInput): CanvasConfig {
+        const existing = this.getCanvas(id);
+        if (!existing) throw new Error(`Canvas not found: ${id}`);
+        
+        const oldFiles = this.readCanvasFiles(id);
+        if (input.files?.length) {
+            this.writeCanvasFiles(id, input.files);
+        }
+        
+        const contentStr = input.content ?? existing.content;
+
+        this.db.prepare(`
+            UPDATE canvases SET name=?, description=?, content=?, metadata=?, updated_at=? WHERE id=?
+        `).run(
+            input.name ?? existing.name,
+            input.description ?? existing.description,
+            contentStr,
+            toJSON(input.metadata ?? existing.metadata),
+            now(),
+            id,
+        );
+        
+        const diffText = this.generateDiff(oldFiles, input.files || []);
+        
+        this.createCanvasCommit({
+            canvasId: id,
+            content: contentStr,
+            diff: diffText,
+            metadata: input.metadata ?? existing.metadata,
+            changeType: 'updated',
+            changedBy: input.changedBy,
+            message: input.message ?? 'Updated canvas',
+        });
+        
+        return this.getCanvas(id)!;
+    }
+
+    rollbackCanvas(id: CanvasId, commitId: CanvasCommitId, changedBy: string): CanvasConfig {
+        const commit = this.getCanvasCommit(commitId);
+        if (!commit) throw new Error(`Canvas commit not found: ${commitId}`);
+        if (commit.canvasId !== id) throw new Error(`Commit does not belong to canvas: ${id}`);
+        
+        const existing = this.getCanvas(id);
+        if (!existing) throw new Error(`Canvas not found: ${id}`);
+        
+        this.db.prepare(`
+            UPDATE canvases SET name=?, description=?, content=?, metadata=?, updated_at=? WHERE id=?
+        `).run(
+            existing.name,
+            existing.description,
+            commit.content,
+            toJSON(commit.metadata),
+            now(),
+            id,
+        );
+        
+        this.createCanvasCommit({
+            canvasId: id,
+            content: commit.content,
+            diff: commit.diff || '',
+            metadata: commit.metadata,
+            changeType: 'rollback',
+            changedBy,
+            message: `Rolled back to ${commitId}`,
+        });
+        
+        return this.getCanvas(id)!;
+    }
+
+    deleteCanvas(id: CanvasId): void {
+        this.db.prepare('DELETE FROM canvases WHERE id = ?').run(id);
+        if (this.canvasesPath) {
+            const p = path.join(this.canvasesPath, id);
+            if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true });
+        }
+    }
+
+    private mapCanvas(row: any): CanvasConfig {
+        return {
+            id: row.id as CanvasId,
+            name: row.name,
+            description: row.description,
+            content: row.content,
+            metadata: fromJSON(row.metadata),
+            owner: row.owner,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+        };
+    }
+
+    // ── Canvas Commits ────────────────────────────────────────────────────
+
+    createCanvasCommit(input: Omit<CanvasCommit, 'id' | 'createdAt'>): CanvasCommit {
+        const id = generateId() as CanvasCommitId;
+        const ts = now();
+        this.db.prepare(`
+            INSERT INTO canvas_commits (id, canvas_id, content, diff, metadata, change_type, changed_by, message, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(id, input.canvasId, input.content, input.diff ?? '', toJSON(input.metadata), input.changeType, input.changedBy, input.message, ts);
+        return this.getCanvasCommit(id)!;
+    }
+
+    getCanvasCommit(id: CanvasCommitId): CanvasCommit | undefined {
+        const row = this.db.prepare('SELECT * FROM canvas_commits WHERE id = ?').get(id) as any;
+        return row ? this.mapCanvasCommit(row) : undefined;
+    }
+
+    listCanvasCommits(canvasId: CanvasId): CanvasCommit[] {
+        const rows = (this.db.prepare('SELECT * FROM canvas_commits WHERE canvas_id = ? ORDER BY created_at DESC').all(canvasId)) as any[];
+        return rows.map(r => this.mapCanvasCommit(r));
+    }
+
+    private mapCanvasCommit(row: any): CanvasCommit {
+        return {
+            id: row.id as CanvasCommitId,
+            canvasId: row.canvas_id as CanvasId,
+            content: row.content,
+            diff: row.diff,
+            metadata: fromJSON(row.metadata),
+            changeType: row.change_type,
+            changedBy: row.changed_by,
+            message: row.message,
             createdAt: row.created_at,
         };
     }

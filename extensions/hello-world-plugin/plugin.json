@@ -1,0 +1,7 @@
+{
+  "id": "hello-world-plugin",
+  "name": "Hello World Plugin",
+  "version": "0.1.0",
+  "entrypoint": "build/plugin.wasm",
+  "permissions": []
+}

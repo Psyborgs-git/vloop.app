@@ -25,10 +25,9 @@ export class DbHostFunctions {
 
         let db: InstanceType<typeof Database> | undefined;
         try {
-            db = new Database(creds.path, {
-                cipher: 'sqlcipher',
-                key: creds.key,
-            });
+            db = new Database(creds.path);
+            db.pragma(`cipher='sqlcipher'`);
+            db.pragma(`key='${creds.key}'`);
 
             // Execute
             // CAUTION: This allows arbitrary SQL.
@@ -49,12 +48,16 @@ export class DbHostFunctions {
                 }
             }
 
-            const result = stmt.reader ? stmt.all(params) : stmt.run(params);
+            if (stmt.reader) {
+                return stmt.all(params) as any[];
+            }
+
+            const result = stmt.run(params);
 
             // If it's a run result, return it differently?
             // The host function signature must be consistent.
             // If we return JSON string, we can handle both.
-            return stmt.reader ? (result as any[]) : [{ changes: result.changes, lastInsertRowid: result.lastInsertRowid }];
+            return [{ changes: result.changes, lastInsertRowid: result.lastInsertRowid }];
 
         } catch (err: any) {
             this.logger.error({ err, sql }, 'Plugin DB query failed');

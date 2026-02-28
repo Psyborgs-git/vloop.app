@@ -23,6 +23,7 @@ Built on a robust, multi-tenant architecture, vloop provides a unified interface
 ### [Getting Started](./getting-started/installation.md)
 *   [Installation](./getting-started/installation.md): Set up vloop on your machine.
 *   [Quickstart](./getting-started/quickstart.md): Run your first autonomous AI workflow in 5 minutes.
+*   [Plugin Development](./getting-started/plugin.md): Create custom plugins to extend functionality.
 
 ### [Architecture](./architecture/overview.md)
 *   [System Overview](./architecture/overview.md): High-level design and component interaction.
@@ -33,6 +34,7 @@ Built on a robust, multi-tenant architecture, vloop provides a unified interface
 *   [Process Management](./features/process-management.md): Managing background processes and cron jobs.
 *   [Container Orchestration](./features/container-management.md): Docker integration and lifecycle management.
 *   [AI Orchestration](./features/ai-orchestration.md): Agents, Tools, Workflows, and MCP.
+*   [Canvas Runtime](./features/canvas.md): Dynamic canvas hosting, realtime state sync, and injected IPC client.
 *   [Database Management](./features/database-management.md): Provisioning and querying SQL databases.
 *   [Terminal Sessions](./features/terminal-sessions.md): Secure, persistent PTY sessions.
 *   [Plugins](./features/plugins.md): extending functionality.

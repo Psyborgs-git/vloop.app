@@ -3,7 +3,7 @@
  * history as Drawer (mobile) or Dialog (desktop), no sidebars.
  * Tools are persisted as m2m on the session via session.tools.set.
  */
-import React, { useState, useRef, useEffect, useContext } from 'react';
+import { useState, useRef, useEffect, useContext } from 'react';
 import {
     Box, Typography, List, ListItem, CircularProgress, Collapse, Alert,
     Drawer, Dialog, DialogTitle, DialogContent, useMediaQuery, useTheme,
@@ -90,7 +90,7 @@ export default function ChatView() {
 
     return (
         <Box sx={{
-            height: '100vh',
+            height: '100%',
             display: 'flex',
             justifyContent: 'center',
             bgcolor: 'background.default',
@@ -126,18 +126,21 @@ export default function ChatView() {
             <Box
                 sx={{
                     width: '100%',
+                    maxWidth: 'lg',
                     display: 'flex',
                     flexDirection: 'column',
-                    borderRadius: { xs: 0, md: 3 },
                     overflow: 'hidden',
+                    bgcolor: 'transparent',
                 }}
             >
                 {/* Top bar */}
                 <Box sx={{
-                    px: 2, py: 1.5,
+                    px: 2.25, py: 1.5,
                     borderBottom: 1, borderColor: 'divider',
                     display: 'flex', alignItems: 'center', gap: 1.5,
                     bgcolor: 'background.paper',
+                    borderRadius: 2, m: 1,  
+                    backgroundImage: 'linear-gradient(120deg, rgba(103,80,164,0.08), rgba(25,118,210,0.03))',
                 }}>
                     <Tooltip title="Chat History">
                         <IconButton size="small" onClick={() => setHistoryOpen(true)}>
@@ -147,6 +150,14 @@ export default function ChatView() {
                     <Typography variant="h6" fontWeight={600} noWrap sx={{ flexGrow: 1 }}>
                         {activeSession?.title ?? 'New Chat'}
                     </Typography>
+                    <Chip
+                        size="small"
+                        icon={<Bot size={12} />}
+                        label={mode === 'agent' ? 'Agent Mode' : 'Chat Mode'}
+                        color={mode === 'agent' ? 'secondary' : 'default'}
+                        variant="outlined"
+                        sx={{ height: 24, fontSize: '0.72rem' }}
+                    />
                     {activeSession && activeSession.toolIds.length > 0 && (
                         <Chip
                             size="small"
@@ -167,8 +178,8 @@ export default function ChatView() {
                 <List sx={{
                     flexGrow: 1, overflowY: 'auto',
                     p: { xs: 2, md: 3 },
+                    pb: { xs: 2, md: 2.5 },
                     display: 'flex', flexDirection: 'column', gap: 3,
-                    bgcolor: 'background.default',
                     "scrollbarWidth": "none", // Firefox
                     "&::-webkit-scrollbar": { display: 'none' }, // WebKit
                 }}>
@@ -210,6 +221,7 @@ export default function ChatView() {
                     loading={loading}
                     placeholder={placeholder}
                     canSend={canSend}
+                    setMode={setMode}
                     onOpenSettings={setSettingsAnchorEl}
                     selectedModelInfo={selectedModelInfo}
                     selectedAgentInfo={selectedAgentInfo}

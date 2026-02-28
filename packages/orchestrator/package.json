@@ -5,7 +5,7 @@
     "type": "module",
     "main": "./dist/main.js",
     "scripts": {
-        "predev": "pnpm --filter @orch/terminal build",
+        "predev": "pnpm --filter ...@orch/orchestrator build",
         "build": "tsc --build",
         "dev": "ORCH_DB_PASSPHRASE=dev ORCH_VAULT_PASSPHRASE=dev tsx src/main.ts",
         "start": "node dist/main.js",
@@ -24,10 +24,14 @@
         "@orch/shared": "workspace:*",
         "@orch/terminal": "workspace:*",
         "@orch/vault": "workspace:*",
-        "express": "^5.2.1"
+        "@types/diff": "^8.0.0",
+        "diff": "^8.0.3",
+        "express": "^5.2.1",
+        "ws": "^8.19.0"
     },
     "devDependencies": {
         "@types/express": "^5.0.6",
+        "@types/ws": "^8.18.1",
         "tsx": "^4.21.0",
         "typescript": "^5.7.0"
     },

@@ -342,3 +342,55 @@ export interface CreateMemoryInput {
     entities?: string[];
     metadata?: Record<string, unknown>;
 }
+
+// ─── Canvas ──────────────────────────────────────────────────────────────────
+
+export type CanvasId = Brand<string, 'CanvasId'>;
+export type CanvasCommitId = Brand<string, 'CanvasCommitId'>;
+
+export interface CanvasConfig {
+    id: CanvasId;
+    name: string;
+    description: string;
+    /** The canvas ID which represents a directory path */
+    content: string; 
+    metadata: Record<string, unknown>;
+    owner: string; 
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface CanvasCommit {
+    id: CanvasCommitId;
+    canvasId: CanvasId;
+    content: string;
+    /** unified diff */
+    diff: string;
+    metadata: Record<string, unknown>;
+    changeType: 'created' | 'updated' | 'rollback';
+    changedBy: string;
+    message: string; // commit message
+    createdAt: string;
+}
+
+export interface CreateCanvasInput {
+    id?: string;
+    name: string;
+    description?: string;
+    /** This could be an array of files e.g [{path: "index.html", content: "..."}] */
+    content?: string;
+    files?: { path: string; content: string }[];
+    metadata?: Record<string, unknown>;
+    owner: string;
+    message?: string;
+}
+
+export interface UpdateCanvasInput {
+    name?: string;
+    description?: string;
+    content?: string;
+    files?: { path: string; content: string }[];
+    metadata?: Record<string, unknown>;
+    changedBy: string;
+    message?: string;
+}

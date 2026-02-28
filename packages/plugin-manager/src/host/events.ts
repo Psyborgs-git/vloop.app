@@ -1,5 +1,6 @@
-import { HooksEventBus, HookEvent } from '@orch/shared/hooks-bus';
-import { Logger } from '@orch/daemon';
+import { HooksEventBus } from '@orch/shared/hooks-bus';
+import type { HookEvent } from '@orch/shared/hooks-bus';
+import type { Logger } from '@orch/daemon';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
 
 export class EventsHostFunctions {

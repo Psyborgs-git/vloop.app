@@ -153,11 +153,16 @@ export class AnthropicLlm extends BaseLlm {
             if (c.type === 'text') {
                 parts.push({ text: c.text });
             } else if (c.type === 'tool_use') {
+                const thoughtSignature =
+                    c.thought_signature ??
+                    c.thoughtSignature ??
+                    'anthropic';
                 parts.push({
                     functionCall: {
                         name: c.name,
                         args: c.input,
-                    }
+                        thoughtSignature,
+                    } as any
                 });
             }
         }

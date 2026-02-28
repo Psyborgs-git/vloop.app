@@ -1,4 +1,4 @@
-import { Logger } from '@orch/daemon';
+import type { Logger } from '@orch/daemon';
 import type { ContainerEvent, ContainerState } from '@orch/container';
 import { ContainerMonitor } from '@orch/container';
 import { HooksEventBus } from '@orch/shared/hooks-bus';

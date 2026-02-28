@@ -9,10 +9,12 @@ foreground = false
 bind_address = "0.0.0.0"
 ws_port = 9443
 health_port = 9444
+canvas_port = 9445
 max_connections = 1000
 ping_interval_secs = 30
 pong_timeout_secs = 10
-max_message_size_bytes = 1048576  # 1 MiB
+[storage]
+canvas_path = "./data/canvases"  # 1 MiB
 
 [tls]
 cert_path = "./certs/server.crt"

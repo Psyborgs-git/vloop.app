@@ -25,6 +25,13 @@ export interface BuiltAgent {
     runtime: ResolvedModel;
 }
 
+export interface BuildAgentOptions {
+    /** Optional explicit tool set override (e.g. session-selected tools). */
+    toolIds?: string[];
+    /** Optional explicit MCP server set override. */
+    mcpServerIds?: McpServerId[];
+}
+
 export class AgentBuilder {
     constructor(
         private readonly store: AIConfigStore,
@@ -41,6 +48,7 @@ export class AgentBuilder {
         agentId: AgentConfigId,
         vaultGet?: (ref: string) => Promise<string | undefined>,
         context?: HandlerContext,
+        options?: BuildAgentOptions,
     ): Promise<BuiltAgent> {
         const agentConfig = this.store.getAgent(agentId);
         if (!agentConfig) throw new Error(`Agent config not found: ${agentId}`);
@@ -52,14 +60,15 @@ export class AgentBuilder {
             throw new Error(`Agent config ${agentId} uses adapter '${resolved.adapter}' which is not ADK-native for LlmAgent build`);
         }
 
+        const effectiveToolIds = options?.toolIds ?? agentConfig.toolIds;
+        const effectiveMcpServerIds = options?.mcpServerIds ?? agentConfig.mcpServerIds;
+
         // Build tools
-        const tools = this.resolveTools(agentConfig.toolIds, context);
-        
-        // Add MCP tools
-        if (agentConfig.mcpServerIds && agentConfig.mcpServerIds.length > 0) {
-            const mcpTools = await this.resolveMcpFunctionTools(agentConfig.mcpServerIds);
-            tools.push(...mcpTools);
-        }
+        const tools = await this.resolveFunctionTools(
+            effectiveToolIds,
+            effectiveMcpServerIds,
+            context,
+        );
 
         // Build the LlmAgent
         const agent = new LlmAgent({
@@ -82,6 +91,24 @@ export class AgentBuilder {
         );
 
         return { agent, config: agentConfig, modelString: resolved.modelString, runtime: resolved };
+    }
+
+    /**
+     * Resolve tool IDs into ADK FunctionTool instances, including MCP tools when requested.
+     */
+    public async resolveFunctionTools(
+        toolIds: string[],
+        mcpServerIds?: McpServerId[],
+        context?: HandlerContext,
+    ): Promise<FunctionTool[]> {
+        const tools = this.resolveTools(toolIds, context);
+
+        if (mcpServerIds && mcpServerIds.length > 0) {
+            const mcpTools = await this.resolveMcpFunctionTools(mcpServerIds);
+            tools.push(...mcpTools);
+        }
+
+        return tools;
     }
 
     /**

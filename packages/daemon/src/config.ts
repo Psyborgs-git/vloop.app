@@ -23,6 +23,7 @@ const NetworkSection = z.object({
     bind_address: z.string().default('0.0.0.0'),
     ws_port: z.number().int().min(1).max(65535).default(9443),
     health_port: z.number().int().min(1).max(65535).default(9444),
+    canvas_port: z.number().int().min(1).max(65535).default(9445),
     max_connections: z.number().int().min(1).default(1000),
     ping_interval_secs: z.number().int().min(1).default(30),
     pong_timeout_secs: z.number().int().min(1).default(10),
@@ -58,6 +59,10 @@ const ContainerdSection = z.object({
     namespace: z.string().default('orchestrator'),
 }).optional();
 
+const StorageSection = z.object({
+    canvas_path: z.string().default('./data/canvases'),
+});
+
 const ConfigSchema = z.object({
     daemon: DaemonSection.default({}),
     network: NetworkSection.default({}),
@@ -66,6 +71,7 @@ const ConfigSchema = z.object({
     database: DatabaseSection.default({}),
     vault: VaultSection.default({}),
     containerd: ContainerdSection,
+    storage: StorageSection.default({}),
 });
 
 export type DaemonConfig = z.infer<typeof ConfigSchema>;
