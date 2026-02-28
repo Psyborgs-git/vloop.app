@@ -189,56 +189,59 @@ export class AgentBuilder {
      * Resolve MCP server IDs into ToolDefinitions.
      */
     private async resolveMcpTools(serverIds: McpServerId[]): Promise<ToolDefinition[]> {
-        const tools: ToolDefinition[] = [];
-        
-        for (const serverId of serverIds) {
+        // ⚡ Bolt Performance Optimization:
+        // Use Promise.all to fetch tools from multiple MCP servers concurrently instead of sequentially.
+        // This reduces agent initialization latency by parallelizing network/RPC requests to MCP servers.
+        // We return the arrays and flatten them to ensure deterministic tool ordering.
+        const nestedTools = await Promise.all(serverIds.map(async (serverId) => {
             const serverConfig = this.store.getMcpServer(serverId);
             if (!serverConfig) {
                 this.logger.warn({ serverId }, 'MCP server not found, skipping');
-                continue;
+                return [];
             }
             
             try {
-                const serverTools = await this.mcpClientManager.getTools(serverConfig);
-                tools.push(...serverTools);
+                return await this.mcpClientManager.getTools(serverConfig);
             } catch (err) {
                 this.logger.error({ err, serverId }, 'Failed to resolve MCP tools');
+                return [];
             }
-        }
+        }));
         
-        return tools;
+        return nestedTools.flat();
     }
 
     /**
      * Resolve MCP server IDs into FunctionTool instances.
      */
     private async resolveMcpFunctionTools(serverIds: McpServerId[]): Promise<FunctionTool[]> {
-        const tools: FunctionTool[] = [];
-        
-        for (const serverId of serverIds) {
+        // ⚡ Bolt Performance Optimization:
+        // Use Promise.all to fetch tools from multiple MCP servers concurrently instead of sequentially.
+        // This reduces agent initialization latency by parallelizing network/RPC requests to MCP servers.
+        // We return the arrays and flatten them to ensure deterministic tool ordering.
+        const nestedTools = await Promise.all(serverIds.map(async (serverId) => {
             const serverConfig = this.store.getMcpServer(serverId);
             if (!serverConfig) {
                 this.logger.warn({ serverId }, 'MCP server not found, skipping');
-                continue;
+                return [];
             }
             
             try {
                 const serverTools = await this.mcpClientManager.getTools(serverConfig);
-                for (const tool of serverTools) {
-                    tools.push(new FunctionTool({
-                        name: tool.name,
-                        description: tool.description,
-                        execute: async (args: any) => {
-                            return await tool.execute!(args);
-                        },
-                    }));
-                }
+                return serverTools.map((tool) => new FunctionTool({
+                    name: tool.name,
+                    description: tool.description,
+                    execute: async (args: any) => {
+                        return await tool.execute!(args);
+                    },
+                }));
             } catch (err) {
                 this.logger.error({ err, serverId }, 'Failed to resolve MCP tools');
+                return [];
             }
-        }
+        }));
         
-        return tools;
+        return nestedTools.flat();
     }
 
     /**
