@@ -7,7 +7,7 @@
     "scripts": {
         "predev": "pnpm --filter ...@orch/orchestrator build",
         "build": "tsc --build",
-        "dev": "ORCH_DB_PASSPHRASE=dev ORCH_VAULT_PASSPHRASE=dev tsx src/main.ts",
+        "dev": "ORCH_DB_PASSPHRASE=dev ORCH_VAULT_PASSPHRASE=dev pnpm exec tsx src/main.ts",
         "start": "node dist/main.js",
         "clean": "rm -rf dist"
     },

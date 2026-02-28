@@ -20,7 +20,7 @@ export class AnthropicLlm extends BaseLlm {
         if (!this.runtime.endpoint) throw new Error('Anthropic endpoint is not configured');
 
         const messages = this.mapMessages(llmRequest.contents);
-        const tools = this.mapTools(llmRequest.toolsDict);
+        const tools = this.mapTools(llmRequest.config?.tools);
         const systemPrompt = this.extractSystemPrompt(llmRequest.contents);
 
         const payload: any = {
@@ -133,12 +133,21 @@ export class AnthropicLlm extends BaseLlm {
         return messages;
     }
 
-    private mapTools(toolsDict: Record<string, any>): any[] {
-        return Object.values(toolsDict).map(t => ({
-            name: t.name,
-            description: t.description,
-            input_schema: t.parameters || { type: 'object', properties: {} },
-        }));
+    private mapTools(configTools?: any[]): any[] {
+        if (!configTools) return [];
+        const result: any[] = [];
+        for (const toolGroup of configTools) {
+            if (toolGroup.functionDeclarations) {
+                for (const decl of toolGroup.functionDeclarations) {
+                    result.push({
+                        name: decl.name,
+                        description: decl.description,
+                        input_schema: decl.parameters || { type: 'object', properties: {} },
+                    });
+                }
+            }
+        }
+        return result;
     }
 
     private extractSystemPrompt(contents: Content[]): string | undefined {

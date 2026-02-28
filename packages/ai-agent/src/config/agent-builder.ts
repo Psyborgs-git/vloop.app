@@ -192,6 +192,7 @@ export class AgentBuilder {
                 tools.push(new FunctionTool({
                     name: builtin.name,
                     description: builtin.description,
+                    parameters: builtin.parameters,
                     execute: async (args: any) => {
                         return await builtin.execute!(args, context);
                     },
@@ -258,6 +259,7 @@ export class AgentBuilder {
                 return serverTools.map((tool) => new FunctionTool({
                     name: tool.name,
                     description: tool.description,
+                    parameters: tool.parameters as any,
                     execute: async (args: any) => {
                         return await tool.execute!(args);
                     },
@@ -278,6 +280,7 @@ export class AgentBuilder {
         return new FunctionTool({
             name: config.name,
             description: config.description,
+            parameters: config.parametersSchema as any,
             execute: async (args: any) => {
                 switch (config.handlerType) {
                     case 'builtin': {

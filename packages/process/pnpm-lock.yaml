@@ -1,0 +1,57 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@orch/daemon':
+        specifier: workspace:*
+        version: link:../daemon
+      '@orch/shared':
+        specifier: workspace:*
+        version: link:../shared
+      cron-parser:
+        specifier: ^5.0.3
+        version: 5.5.0
+      tree-kill:
+        specifier: ^1.2.2
+        version: 1.2.2
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+packages:
+
+  cron-parser@5.5.0:
+    resolution: {integrity: sha512-oML4lKUXxizYswqmxuOCpgFS8BNUJpIu6k/2HVHyaL8Ynnf3wdf9tkns0yRdJLSIjkJ+b0DXHMZEHGpMwjnPww==}
+    engines: {node: '>=18'}
+
+  luxon@3.7.2:
+    resolution: {integrity: sha512-vtEhXh/gNjI9Yg1u4jX/0YVPMvxzHuGgCm6tC5kZyb08yjGWGnqAjGJvcXbqQR2P3MyMEFnRbpcdFS6PBcLqew==}
+    engines: {node: '>=12'}
+
+  tree-kill@1.2.2:
+    resolution: {integrity: sha512-L0Orpi8qGpRG//Nd+H90vFB+3iHnue1zSSGmNOOCh1GLJ7rUKVwV2HvijphGQS2UmhUZewS9VgvxYIdgr+fG1A==}
+    hasBin: true
+
+  typescript@5.9.3:
+    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
+snapshots:
+
+  cron-parser@5.5.0:
+    dependencies:
+      luxon: 3.7.2
+
+  luxon@3.7.2: {}
+
+  tree-kill@1.2.2: {}
+
+  typescript@5.9.3: {}

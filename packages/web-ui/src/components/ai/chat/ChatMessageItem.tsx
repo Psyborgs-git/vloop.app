@@ -1,5 +1,5 @@
-import { Box, Avatar, Typography, Paper, Accordion, AccordionSummary, AccordionDetails, Chip, ListItem, CircularProgress } from '@mui/material';
-import { User as UserIcon, Command, Bot, ChevronDown, Wrench, Brain } from 'lucide-react';
+import { Box, Avatar, Typography, Paper, Accordion, AccordionSummary, AccordionDetails, Chip, ListItem, CircularProgress, Tooltip, IconButton } from '@mui/material';
+import { User as UserIcon, Command, Bot, ChevronDown, Wrench, Brain, RotateCcw, GitFork } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ChatMessage } from './types.js';
@@ -8,10 +8,14 @@ import { useState, useEffect } from 'react';
 
 interface ChatMessageItemProps {
     msg: ChatMessage;
+    onRerun?: (messageId: string) => void;
+    onFork?: (messageId: string) => void;
+    disabledActions?: boolean;
 }
 
-export function ChatMessageItem({ msg }: ChatMessageItemProps) {
+export function ChatMessageItem({ msg, onRerun, onFork, disabledActions = false }: ChatMessageItemProps) {
     const [isThinkingExpanded, setIsThinkingExpanded] = useState(true);
+    const [isHovered, setIsHovered] = useState(false);
 
     // Parse <think> blocks
     let content = msg.content || '';
@@ -41,10 +45,14 @@ export function ChatMessageItem({ msg }: ChatMessageItemProps) {
         }
     }, [isThinking, thinkingContent]);
 
+    const canBranch = !!msg.id && msg.role === 'assistant';
+
     return (
         <ListItem
             disablePadding
             sx={{ justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
         >
             <Box sx={{
                 display: 'flex', gap: 1.5, maxWidth: '86%',
@@ -194,6 +202,42 @@ export function ChatMessageItem({ msg }: ChatMessageItemProps) {
                             </Box>
                         )}
                     </Paper>
+                    {canBranch && (
+                        <Box sx={{
+                            className: 'chat-message-actions',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                            gap: 0.5,
+                            px: 0.5,
+                            mt: 0.25,
+                            opacity: isHovered ? 1 : 0,
+                            transition: 'opacity 0.15s ease',
+                        }}>
+                            <Tooltip title="Re-run from here">
+                                <span>
+                                    <IconButton
+                                        size="small"
+                                        disabled={disabledActions}
+                                        onClick={() => msg.id && onRerun?.(msg.id)}
+                                    >
+                                        <RotateCcw size={14} />
+                                    </IconButton>
+                                </span>
+                            </Tooltip>
+                            <Tooltip title="Fork chat from here">
+                                <span>
+                                    <IconButton
+                                        size="small"
+                                        disabled={disabledActions}
+                                        onClick={() => msg.id && onFork?.(msg.id)}
+                                    >
+                                        <GitFork size={14} />
+                                    </IconButton>
+                                </span>
+                            </Tooltip>
+                        </Box>
+                    )}
                 </Box>
             </Box>
         </ListItem>

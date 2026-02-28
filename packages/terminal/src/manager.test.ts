@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
+import * as fs from 'node:fs';
 import { TerminalManager } from './manager.js';
 
 interface MockPty extends EventEmitter {
@@ -17,7 +18,7 @@ vi.mock('node-pty', () => {
     return {
         spawn: vi.fn((shell: string, args: string[], options: any) => {
             // simulate failure for certain cwd to exercise error handling
-            if (options.cwd === '/throw') {
+            if (options.env?.['OWNER_FOR_TEST'] === 'throw') {
                 throw new Error('simulated spawn failure');
             }
 
@@ -66,11 +67,7 @@ function createLoggerStub() {
 describe('TerminalManager', () => {
     beforeEach(() => {
         createdPtys.splice(0, createdPtys.length);
-        // prevent filesystem dependency by pretending any cwd exists and is a dir
-        const fsModule = require('fs');
-        vi.spyOn(fsModule, 'statSync').mockImplementation((p: string) => {
-            return { isDirectory: () => true } as any;
-        });
+        process.env.HOME = process.cwd();
     });
 
     afterEach(() => {
@@ -95,24 +92,19 @@ describe('TerminalManager', () => {
 
     it('defaults to HOME when cwd is an empty string', () => {
         const manager = new TerminalManager(createLoggerStub());
-        process.env.HOME = '/home/test';
+        process.env.HOME = process.cwd();
         const info = manager.spawn({
             sessionId: 's-empty',
             owner: 'eve',
             cwd: '',
         });
-        expect(info.cwd).toBe('/home/test');
+        expect(info.cwd).toBe(process.cwd());
     });
 
     it('throws when provided working directory does not exist', () => {
         const manager = new TerminalManager(createLoggerStub());
-        const badPath = '/definitely-does-not-exist';
-        // override fs to simulate missing path for this test
-        const fsModule = require('fs');
-        vi.spyOn(fsModule, 'statSync').mockImplementation(() => {
-            throw new Error('ENOENT');
-        });
-
+        const badPath = '/definitely-does-not-exist-' + Date.now();
+        
         expect(() =>
             manager.spawn({ sessionId: 's-bad', owner: 'frank', cwd: badPath }),
         ).toThrow(/Invalid working directory/);
@@ -121,7 +113,7 @@ describe('TerminalManager', () => {
     it('converts underlying pty errors into readable messages', () => {
         const manager = new TerminalManager(createLoggerStub());
         expect(() =>
-            manager.spawn({ sessionId: 's-throw', owner: 'gary', cwd: '/throw' }),
+            manager.spawn({ sessionId: 's-throw', owner: 'gary', cwd: process.cwd(), env: { OWNER_FOR_TEST: 'throw' } }),
         ).toThrow(/Failed to spawn terminal/);
     });
 

@@ -9,12 +9,12 @@
         "clean": "tsc --build --clean"
     },
     "dependencies": {
+        "@orch/vault": "workspace:*",
         "better-sqlite3-multiple-ciphers": "^11.5.0"
     },
     "devDependencies": {
-        "@orch/shared": "workspace:*",
         "@orch/daemon": "workspace:*",
-        "@orch/vault": "workspace:*"
+        "@orch/shared": "workspace:*"
     },
     "files": [
         "dist"

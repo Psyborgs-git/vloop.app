@@ -11,6 +11,8 @@ export interface ChatMessage {
     toolResults?: ToolResult[];
     requestedToolConfirmations?: Record<string, unknown>;
     longRunningToolIds?: string[];
+    metadata?: Record<string, unknown>;
+    createdAt?: string;
 }
 
 export interface ChatSession {

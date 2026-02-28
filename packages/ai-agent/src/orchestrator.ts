@@ -33,6 +33,7 @@ import type { AIConfigStore } from "./config/store.js";
 import type {
 	AgentConfigId,
 	ChatSessionId,
+	ChatMessage,
 	WorkflowId,
 	ModelId,
 	ModelConfig,
@@ -50,6 +51,13 @@ export interface AgentChatOptions {
 	sessionId: ChatSessionId;
 	prompt: string;
 	toolIds?: string[];
+	persistUserMessage?: boolean;
+	historyMessages?: ChatMessage[];
+}
+
+interface ContextCompactionOptions {
+	maxChars?: number;
+	keepLastMessages?: number;
 }
 
 export class AgentOrchestrator {
@@ -124,13 +132,15 @@ export class AgentOrchestrator {
 			agentConfig.params,
 		);
 
-		this.configStore.createChatMessage({
-			sessionId: opts.sessionId,
-			role: "user",
-			content: opts.prompt,
-			providerType: resolvedRuntime.provider.type,
-			modelId: resolvedRuntime.model.modelId,
-		});
+		if (opts.persistUserMessage !== false) {
+			this.configStore.createChatMessage({
+				sessionId: opts.sessionId,
+				role: "user",
+				content: opts.prompt,
+				providerType: resolvedRuntime.provider.type,
+				modelId: resolvedRuntime.model.modelId,
+			});
+		}
 
 		// Inject memory + RAG + KG context
 		const enrichedPrompt = this.contextManager.build({
@@ -138,6 +148,8 @@ export class AgentOrchestrator {
 			userPrompt: opts.prompt,
 			systemPrompt: agentConfig.systemPrompt,
 		});
+		const historyMessages = opts.historyMessages ?? this.getSessionHistoryForPrompt(opts.sessionId, opts.prompt);
+		const promptWithHistory = this.composePromptWithHistory(enrichedPrompt, historyMessages);
 
 		const startedAt = Date.now();
 
@@ -184,7 +196,7 @@ export class AgentOrchestrator {
 		const events = runner.runAsync({
 			userId: "chat_user",
 			sessionId: session.id,
-			newMessage: { role: "user", parts: [{ text: enrichedPrompt }] },
+			newMessage: { role: "user", parts: [{ text: promptWithHistory }] },
 		});
 
 		for await (const event of events) {
@@ -313,6 +325,8 @@ export class AgentOrchestrator {
 			systemPrompt?: string;
 			sessionId?: ChatSessionId;
 			toolIds?: string[];
+			persistUserMessage?: boolean;
+			historyMessages?: ChatMessage[];
 		},
 		emit?: (type: "stream" | "event", payload: unknown, seq?: number) => void,
 	): Promise<any> {
@@ -331,7 +345,7 @@ export class AgentOrchestrator {
 			"Starting chat completion",
 		);
 
-		if (opts.sessionId && this.configStore) {
+		if (opts.sessionId && this.configStore && opts.persistUserMessage !== false) {
 			this.configStore.createChatMessage({
 				sessionId: opts.sessionId,
 				role: "user",
@@ -395,7 +409,15 @@ export class AgentOrchestrator {
 		const events = runner.runAsync({
 			userId: "chat_user",
 			sessionId: session.id,
-			newMessage: { role: "user", parts: [{ text: opts.prompt }] },
+			newMessage: {
+				role: "user",
+				parts: [{
+					text: this.composePromptWithHistory(
+						opts.prompt,
+						opts.historyMessages ?? this.getSessionHistoryForPrompt(opts.sessionId, opts.prompt),
+					),
+				}],
+			},
 		});
 
 		for await (const event of events) {
@@ -478,6 +500,266 @@ export class AgentOrchestrator {
 			result: fullText,
 			toolCalls,
 		};
+	}
+
+	public async rerunChatFromMessage(
+		opts: {
+			sessionId: ChatSessionId;
+			messageId: string;
+			toolIds?: string[];
+		},
+		emit?: (type: "stream" | "event", payload: unknown, seq?: number) => void,
+		context?: HandlerContext,
+	): Promise<any> {
+		if (!this.configStore) throw new Error("AI config store not initialized");
+
+		const session = this.configStore.getChatSession(opts.sessionId);
+		if (!session) throw new Error(`Chat session not found: ${opts.sessionId}`);
+
+		const allMessages = this.configStore.listChatMessages(opts.sessionId);
+		const anchorIndex = allMessages.findIndex((m) => m.id === opts.messageId);
+		if (anchorIndex < 0) {
+			throw new Error(`Chat message not found in session: ${opts.messageId}`);
+		}
+
+		const anchor = allMessages[anchorIndex]!;
+		const rerunUserIndex =
+			anchor.role === "user"
+				? anchorIndex
+				: (() => {
+					for (let i = anchorIndex; i >= 0; i--) {
+						if (allMessages[i]?.role === "user") return i;
+					}
+					return -1;
+				})();
+
+		if (rerunUserIndex < 0) {
+			throw new Error("Unable to rerun: no user prompt found before selected message");
+		}
+
+		const rerunUserMessage = allMessages[rerunUserIndex]!;
+		const historyMessages = allMessages.slice(0, rerunUserIndex);
+
+		this.configStore.deleteChatMessagesAfter(opts.sessionId, rerunUserMessage.id);
+
+		if (session.agentId) {
+			return this.runAgentChat(
+				{
+					agentId: session.agentId,
+					sessionId: opts.sessionId,
+					prompt: rerunUserMessage.content,
+					toolIds: opts.toolIds,
+					persistUserMessage: false,
+					historyMessages,
+				},
+				emit,
+				context,
+			);
+		}
+
+		const modelRef =
+			session.modelId ||
+			rerunUserMessage.modelId ||
+			allMessages
+				.slice(0, rerunUserIndex + 1)
+				.reverse()
+				.find((m) => m.modelId)?.modelId;
+
+		return this.runChatCompletion(
+			{
+				modelId: modelRef,
+				prompt: rerunUserMessage.content,
+				sessionId: opts.sessionId,
+				toolIds: opts.toolIds,
+				persistUserMessage: false,
+				historyMessages,
+			},
+			emit,
+		);
+	}
+
+	public forkChatFromMessage(opts: {
+		sessionId: ChatSessionId;
+		messageId: string;
+		title?: string;
+	}): { session: ReturnType<AIConfigStore["getChatSession"]> } {
+		if (!this.configStore) throw new Error("AI config store not initialized");
+		const session = this.configStore.forkChatSessionUpTo(
+			opts.sessionId,
+			opts.messageId as any,
+			opts.title,
+		);
+		return { session };
+	}
+
+	public compactChatContext(opts: {
+		sessionId: ChatSessionId;
+		maxChars?: number;
+		keepLastMessages?: number;
+	}): {
+		compacted: boolean;
+		deletedMessages: number;
+		summary?: string;
+		totalMessages: number;
+		remainingMessages: number;
+	} {
+		if (!this.configStore) throw new Error("AI config store not initialized");
+		const session = this.configStore.getChatSession(opts.sessionId);
+		if (!session) throw new Error(`Chat session not found: ${opts.sessionId}`);
+
+		const allMessages = this.configStore.listChatMessages(opts.sessionId);
+		const compacted = this.compactHistoryMessages(allMessages, {
+			maxChars: opts.maxChars,
+			keepLastMessages: opts.keepLastMessages,
+		});
+
+		if (!compacted.didCompact || compacted.recentMessages.length === 0) {
+			return {
+				compacted: false,
+				deletedMessages: 0,
+				totalMessages: allMessages.length,
+				remainingMessages: allMessages.length,
+			};
+		}
+
+		const firstRecent = compacted.recentMessages[0]!;
+		const deleted = this.configStore.deleteChatMessagesBefore(opts.sessionId, firstRecent.id);
+		this.configStore.createChatMessage({
+			sessionId: opts.sessionId,
+			role: "system",
+			content: `Context was compacted to fit the model window.\n\n${compacted.summary}`,
+			metadata: {
+				contextCompaction: true,
+				compactedAt: new Date().toISOString(),
+				deletedMessages: deleted,
+				keepLastMessages: compacted.keepLastMessages,
+			},
+		});
+
+		return {
+			compacted: true,
+			deletedMessages: deleted,
+			summary: compacted.summary,
+			totalMessages: allMessages.length,
+			remainingMessages: allMessages.length - deleted + 1,
+		};
+	}
+
+	private composePromptWithHistory(
+		latestPrompt: string,
+		historyMessages?: ChatMessage[],
+	): string {
+		if (!historyMessages || historyMessages.length === 0) {
+			return latestPrompt;
+		}
+
+		const compacted = this.compactHistoryMessages(historyMessages);
+		const promptHistory = compacted.promptHistory;
+		if (promptHistory.length === 0) return latestPrompt;
+
+		const formattedHistory = promptHistory
+			.filter((m) => ["system", "user", "assistant", "tool"].includes(m.role))
+			.map((m) => {
+				const roleLabel =
+					m.role === "assistant"
+						? "Assistant"
+						: m.role === "user"
+							? "User"
+							: m.role === "system"
+								? "System"
+								: "Tool";
+				return `${roleLabel}:\n${m.content}`;
+			})
+			.join("\n\n");
+
+		return [
+			"Conversation so far:",
+			formattedHistory,
+			"",
+			compacted.didCompact
+				? "Note: Earlier turns were compacted into a summary to fit context limits."
+				: "",
+			"",
+			"Continue the conversation naturally and answer the latest user message below.",
+			latestPrompt,
+		].filter(Boolean).join("\n");
+	}
+
+	private getSessionHistoryForPrompt(
+		sessionId?: ChatSessionId,
+		latestPrompt?: string,
+	): ChatMessage[] {
+		if (!sessionId || !this.configStore) return [];
+		const all = this.configStore.listChatMessages(sessionId);
+		if (all.length === 0) return [];
+		const maybeLast = all[all.length - 1];
+		if (maybeLast?.role === "user" && latestPrompt && maybeLast.content === latestPrompt) {
+			return all.slice(0, -1);
+		}
+		return all;
+	}
+
+	private compactHistoryMessages(
+		historyMessages: ChatMessage[],
+		opts?: ContextCompactionOptions,
+	): {
+		didCompact: boolean;
+		summary: string;
+		promptHistory: ChatMessage[];
+		recentMessages: ChatMessage[];
+		keepLastMessages: number;
+	} {
+		const maxChars = opts?.maxChars ?? 24_000;
+		const keepLastMessages = opts?.keepLastMessages ?? 12;
+		const totalChars = historyMessages.reduce((acc, m) => acc + (m.content?.length ?? 0), 0);
+
+		if (totalChars <= maxChars || historyMessages.length <= keepLastMessages) {
+			return {
+				didCompact: false,
+				summary: "",
+				promptHistory: historyMessages,
+				recentMessages: historyMessages,
+				keepLastMessages,
+			};
+		}
+
+		const splitIndex = Math.max(1, historyMessages.length - keepLastMessages);
+		const older = historyMessages.slice(0, splitIndex);
+		const recent = historyMessages.slice(splitIndex);
+		const summary = this.summarizeMessages(older);
+
+		const summaryMessage: ChatMessage = {
+			id: "context-summary" as any,
+			sessionId: recent[0]?.sessionId ?? ("context-summary" as any),
+			role: "system",
+			content: `Summary of earlier conversation:\n${summary}`,
+			createdAt: new Date().toISOString(),
+		};
+
+		return {
+			didCompact: true,
+			summary,
+			promptHistory: [summaryMessage, ...recent],
+			recentMessages: recent,
+			keepLastMessages,
+		};
+	}
+
+	private summarizeMessages(messages: ChatMessage[]): string {
+		const lines: string[] = [];
+		for (const m of messages) {
+			const role = m.role === "assistant" ? "Assistant" : m.role === "user" ? "User" : "System";
+			const content = (m.content || "").replace(/\s+/g, " ").trim();
+			if (!content) continue;
+			const clipped = content.length > 280 ? `${content.slice(0, 277)}...` : content;
+			lines.push(`- ${role}: ${clipped}`);
+			if (lines.length >= 60) break;
+		}
+		if (lines.length === 0) {
+			return "No significant earlier conversation content.";
+		}
+		const joined = lines.join("\n");
+		return joined.length > 4_000 ? `${joined.slice(0, 3_997)}...` : joined;
 	}
 
 	private async resolveRuntimeForCompletion(opts: {

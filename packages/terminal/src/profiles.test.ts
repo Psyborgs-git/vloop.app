@@ -109,8 +109,10 @@ describe('TerminalProfileManager', () => {
         expect(defaultProfile?.id).toBe(p2.id);
     });
 
-    it('updates a profile', () => {
-        const created = manager.create({ name: 'original', owner: 'user1', shell: 'sh' });
+    it('updates a profile', async () => {
+        const created = manager.create({ name: 'old', owner: 'user1' });
+
+        await new Promise((r) => setTimeout(r, 2));
 
         const updateInput: UpdateProfileInput = {
             name: 'updated',

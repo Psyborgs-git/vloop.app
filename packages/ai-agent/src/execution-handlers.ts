@@ -75,6 +75,82 @@ export function registerExecutionHandlers(
 		return orchestrator.runAgentChat(p, ctx.emit, ctx);
 	});
 
+	handlers.set("chat.rerun", (p, ctx) => {
+		if (!configStore) {
+			throw new OrchestratorError(
+				ErrorCode.SERVICE_UNAVAILABLE,
+				"AI config store not initialized",
+			);
+		}
+		if (!p.sessionId || !p.messageId) {
+			throw new OrchestratorError(
+				ErrorCode.VALIDATION_ERROR,
+				"sessionId and messageId are required",
+			);
+		}
+		const session = configStore.getChatSession(p.sessionId);
+		if (!session) {
+			throw new OrchestratorError(ErrorCode.NOT_FOUND, "Chat session not found");
+		}
+		return orchestrator.rerunChatFromMessage(
+			{
+				sessionId: p.sessionId,
+				messageId: p.messageId,
+				toolIds: p.toolIds,
+			},
+			ctx.emit,
+			ctx,
+		);
+	});
+
+	handlers.set("chat.fork", (p) => {
+		if (!configStore) {
+			throw new OrchestratorError(
+				ErrorCode.SERVICE_UNAVAILABLE,
+				"AI config store not initialized",
+			);
+		}
+		if (!p.sessionId || !p.messageId) {
+			throw new OrchestratorError(
+				ErrorCode.VALIDATION_ERROR,
+				"sessionId and messageId are required",
+			);
+		}
+		const session = configStore.getChatSession(p.sessionId);
+		if (!session) {
+			throw new OrchestratorError(ErrorCode.NOT_FOUND, "Chat session not found");
+		}
+		return orchestrator.forkChatFromMessage({
+			sessionId: p.sessionId,
+			messageId: p.messageId,
+			title: p.title,
+		});
+	});
+
+	handlers.set("chat.compact", (p) => {
+		if (!configStore) {
+			throw new OrchestratorError(
+				ErrorCode.SERVICE_UNAVAILABLE,
+				"AI config store not initialized",
+			);
+		}
+		if (!p.sessionId) {
+			throw new OrchestratorError(
+				ErrorCode.VALIDATION_ERROR,
+				"sessionId is required",
+			);
+		}
+		const session = configStore.getChatSession(p.sessionId);
+		if (!session) {
+			throw new OrchestratorError(ErrorCode.NOT_FOUND, "Chat session not found");
+		}
+		return orchestrator.compactChatContext({
+			sessionId: p.sessionId,
+			maxChars: p.maxChars,
+			keepLastMessages: p.keepLastMessages,
+		});
+	});
+
 	handlers.set("run.workflow", (p, ctx) => {
 		if (!p.workflowId || !p.input) {
 			throw new OrchestratorError(

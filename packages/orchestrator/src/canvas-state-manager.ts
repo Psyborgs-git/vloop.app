@@ -143,6 +143,28 @@ export class CanvasStateManager {
     }
 
     // Agent/Server logic can call this to update state programmatically
+    public async close(): Promise<void> {
+        return new Promise<void>((resolve, reject) => {
+            for (const socketSet of this.connections.values()) {
+                for (const socket of socketSet) {
+                    socket.terminate();
+                }
+            }
+            this.connections.clear();
+            
+            for (const [requestId, req] of this.pendingInputRequests.entries()) {
+                clearTimeout(req.timeout);
+                req.resolve({ confirmed: false });
+            }
+            this.pendingInputRequests.clear();
+
+            this.wss.close((err) => {
+                if (err) return reject(err);
+                resolve();
+            });
+        });
+    }
+
     public updateState(canvasId: string, partialState: any) {
         const currentState = this.canvasStates.get(canvasId) || {};
         const newState = { ...currentState, ...partialState };

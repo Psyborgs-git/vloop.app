@@ -849,12 +849,20 @@ export class OrchestratorApp {
         if (this.sessionLogger) this.sessionLogger.shutdownAll();
         if (this.dbPool) this.dbPool.shutdownAll();
         if (this.pluginManager) await this.pluginManager.stop();
+        if (this.canvasServer) await this.canvasServer.close();
 
         if (this.wsHandle) await this.wsHandle.close();
         if (this.healthServer) await this.healthServer.close();
         if (this.vaultCrypto) this.vaultCrypto.zeroize();
+        // Session cleanup may use the DB connection, so run it before db close.
+        if (this.sessionManager) {
+            try {
+                this.sessionManager.cleanup();
+            } catch (err) {
+                this.logger.warn({ err }, "Session cleanup skipped during shutdown");
+            }
+        }
         if (this.dbManager) this.dbManager.close();
-        if (this.sessionManager) this.sessionManager.cleanup();
 
         // remove pid file before exiting
         try {

@@ -61,6 +61,17 @@ function relativeTime(iso: string): string {
     return new Date(iso).toLocaleDateString();
 }
 
+function workflowEventToText(chunk: any): string | null {
+    if (!chunk || typeof chunk !== 'object' || typeof chunk.type !== 'string') return null;
+    if (!chunk.type.startsWith('workflow.')) return null;
+    if (chunk.type === 'workflow.start') return '▶ Workflow started\n';
+    if (chunk.type === 'workflow.complete') return '✅ Workflow completed\n';
+    if (chunk.type === 'workflow.error') return `❌ Workflow failed: ${chunk.error || 'unknown error'}\n`;
+    if (chunk.type === 'workflow.step.start') return `⏳ Step ${chunk.stepId || '?'} started\n`;
+    if (chunk.type === 'workflow.step.complete') return `✅ Step ${chunk.stepId || '?'} completed\n`;
+    return `${chunk.type}\n`;
+}
+
 // ─── Step timeline row ────────────────────────────────────────────────────────
 
 function StepRow({ step }: { step: StepExecution }) {
@@ -156,6 +167,12 @@ function ExecutionRow({ exec, client }: { exec: Execution; client: any }) {
         try {
             const stream = client.agent.runWorkflowExec(exec.workflowId, exec.input || 'replay');
             for await (const chunk of stream) {
+                const evText = workflowEventToText(chunk);
+                if (evText) {
+                    setLiveOutput(prev => [...prev, evText]);
+                    liveRef.current?.scrollIntoView({ behavior: 'smooth' });
+                    continue;
+                }
                 const text =
                     typeof chunk === 'string' ? chunk :
                     chunk?.content?.parts?.[0]?.text ?? chunk?.text ??

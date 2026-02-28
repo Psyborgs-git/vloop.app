@@ -93,9 +93,11 @@ export class WorkflowRunner {
         let finalOutput = '';
 
         const nodeTypeOf = (node: WorkflowNode): string => {
-            const directType = typeof node.type === 'string' ? node.type : '';
-            if (directType && directType !== 'workflowNode') return directType;
+            const rawType = (node as unknown as { type?: unknown }).type;
+            const directType = typeof rawType === 'string' ? rawType : '';
             const kind = typeof node.data?.kind === 'string' ? node.data.kind : '';
+            // Prefer explicit data.kind when present so legacy "workflowNode" shapes
+            // execute correctly even if persisted type values are non-standard.
             return kind || directType || 'agent';
         };
 

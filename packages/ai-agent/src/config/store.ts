@@ -821,6 +821,104 @@ export class AIConfigStore {
         return (this.db.prepare('SELECT * FROM ai_chat_messages WHERE session_id = ? ORDER BY created_at ASC').all(sessionId) as any[]).map(r => this.mapChatMessage(r));
     }
 
+    listChatMessagesUpTo(sessionId: ChatSessionId, messageId: ChatMessageId): ChatMessage[] {
+        const anchor = this.db
+            .prepare('SELECT rowid as row_id FROM ai_chat_messages WHERE session_id = ? AND id = ?')
+            .get(sessionId, messageId) as { row_id: number } | undefined;
+        if (!anchor) {
+            throw new Error(`Chat message not found in session: ${messageId}`);
+        }
+
+        return (
+            this.db
+                .prepare('SELECT * FROM ai_chat_messages WHERE session_id = ? AND rowid <= ? ORDER BY rowid ASC')
+                .all(sessionId, anchor.row_id) as any[]
+        ).map((r) => this.mapChatMessage(r));
+    }
+
+    deleteChatMessagesAfter(sessionId: ChatSessionId, messageId: ChatMessageId): number {
+        const anchor = this.db
+            .prepare('SELECT rowid as row_id FROM ai_chat_messages WHERE session_id = ? AND id = ?')
+            .get(sessionId, messageId) as { row_id: number } | undefined;
+        if (!anchor) {
+            throw new Error(`Chat message not found in session: ${messageId}`);
+        }
+
+        const result = this.db
+            .prepare('DELETE FROM ai_chat_messages WHERE session_id = ? AND rowid > ?')
+            .run(sessionId, anchor.row_id);
+        this.db
+            .prepare('UPDATE ai_chat_sessions SET updated_at = ? WHERE id = ?')
+            .run(now(), sessionId);
+        return result.changes;
+    }
+
+    deleteChatMessagesBefore(sessionId: ChatSessionId, messageId: ChatMessageId): number {
+        const anchor = this.db
+            .prepare('SELECT rowid as row_id FROM ai_chat_messages WHERE session_id = ? AND id = ?')
+            .get(sessionId, messageId) as { row_id: number } | undefined;
+        if (!anchor) {
+            throw new Error(`Chat message not found in session: ${messageId}`);
+        }
+
+        const result = this.db
+            .prepare('DELETE FROM ai_chat_messages WHERE session_id = ? AND rowid < ?')
+            .run(sessionId, anchor.row_id);
+        this.db
+            .prepare('UPDATE ai_chat_sessions SET updated_at = ? WHERE id = ?')
+            .run(now(), sessionId);
+        return result.changes;
+    }
+
+    forkChatSessionUpTo(
+        sessionId: ChatSessionId,
+        messageId: ChatMessageId,
+        title?: string,
+    ): ChatSession {
+        const sourceSession = this.getChatSession(sessionId);
+        if (!sourceSession) {
+            throw new Error(`Chat session not found: ${sessionId}`);
+        }
+
+        const messagesToCopy = this.listChatMessagesUpTo(sessionId, messageId);
+        if (messagesToCopy.length === 0) {
+            throw new Error(`No messages to fork for session: ${sessionId}`);
+        }
+
+        const forkTitle = title?.trim() || `${sourceSession.title} (Fork)`;
+        const forkedSession = this.createChatSession({
+            agentId: sourceSession.agentId,
+            workflowId: sourceSession.workflowId,
+            modelId: sourceSession.modelId,
+            providerId: sourceSession.providerId,
+            mode: sourceSession.mode,
+            title: forkTitle,
+            toolIds: sourceSession.toolIds,
+            mcpServerIds: sourceSession.mcpServerIds,
+        });
+
+        const copyMessages = this.db.transaction((msgs: ChatMessage[]) => {
+            for (const message of msgs) {
+                this.createChatMessage({
+                    sessionId: forkedSession.id,
+                    role: message.role,
+                    content: message.content,
+                    providerType: message.providerType,
+                    modelId: message.modelId,
+                    toolCalls: message.toolCalls,
+                    toolResults: message.toolResults,
+                    finishReason: message.finishReason,
+                    usage: message.usage,
+                    latencyMs: message.latencyMs,
+                    metadata: message.metadata,
+                });
+            }
+        });
+
+        copyMessages(messagesToCopy);
+        return this.getChatSession(forkedSession.id)!;
+    }
+
     private mapChatMessage(row: any): ChatMessage {
         return {
             id: row.id, sessionId: row.session_id, role: row.role, content: row.content,

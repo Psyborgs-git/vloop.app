@@ -9,13 +9,13 @@ import {
     Drawer, Dialog, DialogTitle, DialogContent, useMediaQuery, useTheme,
     IconButton, Tooltip, Chip, Avatar, Paper
 } from '@mui/material';
-import { History, Wrench, Bot } from 'lucide-react';
+import { History, Wrench, Bot, Minimize2 } from 'lucide-react';
 import { ClientContext } from '../ClientContext.js';
 import { useToast } from '../components/ToastContext.js';
 import { useChat } from '../hooks/useChat.js';
 
 import {
-    ChatMessageItem, ChatHistoryPanel, ChatSettingsPopover, ChatInputArea, EmptyState
+    ChatMessageItem, ChatHistoryPanel, ChatInputArea, EmptyState
 } from '../components/ai/chat/index.js';
 
 export default function ChatView() {
@@ -46,13 +46,15 @@ export default function ChatView() {
         handleNewChat,
         handleSend,
         handleToolToggle,
+        handleRerun,
+        handleFork,
+        handleCompactContext,
     } = useChat(client, showToast);
 
     // UI state
     const [historyOpen, setHistoryOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [sortDesc, setSortDesc] = useState(true);
-    const [settingsAnchorEl, setSettingsAnchorEl] = useState<HTMLButtonElement | null>(null);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -70,6 +72,26 @@ export default function ChatView() {
     const placeholder = mode === 'chat'
         ? (selectedModelInfo ? `Chat with ${selectedModelInfo.name}...` : 'Select a model to start...')
         : (selectedAgentInfo ? `Ask ${selectedAgentInfo.name}...` : 'Select an agent or model...');
+
+    const latestCompactionMessage = [...(activeSession?.messages ?? [])]
+        .reverse()
+        .find((m) => Boolean((m.metadata as any)?.contextCompaction));
+    const latestCompactionAt = (latestCompactionMessage?.metadata as any)?.compactedAt || latestCompactionMessage?.createdAt;
+    const compactionDeletedCount = (latestCompactionMessage?.metadata as any)?.deletedMessages as number | undefined;
+
+    const relativeCompactionTime = (() => {
+        if (!latestCompactionAt) return '';
+        const ts = new Date(latestCompactionAt).getTime();
+        if (Number.isNaN(ts)) return '';
+        const deltaMs = Date.now() - ts;
+        const mins = Math.floor(deltaMs / 60_000);
+        if (mins < 1) return 'just now';
+        if (mins < 60) return `${mins}m ago`;
+        const hours = Math.floor(mins / 60);
+        if (hours < 24) return `${hours}h ago`;
+        const days = Math.floor(hours / 24);
+        return `${days}d ago`;
+    })();
 
     // ─── History panel ────────────────────────────────────────────────
 
@@ -167,6 +189,27 @@ export default function ChatView() {
                             sx={{ height: 24, fontSize: '0.72rem' }}
                         />
                     )}
+                    {latestCompactionAt && (
+                        <Tooltip title={typeof compactionDeletedCount === 'number'
+                            ? `Compacted ${relativeCompactionTime}, summarized ${compactionDeletedCount} messages`
+                            : `Compacted ${relativeCompactionTime}`}
+                        >
+                            <Chip
+                                size="small"
+                                label={`Compacted ${relativeCompactionTime}`}
+                                color="info"
+                                variant="outlined"
+                                sx={{ height: 24, fontSize: '0.72rem' }}
+                            />
+                        </Tooltip>
+                    )}
+                    <Tooltip title="Compact context">
+                        <span>
+                            <IconButton size="small" onClick={handleCompactContext} disabled={loading}>
+                                <Minimize2 size={16} />
+                            </IconButton>
+                        </span>
+                    </Tooltip>
                 </Box>
 
                 {/* Error banner */}
@@ -187,7 +230,13 @@ export default function ChatView() {
                         <EmptyState mode={mode} onNewChat={handleNewChat} loading={loading} />
                     ) : (
                         activeSession?.messages.map((msg, i) => (
-                            <ChatMessageItem key={msg.id ?? i} msg={msg} />
+                            <ChatMessageItem
+                                key={msg.id ?? i}
+                                msg={msg}
+                                disabledActions={loading}
+                                onRerun={handleRerun}
+                                onFork={handleFork}
+                            />
                         ))
                     )}
 
@@ -221,31 +270,22 @@ export default function ChatView() {
                     loading={loading}
                     placeholder={placeholder}
                     canSend={canSend}
+                    mode={mode}
                     setMode={setMode}
-                    onOpenSettings={setSettingsAnchorEl}
+                    modelsByProvider={modelsByProvider}
+                    selectedModelId={selectedModelId}
+                    setSelectedModelId={setSelectedModelId}
+                    agents={agents}
+                    selectedAgentId={selectedAgentId}
+                    setSelectedAgentId={setSelectedAgentId}
+                    tools={tools}
+                    selectedToolIds={selectedToolIds}
+                    onToolToggle={handleToolToggle}
                     selectedModelInfo={selectedModelInfo}
                     selectedAgentInfo={selectedAgentInfo}
-                    selectedToolIds={selectedToolIds}
-                    mode={mode}
+                    onNewChat={handleNewChat}
                 />
             </Box>
-
-            {/* Settings Popover */}
-            <ChatSettingsPopover
-                anchorEl={settingsAnchorEl}
-                onClose={() => setSettingsAnchorEl(null)}
-                mode={mode}
-                setMode={setMode}
-                selectedModelId={selectedModelId}
-                setSelectedModelId={setSelectedModelId}
-                selectedAgentId={selectedAgentId}
-                setSelectedAgentId={setSelectedAgentId}
-                selectedToolIds={selectedToolIds}
-                onToolToggle={handleToolToggle}
-                modelsByProvider={modelsByProvider}
-                agents={agents}
-                tools={tools}
-            />
         </Box>
     );
 }

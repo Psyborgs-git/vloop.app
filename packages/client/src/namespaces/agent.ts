@@ -161,6 +161,47 @@ export class AgentClient {
         return this.client.request('agent', 'chat.history', { sessionId });
     }
 
+    public rerunChatFromMessage(
+        sessionId: string,
+        messageId: string,
+        options?: { toolIds?: string[] },
+    ): AsyncGenerator<any, any, undefined> {
+        return this.client.requestStream<any, any>('agent', 'chat.rerun', {
+            sessionId,
+            messageId,
+            toolIds: options?.toolIds,
+        });
+    }
+
+    public forkChatFromMessage(
+        sessionId: string,
+        messageId: string,
+        title?: string,
+    ): Promise<{ session: ChatSession }> {
+        return this.client.request('agent', 'chat.fork', {
+            sessionId,
+            messageId,
+            title,
+        });
+    }
+
+    public compactChatContext(
+        sessionId: string,
+        options?: { maxChars?: number; keepLastMessages?: number },
+    ): Promise<{
+        compacted: boolean;
+        deletedMessages: number;
+        summary?: string;
+        totalMessages: number;
+        remainingMessages: number;
+    }> {
+        return this.client.request('agent', 'chat.compact', {
+            sessionId,
+            maxChars: options?.maxChars,
+            keepLastMessages: options?.keepLastMessages,
+        });
+    }
+
     // ── Session ↔ Tool m2m ─────────────────────────────────────────────
 
     public setSessionTools(sessionId: string, toolIds: string[]): Promise<{ ok: boolean }> {

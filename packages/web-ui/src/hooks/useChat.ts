@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { ChatMode, ChatSession, ProviderInfo, ModelInfo, ToolInfo, AgentInfo, ChatMessage, ToolCall, ToolResult } from '../components/ai/chat/index.js';
 
 export function useChat(client: any, showToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void) {
+    const AUTO_COMPACT_CONTEXT_CHARS = 24_000;
+
     // Chat state
     const [sessions, setSessions] = useState<ChatSession[]>([]);
     const [activeSessionId, setActiveSessionId] = useState('');
@@ -19,6 +21,40 @@ export function useChat(client: any, showToast: (msg: string, type: 'success' | 
     const [selectedToolIds, setSelectedToolIds] = useState<string[]>([]);
 
     const activeSession = sessions.find(s => s.id === activeSessionId);
+
+    const requestAgent = useCallback(async <T = any>(action: string, payload: any): Promise<T> => {
+        return client.request('agent', action, payload) as Promise<T>;
+    }, [client]);
+
+    const requestAgentStream = useCallback(<Chunk = any, Result = any>(action: string, payload: any): AsyncGenerator<Chunk, Result, undefined> => {
+        return client.requestStream('agent', action, payload) as AsyncGenerator<Chunk, Result, undefined>;
+    }, [client]);
+
+    const loadSessionData = useCallback(async (sessionId: string) => {
+        if (!client || !sessionId) return;
+        const [history, sessionToolsRes] = await Promise.all([
+            client.agent.getChatHistory(sessionId),
+            client.agent.getSessionTools(sessionId),
+        ]);
+        const toolIds = (sessionToolsRes.tools as any[]).map(t => t.id);
+        setSessions(prev => prev.map(s => s.id !== sessionId ? s : {
+            ...s,
+            toolIds,
+            updatedAt: new Date().toISOString(),
+            messages: history.messages.length > 0
+                ? (history.messages as any[]).map(m => ({
+                    id: m.id,
+                    role: m.role as ChatMessage['role'],
+                    content: m.content,
+                    toolCalls: m.toolCalls as ToolCall[],
+                    toolResults: m.toolResults as ToolResult[],
+                    metadata: m.metadata,
+                    createdAt: m.createdAt,
+                }))
+                : [{ role: 'system' as const, content: 'Select a mode and model to start chatting.' }],
+        }));
+        setSelectedToolIds(toolIds);
+    }, [client]);
 
     // ─── Load configs ────────────────────────────────────────────────
 
@@ -67,30 +103,12 @@ export function useChat(client: any, showToast: (msg: string, type: 'success' | 
         if (!client || !activeSessionId) return;
         (async () => {
             try {
-                const [history, sessionToolsRes] = await Promise.all([
-                    client.agent.getChatHistory(activeSessionId),
-                    client.agent.getSessionTools(activeSessionId),
-                ]);
-                const toolIds = (sessionToolsRes.tools as any[]).map(t => t.id);
-                setSessions(prev => prev.map(s => s.id !== activeSessionId ? s : {
-                    ...s,
-                    toolIds,
-                    messages: history.messages.length > 0
-                        ? (history.messages as any[]).map(m => ({
-                            id: m.id,
-                            role: m.role as ChatMessage['role'],
-                            content: m.content,
-                            toolCalls: m.toolCalls as ToolCall[],
-                            toolResults: m.toolResults as ToolResult[],
-                        }))
-                        : [{ role: 'system' as const, content: 'Select a mode and model to start chatting.' }],
-                }));
-                setSelectedToolIds(toolIds);
+                await loadSessionData(activeSessionId);
             } catch (e: any) {
                 showToast(`Failed to load chat history: ${e.message}`, 'error');
             }
         })();
-    }, [client, activeSessionId, showToast]);
+    }, [client, activeSessionId, loadSessionData, showToast]);
 
     // Persist tool selection to section whenever it changes
     const persistToolSelection = useCallback(async (sessionId: string, toolIds: string[]) => {
@@ -142,6 +160,28 @@ export function useChat(client: any, showToast: (msg: string, type: 'success' | 
         if (e) e.preventDefault();
         if (!input.trim() || !client || !activeSession) return;
 
+        const currentContextChars = activeSession.messages.reduce((acc, m) => acc + (m.content?.length ?? 0), 0);
+        if (currentContextChars > AUTO_COMPACT_CONTEXT_CHARS) {
+            try {
+                const compactResult = typeof client.agent?.compactChatContext === 'function'
+                    ? await client.agent.compactChatContext(activeSessionId, {
+                        maxChars: AUTO_COMPACT_CONTEXT_CHARS,
+                        keepLastMessages: 12,
+                    })
+                    : await requestAgent<any>('chat.compact', {
+                        sessionId: activeSessionId,
+                        maxChars: AUTO_COMPACT_CONTEXT_CHARS,
+                        keepLastMessages: 12,
+                    });
+                if (compactResult?.compacted) {
+                    showToast('Context was automatically compacted to fit the model window.', 'info');
+                    await loadSessionData(activeSessionId);
+                }
+            } catch (compactErr: any) {
+                showToast(`Auto-compaction skipped: ${compactErr.message}`, 'warning');
+            }
+        }
+
         const userMsg = input.trim();
         const assistantMsgId = `assistant-${Date.now()}`;
 
@@ -165,19 +205,19 @@ export function useChat(client: any, showToast: (msg: string, type: 'success' | 
                     modelId: selectedModelId,
                     prompt: userMsg,
                     sessionId: activeSessionId,
-                    toolIds: selectedToolIds,
+                    toolIds: selectedToolIds.length > 0 ? selectedToolIds : undefined,
                 });
             } else {
                 if (selectedAgentId) {
                     stream = client.agent.runAgentChat(selectedAgentId, activeSessionId, userMsg, {
-                        toolIds: selectedToolIds,
+                        toolIds: selectedToolIds.length > 0 ? selectedToolIds : undefined,
                     });
                 } else if (selectedModelId) {
                     stream = client.agent.chatCompletionStream({
                         modelId: selectedModelId,
                         prompt: userMsg,
                         sessionId: activeSessionId,
-                        toolIds: selectedToolIds,
+                        toolIds: selectedToolIds.length > 0 ? selectedToolIds : undefined,
                     });
                 } else {
                     showToast('Select an agent or model.', 'warning'); setLoading(false); return;
@@ -246,6 +286,86 @@ export function useChat(client: any, showToast: (msg: string, type: 'success' | 
         if (activeSessionId) await persistToolSelection(activeSessionId, next);
     };
 
+    const handleRerun = async (messageId: string) => {
+        if (!client || !activeSessionId) return;
+        setLoading(true);
+        try {
+            const stream = typeof client.agent?.rerunChatFromMessage === 'function'
+                ? client.agent.rerunChatFromMessage(activeSessionId, messageId, {
+                    toolIds: selectedToolIds.length > 0 ? selectedToolIds : undefined,
+                })
+                : requestAgentStream('chat.rerun', {
+                    sessionId: activeSessionId,
+                    messageId,
+                    toolIds: selectedToolIds.length > 0 ? selectedToolIds : undefined,
+                });
+            for await (const _chunk of stream) {
+                // Consume stream to completion; reload persisted history below.
+            }
+            await loadSessionData(activeSessionId);
+            showToast('Response regenerated from selected step.', 'success');
+        } catch (e: any) {
+            showToast(`Failed to regenerate response: ${e.message}`, 'error');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleFork = async (messageId: string) => {
+        if (!client || !activeSessionId) return;
+        setLoading(true);
+        try {
+            const result = typeof client.agent?.forkChatFromMessage === 'function'
+                ? await client.agent.forkChatFromMessage(activeSessionId, messageId)
+                : await requestAgent<any>('chat.fork', {
+                    sessionId: activeSessionId,
+                    messageId,
+                });
+            const nextSession = result.session;
+            setSessions(prev => [{
+                id: nextSession.id,
+                title: nextSession.title,
+                messages: [],
+                toolIds: nextSession.toolIds ?? [],
+                updatedAt: nextSession.updatedAt,
+            }, ...prev]);
+            setActiveSessionId(nextSession.id);
+            await loadSessionData(nextSession.id);
+            showToast('Forked chat created.', 'success');
+        } catch (e: any) {
+            showToast(`Failed to fork chat: ${e.message}`, 'error');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleCompactContext = async () => {
+        if (!client || !activeSessionId) return;
+        setLoading(true);
+        try {
+            const result = typeof client.agent?.compactChatContext === 'function'
+                ? await client.agent.compactChatContext(activeSessionId, {
+                    maxChars: AUTO_COMPACT_CONTEXT_CHARS,
+                    keepLastMessages: 12,
+                })
+                : await requestAgent<any>('chat.compact', {
+                    sessionId: activeSessionId,
+                    maxChars: AUTO_COMPACT_CONTEXT_CHARS,
+                    keepLastMessages: 12,
+                });
+            await loadSessionData(activeSessionId);
+            if (result.compacted) {
+                showToast(`Context compacted (${result.deletedMessages} older messages summarized).`, 'success');
+            } else {
+                showToast('Context is already within safe limits; no compaction needed.', 'info');
+            }
+        } catch (e: any) {
+            showToast(`Failed to compact context: ${e.message}`, 'error');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return {
         sessions,
         activeSessionId,
@@ -270,5 +390,8 @@ export function useChat(client: any, showToast: (msg: string, type: 'success' | 
         handleNewChat,
         handleSend,
         handleToolToggle,
+        handleRerun,
+        handleFork,
+        handleCompactContext,
     };
 }

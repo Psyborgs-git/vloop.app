@@ -1,6 +1,7 @@
-import { Paper, TextField, Box, Tooltip, IconButton, Button, ToggleButtonGroup, ToggleButton, Typography } from '@mui/material';
-import { Settings2, Cpu, Bot, Wrench, Send, Paperclip, MessageCircle, Wand2 } from 'lucide-react';
-import { ChatMode, ModelInfo, AgentInfo } from './types.js';
+import { useState } from 'react';
+import { Paper, TextField, Box, IconButton, Button, Typography, Menu, MenuItem, ListSubheader, FormGroup, FormControlLabel, Checkbox, CircularProgress } from '@mui/material';
+import { Cpu, Bot, Wrench, Send, Plus, Monitor, ChevronDown, SlidersHorizontal, Mic } from 'lucide-react';
+import { ChatMode, ModelInfo, AgentInfo, ProviderInfo, ToolInfo } from './types.js';
 import { useNavigate } from 'react-router-dom';
 
 interface ChatInputAreaProps {
@@ -10,36 +11,58 @@ interface ChatInputAreaProps {
     loading: boolean;
     placeholder: string;
     canSend: boolean;
+    mode: ChatMode;
     setMode: (mode: ChatMode) => void;
-    onOpenSettings: (el: HTMLButtonElement) => void;
+    
     selectedModelInfo?: ModelInfo;
     selectedAgentInfo?: AgentInfo;
+    
+    modelsByProvider: { provider: ProviderInfo; models: ModelInfo[] }[];
+    selectedModelId: string;
+    setSelectedModelId: (id: string) => void;
+
+    agents: AgentInfo[];
+    selectedAgentId: string;
+    setSelectedAgentId: (id: string) => void;
+
+    tools: ToolInfo[];
     selectedToolIds: string[];
-    mode: ChatMode;
+    onToolToggle: (id: string) => void;
+    onNewChat: () => void;
 }
 
 export function ChatInputArea({
-    input, setInput, onSend, loading, placeholder, canSend, setMode, onOpenSettings,
-    selectedModelInfo, selectedAgentInfo, selectedToolIds, mode
+    input, setInput, onSend, loading, placeholder, canSend, 
+    mode, setMode,
+    selectedModelInfo, selectedAgentInfo,
+    modelsByProvider, selectedModelId, setSelectedModelId,
+    agents, selectedAgentId, setSelectedAgentId,
+    tools, selectedToolIds, onToolToggle,
+    onNewChat
 }: ChatInputAreaProps) {
     const navigate = useNavigate();
+
+    const [modeMenuAnchor, setModeMenuAnchor] = useState<null | HTMLElement>(null);
+    const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
+    const [agentMenuAnchor, setAgentMenuAnchor] = useState<null | HTMLElement>(null);
+    const [toolsMenuAnchor, setToolsMenuAnchor] = useState<null | HTMLElement>(null);
+
+    const builtinTools = tools.filter(t => t.source === 'builtin');
+    const configTools = tools.filter(t => t.source === 'config');
+    const modeLabel = mode === 'agent' ? 'Agent' : 'Chat';
+    const modelLabel = selectedModelInfo?.name ?? 'Model';
+    const agentLabel = selectedAgentInfo?.name ?? 'No Agent';
 
     return (
         <Paper
             elevation={0}
             sx={{
-                position: 'sticky',
-                bottom: 12,
-                p: 1.25,
+                position: 'sticky', bottom: 12, p: 1.1,
                 display: 'flex', flexDirection: 'column', gap: 1,
-                border: '1px solid', borderColor: 'divider', borderRadius: 3,
+                border: '1px solid', borderColor: 'divider', borderRadius: 2,
                 transition: 'border-color 0.15s, box-shadow 0.15s, transform 0.15s',
-                mx: 'auto',
-                width: '100%',
-                backgroundColor: 'background.paper',
-                opacity: 0.96,
-                backdropFilter: 'blur(8px)',
-                zIndex: 2,
+                mx: 'auto', width: '100%',
+                backgroundColor: 'background.paper', opacity: 0.96, backdropFilter: 'blur(8px)', zIndex: 2,
                 '&:focus-within': {
                     borderColor: 'primary.main',
                     boxShadow: '0 0 0 2px rgba(25,118,210,0.16), 0 10px 28px rgba(0,0,0,0.08)',
@@ -47,151 +70,149 @@ export function ChatInputArea({
                 },
             }}>
             <TextField
-                fullWidth
-                variant="standard"
-                placeholder={placeholder}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                disabled={loading}
+                fullWidth variant="standard" placeholder={placeholder || 'Describe what to build next'}
+                value={input} onChange={(e) => setInput(e.target.value)} disabled={loading}
                 onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        onSend();
-                    }
+                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); }
                 }}
-                multiline
-                maxRows={6}
-                InputProps={{
-                    disableUnderline: true,
-                    sx: { px: 1, pt: 0.5, fontSize: '0.95rem' },
-                }}
+                multiline maxRows={6}
+                InputProps={{ disableUnderline: true, sx: { px: 0.75, pt: 0.35, fontSize: '0.95rem' } }}
             />
 
             <Box sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 1,
-                flexWrap: 'wrap',
-                px: 0.5,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1,
+                px: 0.25, py: 0.1,
             }}>
-                <ToggleButtonGroup
-                    value={mode}
-                    exclusive
-                    size="small"
-                    onChange={(_, nextMode) => nextMode && setMode(nextMode)}
-                    sx={{
-                        '& .MuiToggleButton-root': {
-                            textTransform: 'none',
-                            px: 1.25,
-                            py: 0.5,
-                            gap: 0.75,
-                            borderRadius: 1.75,
-                        },
-                    }}
-                >
-                    <ToggleButton value="chat">
-                        <MessageCircle size={14} />
-                        <Typography variant="caption" fontWeight={700}>Chat</Typography>
-                    </ToggleButton>
-                    <ToggleButton value="agent">
-                        <Wand2 size={14} />
-                        <Typography variant="caption" fontWeight={700}>Agent</Typography>
-                    </ToggleButton>
-                </ToggleButtonGroup>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3, flexWrap: 'wrap' }}>
+                    <IconButton size="small" onClick={onNewChat} sx={{ borderRadius: 1.2 }}>
+                        <Plus size={16} />
+                    </IconButton>
 
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
-                    <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={(e) => onOpenSettings(e.currentTarget as unknown as HTMLButtonElement)}
-                        startIcon={<Cpu size={14} />}
-                        sx={{
-                            textTransform: 'none',
-                            borderRadius: 999,
-                            maxWidth: { xs: '100%', md: 220 },
-                            '& .MuiButton-startIcon': { mr: 0.5 },
-                        }}
-                    >
-                        {selectedModelInfo?.name ?? 'Choose model'}
+                    <Button size="small" startIcon={<Monitor size={13} />} endIcon={<ChevronDown size={12} />} sx={{ textTransform: 'none', borderRadius: 1.3, px: 1, minWidth: 0 }}>
+                        Local
                     </Button>
 
                     <Button
                         size="small"
-                        variant={selectedToolIds.length > 0 ? 'contained' : 'outlined'}
-                        color={selectedToolIds.length > 0 ? 'secondary' : 'inherit'}
-                        onClick={(e) => onOpenSettings(e.currentTarget as unknown as HTMLButtonElement)}
-                        startIcon={<Wrench size={14} />}
-                        sx={{ textTransform: 'none', borderRadius: 999 }}
+                        startIcon={<Bot size={13} />}
+                        endIcon={<ChevronDown size={12} />}
+                        onClick={(e) => setModeMenuAnchor(e.currentTarget)}
+                        sx={{ textTransform: 'none', borderRadius: 1.3, px: 1, minWidth: 0 }}
                     >
-                        {selectedToolIds.length > 0
-                            ? `${selectedToolIds.length} tool${selectedToolIds.length > 1 ? 's' : ''}`
-                            : 'Add tools'}
+                        {modeLabel}
                     </Button>
 
                     <Button
                         size="small"
-                        variant="outlined"
-                        onClick={() => navigate('/media')}
-                        startIcon={<Paperclip size={14} />}
-                        sx={{ textTransform: 'none', borderRadius: 999 }}
+                        startIcon={<Cpu size={13} />}
+                        endIcon={<ChevronDown size={12} />}
+                        onClick={(e) => setModelMenuAnchor(e.currentTarget)}
+                        sx={{ textTransform: 'none', borderRadius: 1.3, px: 1, minWidth: 0, maxWidth: 210 }}
                     >
-                        Media
+                        <Typography variant="caption" noWrap>{modelLabel}</Typography>
                     </Button>
 
-                    <Tooltip title="Advanced chat settings">
-                        <IconButton
+                    {mode === 'agent' && (
+                        <Button
                             size="small"
-                            onClick={(e) => onOpenSettings(e.currentTarget)}
-                            sx={{ bgcolor: 'action.hover', borderRadius: 1.5 }}
+                            startIcon={<Wrench size={13} />}
+                            endIcon={<ChevronDown size={12} />}
+                            onClick={(e) => setAgentMenuAnchor(e.currentTarget)}
+                            sx={{ textTransform: 'none', borderRadius: 1.3, px: 1, minWidth: 0, maxWidth: 180 }}
                         >
-                            <Settings2 size={17} />
-                        </IconButton>
-                    </Tooltip>
+                            <Typography variant="caption" noWrap>{agentLabel}</Typography>
+                        </Button>
+                    )}
+
+                    <IconButton size="small" onClick={(e) => setToolsMenuAnchor(e.currentTarget)}>
+                        <SlidersHorizontal size={15} />
+                    </IconButton>
+                </Box>
+
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {loading && <CircularProgress size={15} thickness={5} />}
+                    <IconButton size="small" disabled>
+                        <Mic size={15} />
+                    </IconButton>
+                    <IconButton size="small" color="primary" onClick={onSend} disabled={!canSend} sx={{ bgcolor: canSend ? 'primary.main' : 'action.disabledBackground', color: canSend ? 'primary.contrastText' : 'action.disabled', borderRadius: 2, p: 0.75, transition: 'all 0.2s', '&:hover': { bgcolor: 'primary.dark', transform: 'scale(1.05)' } }}>
+                        <Send size={16} />
+                    </IconButton>
                 </Box>
             </Box>
 
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 0.5 }}>
-                {/* Left — settings gear + quick chips */}
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
-                    <Tooltip title="Chat settings">
-                        <IconButton
-                            size="small"
-                            onClick={(e) => onOpenSettings(e.currentTarget)}
-                            sx={{ bgcolor: 'action.hover', borderRadius: 1.5 }}
-                        >
-                            <Settings2 size={17} />
-                        </IconButton>
-                    </Tooltip>
-                    
-                    <Tooltip title="Attach Media/File">
-                        <IconButton
-                            size="small"
-                            onClick={() => navigate('/media')}
-                            sx={{ bgcolor: 'action.hover', borderRadius: 1.5 }}
-                        >
-                            <Paperclip size={17} />
-                        </IconButton>
-                    </Tooltip>
+            <Menu anchorEl={modeMenuAnchor} open={Boolean(modeMenuAnchor)} onClose={() => setModeMenuAnchor(null)}>
+                <MenuItem selected={mode === 'chat'} onClick={() => { setMode('chat'); setModeMenuAnchor(null); }}>
+                    Chat
+                </MenuItem>
+                <MenuItem selected={mode === 'agent'} onClick={() => { setMode('agent'); setModeMenuAnchor(null); }}>
+                    Agent
+                </MenuItem>
+            </Menu>
 
-                    {selectedModelInfo && (
-                        <Chip
-                            size="small"
-                            icon={<Cpu size={12} />}
-                            label={selectedModelInfo.name}
-                                sx: { px: 1, pt: 0.25, fontSize: '0.95rem' },
-                            sx={{ height: 24, fontSize: '0.72rem', cursor: 'pointer' }}
-                            onClick={(e) => onOpenSettings(e.currentTarget as unknown as HTMLButtonElement)}
-                        />
-                    )}
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minHeight: 24 }}>
-                                {mode === 'agent' && selectedAgentInfo ? (
-                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                        <Bot size={13} />
-                                        {selectedAgentInfo.name}
-                                    </Typography>
-                                ) : (
-                                    <Typography variant="caption" color="text.secondary">
-                                        Press <strong>Enter</strong> to send · <strong>Shift+Enter</strong> for newline
-                                    </Typography>
-                                )}
+            <Menu anchorEl={modelMenuAnchor} open={Boolean(modelMenuAnchor)} onClose={() => setModelMenuAnchor(null)} PaperProps={{ sx: { width: 300, maxHeight: 400 } }}>
+                {modelsByProvider.map(({ provider, models: pm }) => [
+                    <ListSubheader key={`h-${provider.id}`}>{provider.name}</ListSubheader>,
+                    ...pm.map(m => (
+                        <MenuItem key={m.id} selected={m.id === selectedModelId} onClick={() => { setSelectedModelId(m.id); setModelMenuAnchor(null); }}>
+                            <Typography variant="body2">{m.name}</Typography>
+                        </MenuItem>
+                    ))
+                ])}
+            </Menu>
+
+            <Menu anchorEl={agentMenuAnchor} open={Boolean(agentMenuAnchor)} onClose={() => setAgentMenuAnchor(null)} PaperProps={{ sx: { width: 300, maxHeight: 400 } }}>
+                <MenuItem value="" onClick={() => { setSelectedAgentId(''); setAgentMenuAnchor(null); }}>
+                    <em>None (use model directly)</em>
+                </MenuItem>
+                {agents.map(a => (
+                    <MenuItem key={a.id} selected={a.id === selectedAgentId} onClick={() => { setSelectedAgentId(a.id); setAgentMenuAnchor(null); }}>
+                        <Typography variant="body2">{a.name}</Typography>
+                    </MenuItem>
+                ))}
+            </Menu>
+
+            <Menu anchorEl={toolsMenuAnchor} open={Boolean(toolsMenuAnchor)} onClose={() => setToolsMenuAnchor(null)} PaperProps={{ sx: { width: 300, maxHeight: 400 } }}>
+                {tools.length === 0 ? (
+                    <MenuItem disabled><Typography variant="body2" color="text.secondary">No tools configured</Typography></MenuItem>
+                ) : (
+                    <Box sx={{ p: 1 }}>
+                        <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ display: 'block', mb: 1, ml: 1 }}>SELECT TOOLS</Typography>
+                        {builtinTools.length > 0 && (
+                            <>
+                                <ListSubheader sx={{ lineHeight: '32px' }}>Built-in</ListSubheader>
+                                <FormGroup sx={{ px: 2 }}>
+                                    {builtinTools.map(tool => (
+                                        <FormControlLabel
+                                            key={tool.id}
+                                            control={<Checkbox size="small" checked={selectedToolIds.includes(tool.id)} onChange={() => onToolToggle(tool.id)} />}
+                                            label={<Typography variant="body2" noWrap>{tool.name}</Typography>}
+                                            sx={{ mx: 0 }}
+                                        />
+                                    ))}
+                                </FormGroup>
+                            </>
+                        )}
+                        {configTools.length > 0 && (
+                            <>
+                                <ListSubheader sx={{ lineHeight: '32px' }}>Configured</ListSubheader>
+                                <FormGroup sx={{ px: 2 }}>
+                                    {configTools.map(tool => (
+                                        <FormControlLabel
+                                            key={tool.id}
+                                            control={<Checkbox size="small" checked={selectedToolIds.includes(tool.id)} onChange={() => onToolToggle(tool.id)} />}
+                                            label={<Typography variant="body2" noWrap>{tool.name}</Typography>}
+                                            sx={{ mx: 0 }}
+                                        />
+                                    ))}
+                                </FormGroup>
+                            </>
+                        )}
+                        <MenuItem onClick={() => { setToolsMenuAnchor(null); navigate('/media'); }}>
+                            Open Media
+                        </MenuItem>
+                    </Box>
+                )}
+            </Menu>
+        </Paper>
+    );
+}

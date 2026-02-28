@@ -23,7 +23,7 @@ export class OpenAILlm extends BaseLlm {
         const apiUrl = `${normalizedBase}/chat/completions`;
 
         const messages = this.mapMessages(llmRequest.contents);
-        const tools = this.mapTools(llmRequest.toolsDict);
+        const tools = this.mapTools(llmRequest.config?.tools);
 
         const payload: any = {
             model: this.runtime.model.modelId,
@@ -131,15 +131,24 @@ export class OpenAILlm extends BaseLlm {
         return messages;
     }
 
-    private mapTools(toolsDict: Record<string, any>): any[] {
-        return Object.values(toolsDict).map(t => ({
-            type: 'function',
-            function: {
-                name: t.name,
-                description: t.description,
-                parameters: t.parameters || { type: 'object', properties: {} },
+    private mapTools(configTools?: any[]): any[] {
+        if (!configTools) return [];
+        const result: any[] = [];
+        for (const toolGroup of configTools) {
+            if (toolGroup.functionDeclarations) {
+                for (const decl of toolGroup.functionDeclarations) {
+                    result.push({
+                        type: 'function',
+                        function: {
+                            name: decl.name,
+                            description: decl.description,
+                            parameters: decl.parameters || { type: 'object', properties: {} },
+                        }
+                    });
+                }
             }
-        }));
+        }
+        return result;
     }
 
     private mapResponse(json: any): LlmResponse {

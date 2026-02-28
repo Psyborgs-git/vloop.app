@@ -36,15 +36,37 @@ const NODE_META: Record<NodeKind, { label: string; color: string; description: s
 function WorkflowNode({ data, selected }: NodeProps) {
     const kind = (data.kind as NodeKind) ?? 'agent';
     const meta = NODE_META[kind] ?? NODE_META.agent;
+    const runStatus = (data._runStatus as 'idle' | 'running' | 'completed' | 'failed' | undefined) ?? 'idle';
+    const isActive = Boolean(data._isActive);
+    const statusColor =
+        runStatus === 'running' ? '#3b82f6' :
+        runStatus === 'completed' ? '#22c55e' :
+        runStatus === 'failed' ? '#ef4444' :
+        'rgba(0,0,0,0.15)';
     const showTarget = kind !== 'input';
     const showSource = kind !== 'output';
     return (
         <Box sx={{
             minWidth: 140, px: 2, py: 1.5, borderRadius: 2,
             bgcolor: 'background.paper',
-            border: `2px solid ${selected ? meta.color : 'rgba(0,0,0,0.15)'}`,
-            boxShadow: selected ? `0 0 0 3px ${meta.color}44` : '0 2px 8px rgba(0,0,0,0.12)',
-            transition: 'box-shadow 0.15s, border-color 0.15s',
+            border: `2px solid ${isActive ? statusColor : selected ? meta.color : statusColor}`,
+            boxShadow: isActive
+                ? `0 0 0 3px ${statusColor}33, 0 0 18px ${statusColor}55`
+                : selected
+                    ? `0 0 0 3px ${meta.color}44`
+                    : runStatus === 'completed'
+                        ? '0 0 0 2px rgba(34,197,94,0.2), 0 2px 8px rgba(0,0,0,0.12)'
+                        : runStatus === 'failed'
+                            ? '0 0 0 2px rgba(239,68,68,0.2), 0 2px 8px rgba(0,0,0,0.12)'
+                            : '0 2px 8px rgba(0,0,0,0.12)',
+            animation: isActive ? 'wfNodePulse 1.2s ease-in-out infinite' : 'none',
+            transition: 'box-shadow 0.15s, border-color 0.15s, transform 0.15s',
+            transform: isActive ? 'translateY(-1px)' : 'none',
+            '@keyframes wfNodePulse': {
+                '0%': { boxShadow: `0 0 0 2px ${statusColor}44, 0 0 8px ${statusColor}44` },
+                '50%': { boxShadow: `0 0 0 4px ${statusColor}22, 0 0 18px ${statusColor}66` },
+                '100%': { boxShadow: `0 0 0 2px ${statusColor}44, 0 0 8px ${statusColor}44` },
+            },
         }}>
             {showTarget && <Handle type="target" position={Position.Top} />}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -54,6 +76,19 @@ function WorkflowNode({ data, selected }: NodeProps) {
             <Typography variant="body2" fontWeight={600} noWrap sx={{ mt: 0.25 }}>
                 {(data.label as string) || meta.label}
             </Typography>
+            {runStatus !== 'idle' && (
+                <Typography
+                    variant="caption"
+                    sx={{
+                        mt: 0.35,
+                        display: 'inline-block',
+                        color: runStatus === 'failed' ? 'error.main' : runStatus === 'completed' ? 'success.main' : 'info.main',
+                        fontWeight: 700,
+                    }}
+                >
+                    {runStatus === 'running' ? 'Running…' : runStatus === 'completed' ? 'Done' : 'Failed'}
+                </Typography>
+            )}
             {kind === 'condition' && (
                 <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
                     {(data.condition as string) || 'condition…'}
@@ -82,6 +117,34 @@ const BLANK_NODES: Node[] = [
 ];
 const BLANK_EDGES: Edge[] = [];
 
+interface WorkflowRuntimeEvent {
+    type: string;
+    stepId?: string;
+    nodeType?: string;
+    output?: string;
+    error?: string;
+}
+
+function parseWorkflowRuntimeEvent(chunk: any): WorkflowRuntimeEvent | null {
+    if (!chunk || typeof chunk !== 'object') return null;
+    if (typeof chunk.type !== 'string') return null;
+    if (!chunk.type.startsWith('workflow.')) return null;
+    return chunk as WorkflowRuntimeEvent;
+}
+
+function toRunLogLine(event: WorkflowRuntimeEvent): string {
+    if (event.type === 'workflow.start') return '▶ Workflow started\n';
+    if (event.type === 'workflow.complete') return '✅ Workflow completed\n';
+    if (event.type === 'workflow.error') return `❌ Workflow failed: ${event.error || 'unknown error'}\n`;
+    if (event.type === 'workflow.step.start') {
+        return `⏳ Step ${event.stepId} started${event.nodeType ? ` (${event.nodeType})` : ''}\n`;
+    }
+    if (event.type === 'workflow.step.complete') {
+        return `✅ Step ${event.stepId} completed\n`;
+    }
+    return `${event.type}\n`;
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function WorkflowBuilderView() {
@@ -108,6 +171,8 @@ export default function WorkflowBuilderView() {
     // Execution
     const [runInput, setRunInput]           = useState('');
     const [runOutput, setRunOutput]         = useState<string[]>([]);
+    const [activeStepId, setActiveStepId]   = useState<string | null>(null);
+    const [runEventCount, setRunEventCount] = useState(0);
     const [running, setRunning]             = useState(false);
     const [runError, setRunError]           = useState<string | null>(null);
     const [execPanelOpen, setExecPanelOpen] = useState(false);
@@ -238,7 +303,9 @@ export default function WorkflowBuilderView() {
             id: n.id,
             type: (n.data.kind as string) ?? n.type,
             position: n.position,
-            data: n.data,
+            data: Object.fromEntries(
+                Object.entries((n.data as Record<string, unknown>) ?? {}).filter(([k]) => !k.startsWith('_run')),
+            ),
         })),
         edges: edges.map(e => ({
             id: e.id,
@@ -285,12 +352,101 @@ export default function WorkflowBuilderView() {
     const runWorkflow = async () => {
         if (!client || !editingId) return;
         setRunOutput([]);
+        setRunEventCount(0);
+        setActiveStepId(null);
         setRunError(null);
         setRunning(true);
         setExecPanelOpen(true);
+        setNodes(nds => nds.map(n => ({
+            ...n,
+            data: {
+                ...(n.data as Record<string, unknown>),
+                _runStatus: 'idle',
+                _isActive: false,
+            },
+        })));
+        setEdges(eds => eds.map(e => ({
+            ...e,
+            animated: false,
+            style: { ...(e.style ?? {}), strokeWidth: 2, stroke: undefined },
+        })));
         try {
             const stream = client.agent.runWorkflowExec(editingId, runInput || 'run');
             for await (const chunk of stream) {
+                const workflowEvent = parseWorkflowRuntimeEvent(chunk);
+                if (workflowEvent) {
+                    setRunEventCount(c => c + 1);
+                    setRunOutput(prev => [...prev, toRunLogLine(workflowEvent)]);
+
+                    if (workflowEvent.type === 'workflow.step.start' && workflowEvent.stepId) {
+                        setActiveStepId(workflowEvent.stepId);
+                        setNodes(nds => nds.map(n => ({
+                            ...n,
+                            data: {
+                                ...(n.data as Record<string, unknown>),
+                                _runStatus: n.id === workflowEvent.stepId ? 'running' : ((n.data as any)?._runStatus ?? 'idle'),
+                                _isActive: n.id === workflowEvent.stepId,
+                            },
+                        })));
+                        setEdges(eds => eds.map(e => ({
+                            ...e,
+                            animated: e.target === workflowEvent.stepId,
+                            style: {
+                                ...(e.style ?? {}),
+                                stroke: e.target === workflowEvent.stepId ? theme.palette.info.main : undefined,
+                                strokeWidth: e.target === workflowEvent.stepId ? 3 : 2,
+                            },
+                        })));
+                        continue;
+                    }
+
+                    if (workflowEvent.type === 'workflow.step.complete' && workflowEvent.stepId) {
+                        setNodes(nds => nds.map(n => (
+                            n.id === workflowEvent.stepId
+                                ? {
+                                    ...n,
+                                    data: {
+                                        ...(n.data as Record<string, unknown>),
+                                        _runStatus: 'completed',
+                                        _isActive: false,
+                                    },
+                                }
+                                : n
+                        )));
+                        continue;
+                    }
+
+                    if (workflowEvent.type === 'workflow.error') {
+                        setNodes(nds => nds.map(n => (
+                            n.id === activeStepId
+                                ? {
+                                    ...n,
+                                    data: {
+                                        ...(n.data as Record<string, unknown>),
+                                        _runStatus: 'failed',
+                                        _isActive: false,
+                                    },
+                                }
+                                : {
+                                    ...n,
+                                    data: { ...(n.data as Record<string, unknown>), _isActive: false },
+                                }
+                        )));
+                        setEdges(eds => eds.map(e => ({ ...e, animated: false })));
+                        continue;
+                    }
+
+                    if (workflowEvent.type === 'workflow.complete') {
+                        setActiveStepId(null);
+                        setNodes(nds => nds.map(n => ({
+                            ...n,
+                            data: { ...(n.data as Record<string, unknown>), _isActive: false },
+                        })));
+                        setEdges(eds => eds.map(e => ({ ...e, animated: false })));
+                        continue;
+                    }
+                }
+
                 const text =
                     typeof chunk === 'string' ? chunk :
                     chunk?.content?.parts?.[0]?.text ??
@@ -567,6 +723,21 @@ export default function WorkflowBuilderView() {
                                     Execution Output
                                 </Typography>
                                 {running && <CircularProgress size={16} />}
+                                {activeStepId && (
+                                    <Chip
+                                        label={`Active: ${activeStepId}`}
+                                        size="small"
+                                        color="info"
+                                        sx={{ mr: 0.5, maxWidth: 150 }}
+                                    />
+                                )}
+                                {runEventCount > 0 && (
+                                    <Chip
+                                        label={`${runEventCount} events`}
+                                        size="small"
+                                        variant="outlined"
+                                    />
+                                )}
                                 <Chip
                                     label={running ? 'running' : runError ? 'failed' : 'ready'}
                                     size="small"

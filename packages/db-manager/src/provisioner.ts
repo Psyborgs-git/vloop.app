@@ -70,8 +70,8 @@ export class DatabaseProvisioner {
                 dbId,
                 path: dbPath,
             };
-        } catch (err) {
-            this.logger.error({ err, dbPath }, 'Failed to provision encrypted database');
+        } catch (err: any) {
+            this.logger.error({ err, dbPath, stack: err?.stack }, "Failed to provision encrypted database");
             throw new OrchestratorError(ErrorCode.INTERNAL_ERROR, 'Failed to provision underlying database file', { cause: err });
         }
     }

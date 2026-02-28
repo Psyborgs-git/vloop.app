@@ -27,6 +27,17 @@ const typeColors: Record<string, string> = {
     sequential: '#3b82f6', parallel: '#8b5cf6', loop: '#f59e0b',
 };
 
+function workflowEventToText(chunk: any): string | null {
+    if (!chunk || typeof chunk !== 'object' || typeof chunk.type !== 'string') return null;
+    if (!chunk.type.startsWith('workflow.')) return null;
+    if (chunk.type === 'workflow.start') return 'workflow.start';
+    if (chunk.type === 'workflow.complete') return 'workflow.complete';
+    if (chunk.type === 'workflow.error') return `workflow.error: ${chunk.error || 'unknown error'}`;
+    if (chunk.type === 'workflow.step.start') return `workflow.step.start: ${chunk.stepId || '?'}`;
+    if (chunk.type === 'workflow.step.complete') return `workflow.step.complete: ${chunk.stepId || '?'}`;
+    return chunk.type;
+}
+
 export default function WorkflowList() {
     const client = useContext(ClientContext);
     const { showToast } = useToast();
@@ -86,7 +97,8 @@ export default function WorkflowList() {
         if (!input) return;
         try {
             for await (const ev of client.agent.runWorkflowExec(w.id, input)) {
-                console.log('workflow event:', ev);
+                const mapped = workflowEventToText(ev);
+                console.log('workflow event:', mapped ?? ev);
             }
             showToast('Workflow executed successfully', 'success');
         } catch (e: any) {

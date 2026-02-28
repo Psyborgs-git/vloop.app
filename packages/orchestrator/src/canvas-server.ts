@@ -397,8 +397,10 @@ export function createCanvasServer(
                 });
             });
         },
-        close: () => {
+        close: async () => {
+            await stateManager.close();
             return new Promise<void>((resolve, reject) => {
+                server.closeAllConnections();
                 server.close((err) => {
                     if (err) return reject(err);
                     resolve();

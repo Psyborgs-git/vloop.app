@@ -176,7 +176,7 @@ permissions = [
         const req = makeRequest('vault', 'secret.create', token, { name: 'secret' });
         await router.dispatch(req, logger);
 
-        const entries = auditLogger.query({ identity: 'admin@test.com' });
+        const { items: entries } = auditLogger.query({ identity: 'admin@test.com' });
         expect(entries.length).toBeGreaterThanOrEqual(1);
         expect(entries.some((e: { action: string; outcome: string }) =>
             e.action === 'secret.create' && e.outcome === 'allowed',
@@ -189,7 +189,7 @@ permissions = [
         const req = makeRequest('vault', 'secret.delete', token);
         await router.dispatch(req, logger);
 
-        const entries = auditLogger.query({ identity: 'viewer@test.com', outcome: 'denied' });
+        const { items: entries } = auditLogger.query({ identity: 'viewer@test.com', outcome: 'denied' });
         expect(entries.length).toBeGreaterThanOrEqual(1);
         expect(entries[0]!.action).toBe('secret.delete');
     });

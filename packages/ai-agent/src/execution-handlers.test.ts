@@ -18,6 +18,9 @@ describe('registerExecutionHandlers', () => {
             runAgentChat: vi.fn(),
             runChatCompletion: vi.fn(),
             runWorkflow: vi.fn(),
+            rerunChatFromMessage: vi.fn(),
+            forkChatFromMessage: vi.fn(),
+            compactChatContext: vi.fn(),
             ollamaSync: {
                 sync: vi.fn(),
                 isAvailable: vi.fn(),
@@ -39,6 +42,9 @@ describe('registerExecutionHandlers', () => {
         expect(mockHandlers.has('chat.send')).toBe(true);
         expect(mockHandlers.has('chat.completions')).toBe(true);
         expect(mockHandlers.has('run.chat')).toBe(true);
+        expect(mockHandlers.has('chat.rerun')).toBe(true);
+        expect(mockHandlers.has('chat.fork')).toBe(true);
+        expect(mockHandlers.has('chat.compact')).toBe(true);
         expect(mockHandlers.has('run.workflow')).toBe(true);
         expect(mockHandlers.has('sync.ollama')).toBe(true);
         expect(mockHandlers.has('sync.ollama.check')).toBe(true);
@@ -209,6 +215,145 @@ describe('registerExecutionHandlers', () => {
                 mockContext.emit,
                 mockContext
             );
+        });
+    });
+
+    describe('chat.rerun handler', () => {
+        it('should throw service unavailable if configStore is missing', () => {
+            registerExecutionHandlers(mockHandlers, mockOrchestrator, undefined);
+            const handler = mockHandlers.get('chat.rerun');
+            try {
+                handler({ sessionId: 's1', messageId: 'm1' }, mockContext);
+            } catch (e: any) {
+                expect(e.code).toBe(ErrorCode.SERVICE_UNAVAILABLE);
+            }
+        });
+
+        it('should throw validation error if required params are missing', () => {
+            registerExecutionHandlers(mockHandlers, mockOrchestrator, mockConfigStore);
+            const handler = mockHandlers.get('chat.rerun');
+            try {
+                handler({}, mockContext);
+            } catch (e: any) {
+                expect(e.code).toBe(ErrorCode.VALIDATION_ERROR);
+            }
+        });
+
+        it('should throw not found error if chat session does not exist', () => {
+            vi.mocked(mockConfigStore.getChatSession).mockReturnValue(undefined);
+            registerExecutionHandlers(mockHandlers, mockOrchestrator, mockConfigStore);
+            const handler = mockHandlers.get('chat.rerun');
+            try {
+                handler({ sessionId: 's1', messageId: 'm1' }, mockContext);
+            } catch (e: any) {
+                expect(e.code).toBe(ErrorCode.NOT_FOUND);
+            }
+        });
+
+        it('should call orchestrator.rerunChatFromMessage on success', () => {
+            vi.mocked(mockConfigStore.getChatSession).mockReturnValue({ id: 's1' } as any);
+            registerExecutionHandlers(mockHandlers, mockOrchestrator, mockConfigStore);
+            const handler = mockHandlers.get('chat.rerun');
+
+            handler({ sessionId: 's1', messageId: 'm1', toolIds: ['t1'] }, mockContext);
+
+            expect(mockOrchestrator.rerunChatFromMessage).toHaveBeenCalledWith(
+                { sessionId: 's1', messageId: 'm1', toolIds: ['t1'] },
+                mockContext.emit,
+                mockContext
+            );
+        });
+    });
+
+    describe('chat.fork handler', () => {
+        it('should throw service unavailable if configStore is missing', () => {
+            registerExecutionHandlers(mockHandlers, mockOrchestrator, undefined);
+            const handler = mockHandlers.get('chat.fork');
+            try {
+                handler({ sessionId: 's1', messageId: 'm1' }, mockContext);
+            } catch (e: any) {
+                expect(e.code).toBe(ErrorCode.SERVICE_UNAVAILABLE);
+            }
+        });
+
+        it('should throw validation error if required params are missing', () => {
+            registerExecutionHandlers(mockHandlers, mockOrchestrator, mockConfigStore);
+            const handler = mockHandlers.get('chat.fork');
+            try {
+                handler({}, mockContext);
+            } catch (e: any) {
+                expect(e.code).toBe(ErrorCode.VALIDATION_ERROR);
+            }
+        });
+
+        it('should throw not found error if chat session does not exist', () => {
+            vi.mocked(mockConfigStore.getChatSession).mockReturnValue(undefined);
+            registerExecutionHandlers(mockHandlers, mockOrchestrator, mockConfigStore);
+            const handler = mockHandlers.get('chat.fork');
+            try {
+                handler({ sessionId: 's1', messageId: 'm1' }, mockContext);
+            } catch (e: any) {
+                expect(e.code).toBe(ErrorCode.NOT_FOUND);
+            }
+        });
+
+        it('should call orchestrator.forkChatFromMessage on success', () => {
+            vi.mocked(mockConfigStore.getChatSession).mockReturnValue({ id: 's1' } as any);
+            registerExecutionHandlers(mockHandlers, mockOrchestrator, mockConfigStore);
+            const handler = mockHandlers.get('chat.fork');
+
+            handler({ sessionId: 's1', messageId: 'm1', title: 'Forked' }, mockContext);
+
+            expect(mockOrchestrator.forkChatFromMessage).toHaveBeenCalledWith(
+                { sessionId: 's1', messageId: 'm1', title: 'Forked' }
+            );
+        });
+    });
+
+    describe('chat.compact handler', () => {
+        it('should throw service unavailable if configStore is missing', () => {
+            registerExecutionHandlers(mockHandlers, mockOrchestrator, undefined);
+            const handler = mockHandlers.get('chat.compact');
+            try {
+                handler({ sessionId: 's1' }, mockContext);
+            } catch (e: any) {
+                expect(e.code).toBe(ErrorCode.SERVICE_UNAVAILABLE);
+            }
+        });
+
+        it('should throw validation error if sessionId is missing', () => {
+            registerExecutionHandlers(mockHandlers, mockOrchestrator, mockConfigStore);
+            const handler = mockHandlers.get('chat.compact');
+            try {
+                handler({}, mockContext);
+            } catch (e: any) {
+                expect(e.code).toBe(ErrorCode.VALIDATION_ERROR);
+            }
+        });
+
+        it('should throw not found error if chat session does not exist', () => {
+            vi.mocked(mockConfigStore.getChatSession).mockReturnValue(undefined);
+            registerExecutionHandlers(mockHandlers, mockOrchestrator, mockConfigStore);
+            const handler = mockHandlers.get('chat.compact');
+            try {
+                handler({ sessionId: 's1' }, mockContext);
+            } catch (e: any) {
+                expect(e.code).toBe(ErrorCode.NOT_FOUND);
+            }
+        });
+
+        it('should call orchestrator.compactChatContext on success', () => {
+            vi.mocked(mockConfigStore.getChatSession).mockReturnValue({ id: 's1' } as any);
+            registerExecutionHandlers(mockHandlers, mockOrchestrator, mockConfigStore);
+            const handler = mockHandlers.get('chat.compact');
+
+            handler({ sessionId: 's1', maxChars: 12345, keepLastMessages: 8 }, mockContext);
+
+            expect(mockOrchestrator.compactChatContext).toHaveBeenCalledWith({
+                sessionId: 's1',
+                maxChars: 12345,
+                keepLastMessages: 8,
+            });
         });
     });
 
