@@ -1,0 +1,85 @@
+{
+  "name": "Orchestrator Monorepo",
+  "root": "packages/orchestrator",
+  "features": [
+    {
+      "id": "manage-identities",
+      "fdd_name": "Manage the user identities for the system",
+      "package": "packages/auth",
+      "description": "Handles authentication, JWT validation, sessions, RBAC, and audit logs.",
+      "sub_features": [
+        "Validate JWT token",
+        "Manage active sessions",
+        "Evaluate RBAC policies",
+        "Audit critical actions"
+      ]
+    },
+    {
+      "id": "store-secrets",
+      "fdd_name": "Store the encrypted secrets of a user",
+      "package": "packages/vault",
+      "description": "Manages secure storage and injection of credentials using multiple ciphers SQLite.",
+      "sub_features": [
+        "Encrypt sensitive payloads",
+        "Store secrets securely",
+        "Inject secrets into processes"
+      ]
+    },
+    {
+      "id": "manage-containers",
+      "fdd_name": "Manage the lifecycle of a docker container",
+      "package": "packages/container",
+      "description": "Interfaces with Docker API for image pulling, container execution, and monitoring.",
+      "sub_features": [
+        "Pull docker images",
+        "Create container instances",
+        "Stream container logs",
+        "Monitor container events"
+      ]
+    },
+    {
+      "id": "execute-plugins",
+      "fdd_name": "Execute the wasm module of a plugin",
+      "package": "packages/plugin-manager",
+      "description": "Provides secure WebAssembly plugin execution via Extism with host functions.",
+      "sub_features": [
+        "Validate plugin manifests",
+        "Sandbox WASM execution",
+        "Expose synchronous DB host functions"
+      ]
+    },
+    {
+      "id": "dispatch-events",
+      "fdd_name": "Dispatch the system event to a subscriber",
+      "package": "packages/daemon",
+      "description": "Core routing, WebSocket communication, and hook event bus implementation.",
+      "sub_features": [
+        "Route WS messages",
+        "Bridge container events",
+        "Dispatch hook payloads"
+      ]
+    },
+    {
+      "id": "configure-ai-agent",
+      "fdd_name": "Configure the tools of an AI agent",
+      "package": "packages/ai-agent",
+      "description": "Integrates LLMs with Model Context Protocol (MCP) tools and local execution workflows.",
+      "sub_features": [
+        "Resolve MCP tools",
+        "Execute agent workflows",
+        "Log agent tool calls"
+      ]
+    },
+    {
+      "id": "manage-terminal-profiles",
+      "fdd_name": "Manage the terminal profile of a system",
+      "package": "packages/terminal",
+      "description": "Provides secure, profiled terminal sessions over PTY and WS.",
+      "sub_features": [
+        "Create PTY sessions",
+        "Validate input patterns",
+        "Enforce access controls"
+      ]
+    }
+  ]
+}
