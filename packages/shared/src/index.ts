@@ -9,5 +9,3 @@ export { OrchestratorError, ErrorCode } from './errors.js';
 export type { MessageId, Timestamp, TraceId, SessionId } from './types.js';
 export type { PaginationOptions, PaginatedResult } from './types.js';
 export { generateMessageId, generateTraceId, generateSessionId, now } from './types.js';
-export { HooksEventBus } from './hooks-bus.js';
-export type { HookEvent, Logger as HooksLogger } from './hooks-bus.js';

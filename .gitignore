@@ -13,7 +13,7 @@ coverage/
 .DS_Store
 
 /tsconfig.tsbuildinfo
-./packages/**/tsconfig.tsbuildinfo
+**/tsconfig.tsbuildinfo
 data/terminal-logs/*
 data/media/*
 **/terminal-logs/*

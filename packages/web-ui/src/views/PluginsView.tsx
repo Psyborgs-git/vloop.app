@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState, useContext } from 'react';
+import { useCallback, useEffect, useState, useContext } from 'react';
 import {
     Box,
     Typography,
@@ -16,7 +16,6 @@ import {
     CircularProgress,
     IconButton,
     Chip,
-    Grid,
     Alert
 } from '@mui/material';
 import { Plus, Trash2 } from 'lucide-react';
@@ -143,9 +142,19 @@ export default function PluginsView() {
             ) : plugins.length === 0 ? (
                 <Alert severity="info">No plugins installed. Click "Install Plugin" to add one.</Alert>
             ) : (
-                <Grid container spacing={3}>
+                <Box
+                    sx={{
+                        display: 'grid',
+                        gridTemplateColumns: {
+                            xs: '1fr',
+                            md: 'repeat(2, minmax(0, 1fr))',
+                            lg: 'repeat(3, minmax(0, 1fr))',
+                        },
+                        gap: 3,
+                    }}
+                >
                     {plugins.map((plugin) => (
-                        <Grid item xs={12} md={6} lg={4} key={plugin.id}>
+                        <Box key={plugin.id}>
                             <Card variant="outlined">
                                 <CardContent>
                                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', mb: 1 }}>
@@ -185,9 +194,9 @@ export default function PluginsView() {
                                     </Box>
                                 </CardContent>
                             </Card>
-                        </Grid>
+                        </Box>
                     ))}
-                </Grid>
+                </Box>
             )}
 
             {/* Install Dialog */}

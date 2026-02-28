@@ -23,7 +23,12 @@ export class PluginDownloader {
     public async download(urlOrPath: string): Promise<{ manifest: PluginManifest; dir: string }> {
         let buffer: Buffer;
 
-        if (urlOrPath.startsWith('http://') || urlOrPath.startsWith('https://')) {
+        // Support remote urls (http, https, ftp) as well as local file paths and
+        // file:// URLs. The latter can come in either with one or two slashes after
+        // the protocol; treat them as local paths instead of passing them to
+        // `fetch`, which doesn't resolve relative paths correctly and would cause
+        // the working-directory prefix seen in the error log.
+        if (urlOrPath.startsWith('http://') || urlOrPath.startsWith('https://') || urlOrPath.startsWith('ftp://')) {
             this.logger.info({ url: urlOrPath }, 'Downloading plugin from URL');
             const res = await fetch(urlOrPath);
             if (!res.ok) {
@@ -31,8 +36,33 @@ export class PluginDownloader {
             }
             buffer = Buffer.from(await res.arrayBuffer());
         } else {
-            // Local file path
-            const path = resolve(urlOrPath);
+            // Treat everything else as a local file. This covers both plain paths and
+            // file:// URLs. Some callers (notably the CLI) have historically
+            // concatenated the current working directory onto the front of the
+            // string when they couldn't parse a URL; in that situation we may receive
+            // a value like
+            //   "/users/app/packages/orchestrator/file:/Users/…/plugin.zip"
+            // which would confuse `resolve()` and lead to the "file not found"
+            // error observed in the logs. To be robust we strip out any leading
+            // garbage preceding the first `file:` prefix before proceeding.
+            let path = urlOrPath;
+
+            const idx = path.indexOf('file:');
+            if (idx > 0) {
+                // Drop everything before the `file:` so our normal handling kicks in
+                path = path.slice(idx);
+            }
+
+            if (path.startsWith('file:')) {
+                try {
+                    const u = new URL(path);
+                    path = u.pathname;
+                } catch {
+                    throw new OrchestratorError(ErrorCode.VALIDATION_ERROR, `Invalid file URL: ${urlOrPath}`);
+                }
+            }
+
+            path = resolve(path);
             if (!existsSync(path)) {
                 throw new OrchestratorError(ErrorCode.NOT_FOUND, `Plugin file not found: ${path}`);
             }

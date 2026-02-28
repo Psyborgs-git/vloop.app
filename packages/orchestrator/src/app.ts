@@ -66,6 +66,8 @@ import { createMediaHandler } from "@orch/media";
 import { PluginManager, createPluginHandler } from "@orch/plugin-manager";
 import { createMcpHttpHandler } from "./mcp-server.js";
 import { registerAITools } from "./ai-tools.js";
+import { registerCanvasTools } from "./canvas-tools.js";
+import { createCanvasServer } from "./canvas-server.js";
 
 export class OrchestratorApp {
     private config: any;
@@ -93,6 +95,7 @@ export class OrchestratorApp {
     private pluginManager!: PluginManager;
     private wsHandle!: any;
     private healthServer!: any;
+    private canvasServer!: any;
 
     // Lifecycle
     private shutdownController!: AbortController;
@@ -152,7 +155,7 @@ export class OrchestratorApp {
                 toolRegistry
             );
 
-            await this.startServers(router, toolRegistry);
+            await this.startServers(router, toolRegistry, aiConfigStore);
 
             this.setupReloadHandler();
 
@@ -334,7 +337,7 @@ export class OrchestratorApp {
     private initAgentSubsystem(db: any) {
         const agentSandbox = new AgentSandbox(this.logger);
         const toolRegistry = new ToolRegistry(this.logger);
-        const aiConfigStore = new AIConfigStore(db, this.logger);
+        const aiConfigStore = new AIConfigStore(db, this.logger, this.config.storage.canvas_path);
         aiConfigStore.migrate();
 
         const vaultGet = async (ref: string): Promise<string | undefined> => {
@@ -407,6 +410,77 @@ export class OrchestratorApp {
         router.register("db", createDatabaseHandler(dbProvisioner, this.dbPool, this.dbManager, externalDbRegistry));
         router.register("agent", createAgentHandler(agentOrchestrator, aiConfigStore));
         router.register("plugin", createPluginHandler(this.pluginManager));
+        router.register("canvas", async (action, payload) => {
+            const stateManager = this.canvasServer?.stateManager;
+            if (!stateManager) {
+                throw new Error("Canvas runtime is not ready yet");
+            }
+
+            const canvasId = (payload as any)?.canvasId;
+            if (!canvasId || typeof canvasId !== 'string') {
+                throw new Error('canvasId is required');
+            }
+
+            switch (action) {
+                case 'update_state': {
+                    const partialState = (payload as any)?.state ?? {};
+                    stateManager.updateState(canvasId, partialState);
+                    return {
+                        canvasId,
+                        state: stateManager.getState(canvasId),
+                    };
+                }
+                case 'broadcast_event': {
+                    const type = (payload as any)?.type;
+                    if (!type || typeof type !== 'string') {
+                        throw new Error('type is required');
+                    }
+                    stateManager.broadcast(canvasId, {
+                        type,
+                        payload: (payload as any)?.payload,
+                        canvasId,
+                    });
+                    return { ok: true };
+                }
+                case 'toast': {
+                    const message = (payload as any)?.message;
+                    if (!message || typeof message !== 'string') {
+                        throw new Error('message is required');
+                    }
+                    stateManager.pushToast(canvasId, {
+                        message,
+                        severity: (payload as any)?.severity,
+                        durationMs: (payload as any)?.durationMs,
+                    });
+                    return { ok: true };
+                }
+                case 'request_input': {
+                    const message = (payload as any)?.message;
+                    if (!message || typeof message !== 'string') {
+                        throw new Error('message is required');
+                    }
+                    const response = await stateManager.requestInput(canvasId, {
+                        title: (payload as any)?.title,
+                        message,
+                        placeholder: (payload as any)?.placeholder,
+                        defaultValue: (payload as any)?.defaultValue,
+                        confirmLabel: (payload as any)?.confirmLabel,
+                        cancelLabel: (payload as any)?.cancelLabel,
+                        inputType: (payload as any)?.inputType,
+                        timeoutMs: (payload as any)?.timeoutMs,
+                    });
+                    return response;
+                }
+                case 'get_state': {
+                    return {
+                        canvasId,
+                        state: stateManager.getState(canvasId),
+                    };
+                }
+                default:
+                    throw new Error(`Unknown canvas action: ${action}`);
+            }
+        });
 
         // Session topic handler
         router.register("session", async (action, payload, context) => {
@@ -652,9 +726,10 @@ export class OrchestratorApp {
         toolRegistry.register(createAgentSearchTool(aiConfigStore));
 
         registerAITools(toolRegistry, router);
+        registerCanvasTools(toolRegistry, router);
     }
 
-    private async startServers(router: Router, toolRegistry: ToolRegistry) {
+    private async startServers(router: Router, toolRegistry: ToolRegistry, aiConfigStore: AIConfigStore) {
         // Start health server
         this.healthServer = createHealthServer(
             this.config.network.health_port,
@@ -679,6 +754,21 @@ export class OrchestratorApp {
             name: "websocket",
             status: "healthy",
             message: `${this.wsHandle.connectionCount()} active connections`,
+        }));
+
+        this.canvasServer = createCanvasServer(
+            this.config.network.canvas_port,
+            this.config.network.bind_address,
+            this.logger,
+            aiConfigStore,
+            this.config.storage.canvas_path
+        );
+        await this.canvasServer.listen();
+
+        this.healthServer.registerSubsystem("canvas", () => ({
+            name: "canvas",
+            status: "healthy",
+            message: `Canvas server running on port ${this.config.network.canvas_port}`,
         }));
 
         // Mark as ready

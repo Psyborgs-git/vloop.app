@@ -91,10 +91,41 @@ export class WorkflowRunner {
         const results: StepResult[] = [];
         const nodeOutputs = new Map<string, string>();
         let finalOutput = '';
+
+        const nodeTypeOf = (node: WorkflowNode): string => {
+            const directType = typeof node.type === 'string' ? node.type : '';
+            if (directType && directType !== 'workflowNode') return directType;
+            const kind = typeof node.data?.kind === 'string' ? node.data.kind : '';
+            return kind || directType || 'agent';
+        };
+
+        const getNodeById = (nodeId: string): WorkflowNode | undefined =>
+            workflow.nodes.find(n => n.id === nodeId);
+
+        const isReachable = (fromId: string, predicate: (node: WorkflowNode) => boolean): boolean => {
+            const seen = new Set<string>();
+            const q: string[] = [fromId];
+            while (q.length > 0) {
+                const current = q.shift()!;
+                if (seen.has(current)) continue;
+                seen.add(current);
+                const node = getNodeById(current);
+                if (!node) continue;
+                if (predicate(node)) return true;
+                const outgoing = workflow.edges.filter(e => e.source === current);
+                for (const edge of outgoing) q.push(edge.target);
+            }
+            return false;
+        };
         
         // Find input node
-        const inputNode = workflow.nodes.find(n => n.type === 'input');
+        const inputNode = workflow.nodes.find(n => nodeTypeOf(n) === 'input');
         if (!inputNode) throw new Error('Workflow has no input node');
+
+        const hasReachableOutput = isReachable(inputNode.id, (n) => nodeTypeOf(n) === 'output');
+        if (!hasReachableOutput) {
+            throw new Error('Workflow has no executable path from input to output');
+        }
         
         nodeOutputs.set(inputNode.id, initialInput);
         
@@ -107,14 +138,15 @@ export class WorkflowRunner {
             if (visited.has(nodeId)) continue;
             visited.add(nodeId);
             
-            const node = workflow.nodes.find(n => n.id === nodeId);
+            const node = getNodeById(nodeId);
             if (!node) continue;
+            const nodeType = nodeTypeOf(node);
             
             // Get inputs from incoming edges
             const incomingEdges = workflow.edges.filter(e => e.target === nodeId);
             let nodeInput = '';
             
-            if (node.type === 'input') {
+            if (nodeType === 'input') {
                 nodeInput = initialInput;
             } else {
                 // Combine outputs from previous nodes
@@ -122,20 +154,20 @@ export class WorkflowRunner {
                 nodeInput = inputs.join('\n\n');
             }
             
-            if (node.type !== 'input') {
+            if (nodeType !== 'input') {
                 const start = Date.now();
                 const stepExecId = this.store.createWorkflowStepExecution({ executionId, nodeId: node.id });
-                emit('event', { type: 'workflow.step.start', stepId: node.id, nodeType: node.type });
+                emit('event', { type: 'workflow.step.start', stepId: node.id, nodeType });
                 
                 try {
                     let output = '';
-                    if (node.type === 'agent') {
+                    if (nodeType === 'agent') {
                         output = await this.executeAgentNode(node, nodeInput, vaultGet, context);
-                    } else if (node.type === 'output') {
+                    } else if (nodeType === 'output') {
                         output = nodeInput;
                         finalOutput = output;
                     } else {
-                        output = `Executed ${node.type} node`;
+                        output = `Executed ${nodeType} node`;
                     }
                     
                     nodeOutputs.set(node.id, output);
@@ -169,12 +201,16 @@ export class WorkflowRunner {
             for (const edge of outgoingEdges) {
                 // Only add if all its dependencies are met (for parallel joins)
                 const targetIncoming = workflow.edges.filter(e => e.target === edge.target);
-                const allDepsMet = targetIncoming.every(e => visited.has(e.source) || e.source === nodeId);
+                const allDepsMet = targetIncoming.every(e => nodeOutputs.has(e.source) || e.source === nodeId);
                 
                 if (allDepsMet) {
                     queue.push(edge.target);
                 }
             }
+        }
+
+        if (!finalOutput) {
+            throw new Error('Workflow finished without producing output. Ensure an output node is connected to the execution path.');
         }
         
         return { stepResults: results, finalOutput };

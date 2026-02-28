@@ -162,14 +162,22 @@ export function useChat(client: any, showToast: (msg: string, type: 'success' | 
             if (mode === 'chat') {
                 if (!selectedModelId) { showToast('Select a model.', 'warning'); setLoading(false); return; }
                 stream = client.agent.chatCompletionStream({
-                    modelId: selectedModelId, prompt: userMsg, sessionId: activeSessionId,
+                    modelId: selectedModelId,
+                    prompt: userMsg,
+                    sessionId: activeSessionId,
+                    toolIds: selectedToolIds,
                 });
             } else {
                 if (selectedAgentId) {
-                    stream = client.agent.runAgentChat(selectedAgentId, activeSessionId, userMsg);
+                    stream = client.agent.runAgentChat(selectedAgentId, activeSessionId, userMsg, {
+                        toolIds: selectedToolIds,
+                    });
                 } else if (selectedModelId) {
                     stream = client.agent.chatCompletionStream({
-                        modelId: selectedModelId, prompt: userMsg, sessionId: activeSessionId,
+                        modelId: selectedModelId,
+                        prompt: userMsg,
+                        sessionId: activeSessionId,
+                        toolIds: selectedToolIds,
                     });
                 } else {
                     showToast('Select an agent or model.', 'warning'); setLoading(false); return;

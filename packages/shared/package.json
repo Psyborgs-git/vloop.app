@@ -9,6 +9,10 @@
             "import": "./dist/index.js",
             "types": "./dist/index.d.ts"
         },
+        "./hooks-bus": {
+            "import": "./dist/hooks-bus.js",
+            "types": "./dist/hooks-bus.d.ts"
+        },
         "./db": {
             "import": "./dist/db.js",
             "types": "./dist/db.d.ts"

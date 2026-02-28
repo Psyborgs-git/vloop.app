@@ -215,4 +215,35 @@ CREATE TABLE IF NOT EXISTS ai_chat_session_mcp_servers (
 );
 
 CREATE INDEX IF NOT EXISTS idx_session_mcp_servers_session ON ai_chat_session_mcp_servers(session_id);
+
+-- ─── Canvases ────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS canvases (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    content     TEXT DEFAULT '{}',
+    metadata    TEXT DEFAULT '{}',
+    owner       TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_canvases_owner ON canvases(owner);
+CREATE INDEX IF NOT EXISTS idx_canvases_updated ON canvases(updated_at DESC);
+
+-- ─── Canvas History (immutable audit trail) ────────────────────────────
+CREATE TABLE IF NOT EXISTS canvas_commits (
+    id          TEXT PRIMARY KEY,
+    canvas_id   TEXT NOT NULL REFERENCES canvases(id) ON DELETE CASCADE,
+    content     TEXT NOT NULL, -- Keep for backwards compatibility or store diff here
+    diff        TEXT DEFAULT '',
+    metadata    TEXT DEFAULT '{}',
+    change_type TEXT NOT NULL CHECK(change_type IN ('created','updated','rollback')),
+    changed_by  TEXT NOT NULL,
+    message     TEXT DEFAULT '',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_canvas_commits_canvas ON canvas_commits(canvas_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_canvas_commits_changed_by ON canvas_commits(changed_by);
 `;

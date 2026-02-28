@@ -153,11 +153,16 @@ export class OpenAILlm extends BaseLlm {
 
         if (message.tool_calls) {
             for (const tc of message.tool_calls) {
+                const thoughtSignature =
+                    tc.function?.thought_signature ??
+                    tc.function?.thoughtSignature ??
+                    'openai';
                 parts.push({
                     functionCall: {
                         name: tc.function.name,
                         args: JSON.parse(tc.function.arguments),
-                    }
+                        thoughtSignature,
+                    } as any
                 });
             }
         }

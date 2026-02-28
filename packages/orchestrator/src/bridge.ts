@@ -1,7 +1,7 @@
 import type { Logger } from '@orch/daemon';
 import type { ContainerEvent, ContainerState } from '@orch/container';
 import { ContainerMonitor } from '@orch/container';
-import { HooksEventBus } from '@orch/shared';
+import { HooksEventBus } from '@orch/shared/hooks-bus';
 
 const STATE_ACTION_MAP: Partial<Record<ContainerState, string>> = {
     running: 'start',
