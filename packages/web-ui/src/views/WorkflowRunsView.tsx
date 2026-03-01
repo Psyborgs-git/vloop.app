@@ -3,7 +3,7 @@
  * Lists all runs with status, lets you drill into step-by-step results,
  * and stream live output for in-progress runs.
  */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
     Box, Paper, Typography, Chip, CircularProgress, Alert, Select, MenuItem,
     FormControl, InputLabel, IconButton, Tooltip, Table, TableBody,
@@ -370,13 +370,19 @@ export default function WorkflowRunsView() {
         };
     }, [executions, loadExecutions]);
 
-    const filtered = executions.filter(e =>
+    const filtered = useMemo(() => executions.filter(e =>
         (!filterStatus || e.status === filterStatus)
-    );
+    ), [executions, filterStatus]);
 
-    const runningCount   = executions.filter(e => e.status === 'running').length;
-    const completedCount = executions.filter(e => e.status === 'completed').length;
-    const failedCount    = executions.filter(e => e.status === 'failed').length;
+    const { runningCount, completedCount, failedCount } = useMemo(() => {
+        let running = 0, completed = 0, failed = 0;
+        for (const e of executions) {
+            if (e.status === 'running') running++;
+            else if (e.status === 'completed') completed++;
+            else if (e.status === 'failed') failed++;
+        }
+        return { runningCount: running, completedCount: completed, failedCount: failed };
+    }, [executions]);
 
     return (
         <Box sx={{ maxWidth: 1200, mx: 'auto' }}>
