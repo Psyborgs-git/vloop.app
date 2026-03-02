@@ -1,4 +1,19 @@
-import { OrchestratorError, ErrorCode } from '@orch/shared';
+import type { DependencyContainer } from "tsyringe";
+import { TOKENS } from "@orch/shared";
+import { AIConfigStore, BrowserTool, createAgentSearchTool } from "./index.js";
+
+export function registerTools(container: DependencyContainer, toolRegistry: any, _router: any): void {
+    const logger = container.resolve<any>(TOKENS.Logger);
+    const store = container.resolve(AIConfigStore);
+
+    const browserTool = new BrowserTool(logger);
+    toolRegistry.register({
+        ...browserTool.definition,
+        execute: async (args: any) => browserTool.execute(args),
+    });
+
+    toolRegistry.register(createAgentSearchTool(store));
+}import { OrchestratorError, ErrorCode } from '@orch/shared';
 import type { Logger, HandlerContext } from '@orch/daemon';
 
 export interface ToolDefinition {

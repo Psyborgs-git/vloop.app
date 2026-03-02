@@ -1,6 +1,6 @@
 import WebSocket from 'isomorphic-ws';
 import { decode, encode } from '@msgpack/msgpack';
-import { OrchestratorError, ErrorCode } from '@orch/shared';
+import { OrchestratorError, ErrorCode } from './errors.js';
 
 // `crypto.randomUUID` isn't available in all browser environments (e.g. older WebKit).
 // We provide a small fallback to generate RFC‑4122 v4 UUIDs using

@@ -1,6 +1,8 @@
 import { resolve, dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { container as rootContainer } from "tsyringe";
+import type { DependencyContainer } from "tsyringe";
 import {
     createLogger,
     Router,
@@ -14,96 +16,30 @@ import {
 } from "@orch/daemon";
 import type { Logger } from "@orch/daemon";
 import { DatabaseManager } from "@orch/shared/db";
-import {
-    JwtValidator,
-    SessionManager,
-    PolicyEngine,
-    AuditLogger,
-    createAuthMiddleware,
-    UserManager,
-    JwtProviderManager,
-    createAuthHandler,
-} from "@orch/auth";
-import { VaultCrypto, VaultStore, createVaultHandler } from "@orch/vault";
-import {
-    DockerClient,
-    ImageManager,
-    ContainerManager,
-    LogStreamer as ContainerLogStreamer,
-    ContainerMonitor,
-    createContainerHandler,
-} from "@orch/container";
-import {
-    ProcessManager,
-    CronScheduler,
-    ProcessLogManager,
-    createProcessHandler,
-} from "@orch/process";
-import type { ScheduledJob } from "@orch/process";
-import {
-    DatabaseProvisioner,
-    DatabasePool,
-    createDatabaseHandler,
-    ExternalDatabaseRegistry,
-} from "@orch/db-manager";
-import {
-    AgentSandbox,
-    ToolRegistry,
-    AgentOrchestrator,
-    createAgentHandler,
-    BrowserTool,
-    AIConfigStore,
-    createAgentSearchTool,
-} from "@orch/ai-agent";
-import {
-    TerminalManager,
-    TerminalProfileManager,
-    SessionLogger,
-    TerminalSessionStore,
-    createTerminalHandler,
-} from "@orch/terminal";
-import { createMediaHandler } from "@orch/media";
-import { PluginManager, createPluginHandler } from "@orch/plugin-manager";
+import { TOKENS } from "@orch/shared";
+import type { AppConfig } from "@orch/shared";
 import { createMcpHttpHandler } from "./mcp-server.js";
+import { createCanvasServer } from "./canvas-server.js";
 import { registerAITools } from "./ai-tools.js";
 import { registerCanvasTools } from "./canvas-tools.js";
-import { createCanvasServer } from "./canvas-server.js";
 
 export class OrchestratorApp {
     private config: any;
     private logger: Logger;
+    private container: DependencyContainer;
 
-    // Subsystems
+    private loadedApps: AppConfig[] = [];
     private dbManager!: DatabaseManager;
-    private vaultCrypto!: VaultCrypto;
-    private vaultStore!: VaultStore;
-    private userManager!: UserManager;
-    private sessionManager!: SessionManager;
-    private policyEngine!: PolicyEngine;
-    private auditLogger!: AuditLogger;
-    private jwtProviderManager!: JwtProviderManager;
-    private jwtValidator!: JwtValidator;
-
-    // Feature subsystems
-    private containerMonitor!: ContainerMonitor;
-    private processManager!: ProcessManager;
-    private cronScheduler!: CronScheduler;
-    private processLogManager!: ProcessLogManager;
-    private terminalManager!: TerminalManager;
-    private sessionLogger!: SessionLogger;
-    private dbPool!: DatabasePool;
-    private pluginManager!: PluginManager;
     private wsHandle!: any;
     private healthServer!: any;
     private canvasServer!: any;
-
-    // Lifecycle
     private shutdownController!: AbortController;
     private onReload!: (callback: () => void) => void;
 
     constructor(config: any) {
         this.config = config;
         this.logger = createLogger(config.daemon.log_level);
+        this.container = rootContainer.createChildContainer();
     }
 
     public async start(): Promise<void> {
@@ -111,51 +47,14 @@ export class OrchestratorApp {
             await this.initPid();
             this.setupSignalHandlers();
 
-            const db = await this.initDatabase();
-            await this.initVault(db);
-            await this.initAuth(db);
+            this.registerCore();
+            await this.loadAndRegisterApps();
+            await this.initializeApps();
 
-            const {
-                imageManager,
-                containerManager,
-                containerLogStreamer
-            } = this.initContainerSubsystem();
-
-            this.initProcessSubsystem();
-
-            const {
-                terminalProfileManager,
-                terminalSessionStore
-            } = this.initTerminalSubsystem(db);
-
-            const {
-                dbProvisioner,
-                externalDbRegistry
-            } = this.initDatabaseSubsystem(db);
-
-            this.initPluginSubsystem(db, dbProvisioner);
-
-            const {
-                agentOrchestrator,
-                toolRegistry,
-                aiConfigStore
-            } = this.initAgentSubsystem(db);
-
-            const router = this.setupRouter(
-                db,
-                containerManager,
-                imageManager,
-                containerLogStreamer,
-                terminalProfileManager,
-                terminalSessionStore,
-                dbProvisioner,
-                externalDbRegistry,
-                agentOrchestrator,
-                aiConfigStore,
-                toolRegistry
-            );
-
-            await this.startServers(router, toolRegistry, aiConfigStore);
+            const router = new Router(this.logger);
+            const toolRegistry = await this.resolveToolRegistry();
+            await this.buildAutoRoutes(router, toolRegistry);
+            await this.startServers(router, toolRegistry);
 
             this.setupReloadHandler();
 
@@ -169,23 +68,21 @@ export class OrchestratorApp {
     }
 
     private async initPid() {
-        // make sure only one daemon instance is running and write our PID
         await killExistingDaemon(this.config.daemon.pid_file, this.logger);
         const pidWritten = await writePidFile(this.config.daemon.pid_file);
         if (!pidWritten) {
-            this.logger.warn(
-                { pidFile: this.config.daemon.pid_file },
-                "Could not write pid file (permission denied) — proceeding anyway",
-            );
+            this.logger.warn({ pidFile: this.config.daemon.pid_file }, "Could not write pid file");
         }
 
-        // as a fallback, kill any process listening on our ports (for dev/restart scenarios)
         await killProcessesOnPorts(
-            [this.config.network.health_port, this.config.network.ws_port],
+            [
+                this.config.network.health_port,
+                this.config.network.ws_port,
+                this.config.network.canvas_port,
+            ],
             this.logger,
         );
 
-        // ensure pid file is removed on exit no matter what
         process.on("exit", () => {
             try {
                 removePidFile(this.config.daemon.pid_file);
@@ -204,7 +101,10 @@ export class OrchestratorApp {
         this.onReload = onReload;
     }
 
-    private async initDatabase() {
+    private registerCore(): void {
+        this.container.register(TOKENS.Config, { useValue: this.config });
+        this.container.register(TOKENS.Logger, { useValue: this.logger });
+
         const dbKeyPath = resolve("./data/keys/db.key");
         const dbPassphrase = this.getOrGeneratePassphrase(dbKeyPath, "ORCH_DB_PASSPHRASE");
 
@@ -215,275 +115,98 @@ export class OrchestratorApp {
 
         const db = this.dbManager.open();
         this.logger.info({ path: this.config.database.path }, "Encrypted database opened");
-        return db;
-    }
 
-    private async initVault(db: any) {
+        this.container.register(TOKENS.DatabaseManager, { useValue: this.dbManager });
+        this.container.register(TOKENS.Database, { useValue: db });
+
         const vaultKeyPath = resolve("./data/keys/vault.key");
         const vaultPassphrase = this.getOrGeneratePassphrase(vaultKeyPath, "ORCH_VAULT_PASSPHRASE");
-
-        this.vaultCrypto = new VaultCrypto();
-        this.vaultStore = new VaultStore(
-            db,
-            this.vaultCrypto,
-            this.config.vault.max_secret_versions,
-        );
-        await this.vaultStore.init(vaultPassphrase);
-        this.logger.info("Vault initialized and unlocked");
+        this.container.register(TOKENS.VaultPassphrase, { useValue: vaultPassphrase });
     }
 
-    private async initAuth(db: any) {
-        this.userManager = new UserManager(db);
-        await this.userManager.initDefaultUser();
-        this.logger.info("User manager initialized with default admin if needed");
+    private async loadAndRegisterApps(): Promise<void> {
+        const installedApps: string[] = this.config.applications?.installed ?? [];
+        const discovered: AppConfig[] = [];
 
-        this.jwtProviderManager = new JwtProviderManager(db);
-        this.logger.info("JWT provider manager initialized");
+        for (const pkgName of installedApps) {
+            this.logger.debug({ pkgName }, "Loading app module");
+            const appModule = await import(`${pkgName}/app`);
+            const appConfig = this.extractAppConfig(pkgName, appModule);
+            discovered.push(appConfig);
+        }
 
-        this.jwtValidator = new JwtValidator(this.jwtProviderManager);
-        this.logger.info("JWT validator initialized");
+        this.loadedApps = this.orderAppsByDependencies(discovered);
 
-        this.sessionManager = new SessionManager(db, {
-            idleTimeoutSecs: this.config.auth.session_idle_timeout_secs,
-            maxLifetimeSecs: this.config.auth.session_max_lifetime_secs,
-            maxSessionsPerIdentity: this.config.auth.max_sessions_per_identity,
-        });
-        this.logger.info("Session manager initialized");
-
-        this.policyEngine = new PolicyEngine();
-        this.policyEngine.load(resolve("./config/policies.toml"));
-        this.logger.info({ roles: this.policyEngine.roleNames() }, "RBAC policies loaded");
-
-        this.auditLogger = new AuditLogger(db);
-        this.logger.info("Audit logger initialized");
+        for (const app of this.loadedApps) {
+            if (app.register) {
+                this.logger.debug({ app: app.name }, "Registering app");
+                app.register(this.container);
+            }
+            this.logger.info({ app: app.name }, "App registered");
+        }
     }
 
-    private initContainerSubsystem() {
-        const dockerClient = new DockerClient();
-        const imageManager = new ImageManager(dockerClient);
-        const containerManager = new ContainerManager(dockerClient);
-        const containerLogStreamer = new ContainerLogStreamer(dockerClient);
-        this.containerMonitor = new ContainerMonitor(
-            dockerClient,
-            containerManager,
-            { logger: this.logger },
-        );
-        return { imageManager, containerManager, containerLogStreamer };
+    private async initializeApps(): Promise<void> {
+        for (const app of this.loadedApps) {
+            if (app.init) {
+                this.logger.debug({ app: app.name }, "Initializing app");
+                await app.init(this.container);
+            }
+        }
     }
 
-    private initProcessSubsystem() {
-        this.processManager = new ProcessManager(this.logger);
-        this.cronScheduler = new CronScheduler(this.logger);
-        this.processLogManager = new ProcessLogManager();
-
-        // Hook up cron executor to spawn processes
-        this.cronScheduler.setExecutor(async (job: ScheduledJob) => {
-            const managed = this.processManager.start({
-                id: `cron - ${job.id} -${Date.now()} `,
-                command: job.command,
-                args: job.args,
-                cwd: job.cwd,
-                env: job.env,
-                restartPolicy: "never",
-                maxRestarts: 0,
-            });
-
-            // Wait for it to finish to return the exit code
-            return new Promise((resolve) => {
-                const check = setInterval(() => {
-                    const processInfo = this.processManager.get(managed.id);
-                    if (
-                        processInfo.status === "stopped" ||
-                        processInfo.status === "failed"
-                    ) {
-                        clearInterval(check);
-                        resolve({ exitCode: processInfo.lastExitCode ?? 1 });
-                    }
-                }, 1000);
-            });
-        });
+    private async resolveToolRegistry(): Promise<any | null> {
+        try {
+            const aiModule = await import("@orch/ai-agent");
+            if (!aiModule.ToolRegistry) {
+                return null;
+            }
+            return this.container.resolve(aiModule.ToolRegistry);
+        } catch {
+            return null;
+        }
     }
 
-    private initTerminalSubsystem(db: any) {
-        this.terminalManager = new TerminalManager(this.logger);
-        const terminalProfileManager = new TerminalProfileManager(db, this.logger);
-        const terminalSessionStore = new TerminalSessionStore(db, this.logger);
-        this.sessionLogger = new SessionLogger({
-            logDir: resolve("./data/terminal-logs"),
-            logger: this.logger,
-            sessionStore: terminalSessionStore,
-        });
-        return { terminalProfileManager, terminalSessionStore };
-    }
-
-    private initDatabaseSubsystem(db: any) {
-        const dbProvisioner = new DatabaseProvisioner(
-            resolve("./data/workspaces"),
-            this.vaultStore,
+    private async buildAutoRoutes(router: Router, toolRegistry: any | null): Promise<void> {
+        this.healthServer = createHealthServer(
+            this.config.network.health_port,
+            this.config.network.bind_address,
             this.logger,
         );
-        this.dbPool = new DatabasePool(dbProvisioner, this.logger);
-        const externalDbRegistry = new ExternalDatabaseRegistry(db, this.vaultStore, this.logger);
-        return { dbProvisioner, externalDbRegistry };
-    }
 
-    private initPluginSubsystem(db: any, dbProvisioner: DatabaseProvisioner) {
-        this.pluginManager = new PluginManager(db, dbProvisioner, this.logger);
-        void this.pluginManager.start().catch(err => {
-            this.logger.error({ err }, "Failed to start plugins");
-        });
-    }
+        this.healthServer.registerSubsystem("database", () => ({
+            name: "database",
+            status: this.dbManager.isOpen() ? "healthy" : "unhealthy",
+        }));
 
-    private initAgentSubsystem(db: any) {
-        const agentSandbox = new AgentSandbox(this.logger);
-        const toolRegistry = new ToolRegistry(this.logger);
-        const aiConfigStore = new AIConfigStore(db, this.logger, this.config.storage.canvas_path);
-        aiConfigStore.migrate();
+        for (const app of this.loadedApps) {
+            const pkgName = app.name;
 
-        const vaultGet = async (ref: string): Promise<string | undefined> => {
-            try {
-                const secret = this.vaultStore.get(ref);
-                return secret?.value;
-            } catch {
-                return undefined;
-            }
-        };
-
-        const agentOrchestrator = new AgentOrchestrator(
-            toolRegistry,
-            agentSandbox,
-            this.logger,
-            aiConfigStore,
-            vaultGet,
-        );
-
-        return { agentOrchestrator, toolRegistry, aiConfigStore };
-    }
-
-    private setupRouter(
-        db: any,
-        containerManager: ContainerManager,
-        imageManager: ImageManager,
-        containerLogStreamer: ContainerLogStreamer,
-        terminalProfileManager: TerminalProfileManager,
-        terminalSessionStore: TerminalSessionStore,
-        dbProvisioner: DatabaseProvisioner,
-        externalDbRegistry: ExternalDatabaseRegistry,
-        agentOrchestrator: AgentOrchestrator,
-        aiConfigStore: AIConfigStore,
-        toolRegistry: ToolRegistry
-    ) {
-        const router = new Router(this.logger);
-
-        // Auth middleware (applies to all handlers)
-        const authMiddleware = createAuthMiddleware(
-            this.sessionManager,
-            this.policyEngine,
-            this.auditLogger,
-        );
-        router.use(authMiddleware);
-
-        // Register Handlers
-        router.register("auth", createAuthHandler(this.sessionManager, this.userManager, this.jwtValidator, this.jwtProviderManager));
-        router.register("vault", createVaultHandler(this.vaultStore));
-        router.register(
-            "container",
-            createContainerHandler(
-                imageManager,
-                containerManager,
-                containerLogStreamer,
-            ),
-        );
-        router.register(
-            "process",
-            createProcessHandler(this.processManager, this.cronScheduler, this.processLogManager),
-        );
-        router.register(
-            "schedule",
-            createProcessHandler(this.processManager, this.cronScheduler, this.processLogManager),
-        );
-        router.register(
-            "terminal",
-            createTerminalHandler(this.terminalManager, terminalProfileManager, this.sessionLogger, terminalSessionStore),
-        );
-        router.register("media", createMediaHandler(resolve("./data/media")));
-        router.register("db", createDatabaseHandler(dbProvisioner, this.dbPool, this.dbManager, externalDbRegistry));
-        router.register("agent", createAgentHandler(agentOrchestrator, aiConfigStore));
-        router.register("plugin", createPluginHandler(this.pluginManager));
-        router.register("canvas", async (action, payload) => {
-            const stateManager = this.canvasServer?.stateManager;
-            if (!stateManager) {
-                throw new Error("Canvas runtime is not ready yet");
+            const routesModule = await this.importOptional(`${pkgName}/routes`, `${pkgName}/routes`);
+            if (routesModule?.registerRoutes) {
+                routesModule.registerRoutes(this.container, router);
+                this.logger.debug({ app: pkgName }, "Routes discovered");
             }
 
-            const canvasId = (payload as any)?.canvasId;
-            if (!canvasId || typeof canvasId !== 'string') {
-                throw new Error('canvasId is required');
+            const healthModule = await this.importOptional(`${pkgName}/health`, `${pkgName}/health`);
+            if (healthModule?.registerHealth) {
+                healthModule.registerHealth(this.container, this.healthServer);
+                this.logger.debug({ app: pkgName }, "Health checks discovered");
             }
 
-            switch (action) {
-                case 'update_state': {
-                    const partialState = (payload as any)?.state ?? {};
-                    stateManager.updateState(canvasId, partialState);
-                    return {
-                        canvasId,
-                        state: stateManager.getState(canvasId),
-                    };
+            if (toolRegistry) {
+                const toolsModule = await this.importOptional(`${pkgName}/tools`, `${pkgName}/tools`);
+                if (toolsModule?.registerTools) {
+                    toolsModule.registerTools(this.container, toolRegistry, router);
+                    this.logger.debug({ app: pkgName }, "Tools discovered");
                 }
-                case 'broadcast_event': {
-                    const type = (payload as any)?.type;
-                    if (!type || typeof type !== 'string') {
-                        throw new Error('type is required');
-                    }
-                    stateManager.broadcast(canvasId, {
-                        type,
-                        payload: (payload as any)?.payload,
-                        canvasId,
-                    });
-                    return { ok: true };
-                }
-                case 'toast': {
-                    const message = (payload as any)?.message;
-                    if (!message || typeof message !== 'string') {
-                        throw new Error('message is required');
-                    }
-                    stateManager.pushToast(canvasId, {
-                        message,
-                        severity: (payload as any)?.severity,
-                        durationMs: (payload as any)?.durationMs,
-                    });
-                    return { ok: true };
-                }
-                case 'request_input': {
-                    const message = (payload as any)?.message;
-                    if (!message || typeof message !== 'string') {
-                        throw new Error('message is required');
-                    }
-                    const response = await stateManager.requestInput(canvasId, {
-                        title: (payload as any)?.title,
-                        message,
-                        placeholder: (payload as any)?.placeholder,
-                        defaultValue: (payload as any)?.defaultValue,
-                        confirmLabel: (payload as any)?.confirmLabel,
-                        cancelLabel: (payload as any)?.cancelLabel,
-                        inputType: (payload as any)?.inputType,
-                        timeoutMs: (payload as any)?.timeoutMs,
-                    });
-                    return response;
-                }
-                case 'get_state': {
-                    return {
-                        canvasId,
-                        state: stateManager.getState(canvasId),
-                    };
-                }
-                default:
-                    throw new Error(`Unknown canvas action: ${action}`);
             }
-        });
+        }
 
-        // Session topic handler
-        router.register("session", async (action, payload, context) => {
+        router.register("session", async (action, _payload, context) => {
+            const authModule = await import("@orch/auth");
+            const sessionManager = this.container.resolve<any>(authModule.SessionManager);
+
             switch (action) {
                 case "info":
                     return {
@@ -493,261 +216,111 @@ export class OrchestratorApp {
                     };
                 case "refresh":
                     if (!context.sessionId) throw new Error("No session");
-                    return this.sessionManager.refresh(
-                        context.sessionId as import("@orch/shared").SessionId,
-                    );
+                    return sessionManager.refresh(context.sessionId);
                 case "list":
-                    return { sessions: this.sessionManager.listActive() };
+                    return { sessions: sessionManager.listActive() };
                 default:
-                    throw new Error(`Unknown session action: ${action} `);
+                    throw new Error(`Unknown session action: ${action}`);
             }
         });
 
-        // Health topic handler
         router.register("health", async (action) => {
             switch (action) {
                 case "check":
                     return { status: "healthy", timestamp: new Date().toISOString() };
                 default:
-                    throw new Error(`Unknown health action: ${action} `);
+                    throw new Error(`Unknown health action: ${action}`);
             }
         });
 
-        // Register tools
-        this.registerTools(toolRegistry, router, aiConfigStore);
+        if (toolRegistry) {
+            registerAITools(toolRegistry, router);
+            registerCanvasTools(toolRegistry, router);
 
-        return router;
+            router.register("canvas", async (action, payload) => {
+                const stateManager = this.canvasServer?.stateManager;
+                if (!stateManager) throw new Error("Canvas runtime is not ready yet");
+
+                const canvasId = (payload as any)?.canvasId;
+                if (!canvasId || typeof canvasId !== "string") {
+                    throw new Error("canvasId is required");
+                }
+
+                switch (action) {
+                    case "update_state": {
+                        const partialState = (payload as any)?.state ?? {};
+                        stateManager.updateState(canvasId, partialState);
+                        return { canvasId, state: stateManager.getState(canvasId) };
+                    }
+                    case "broadcast_event": {
+                        const type = (payload as any)?.type;
+                        if (!type || typeof type !== "string") {
+                            throw new Error("type is required");
+                        }
+                        stateManager.broadcast(canvasId, {
+                            type,
+                            payload: (payload as any)?.payload,
+                            canvasId,
+                        });
+                        return { ok: true };
+                    }
+                    case "toast": {
+                        const message = (payload as any)?.message;
+                        if (!message || typeof message !== "string") {
+                            throw new Error("message is required");
+                        }
+                        stateManager.pushToast(canvasId, {
+                            message,
+                            severity: (payload as any)?.severity,
+                            durationMs: (payload as any)?.durationMs,
+                        });
+                        return { ok: true };
+                    }
+                    case "request_input": {
+                        const message = (payload as any)?.message;
+                        if (!message || typeof message !== "string") {
+                            throw new Error("message is required");
+                        }
+                        return stateManager.requestInput(canvasId, {
+                            title: (payload as any)?.title,
+                            message,
+                            placeholder: (payload as any)?.placeholder,
+                            defaultValue: (payload as any)?.defaultValue,
+                            confirmLabel: (payload as any)?.confirmLabel,
+                            cancelLabel: (payload as any)?.cancelLabel,
+                            inputType: (payload as any)?.inputType,
+                            timeoutMs: (payload as any)?.timeoutMs,
+                        });
+                    }
+                    case "get_state":
+                        return { canvasId, state: stateManager.getState(canvasId) };
+                    default:
+                        throw new Error(`Unknown canvas action: ${action}`);
+                }
+            });
+        }
     }
 
-    private registerTools(toolRegistry: ToolRegistry, router: Router, aiConfigStore: AIConfigStore) {
-        // Register Browser Tool
-        const browserTool = new BrowserTool(this.logger);
-        toolRegistry.register({
-            ...browserTool.definition,
-            execute: async (args: any) => await browserTool.execute(args),
-        });
-
-        // Register Process Tool
-        toolRegistry.register({
-            name: "spawn_process",
-            description: "Spawns a new background process or command.",
-            parameters: {
-                type: "object",
-                properties: {
-                    id: { type: "string", description: "Unique identifier for the process" },
-                    command: { type: "string", description: "The executable command" },
-                    args: { type: "array", items: { type: "string" }, description: "Command arguments" },
-                    cwd: { type: "string", description: "Working directory" },
-                    restartPolicy: {
-                        type: "string",
-                        enum: ["always", "on-failure", "never"],
-                        description: "Restart policy",
-                    },
-                },
-                required: ["id", "command"],
-            },
-            execute: async (args: any, context?: import('@orch/daemon').HandlerContext) => {
-                if (!context) throw new Error("Context required for tool execution");
-
-                const request = {
-                    id: `tool-${Date.now()}`,
-                    topic: 'process',
-                    action: 'spawn',
-                    payload: args,
-                    meta: {
-                        timestamp: new Date().toISOString(),
-                        session_id: context.sessionId,
-                        trace_id: context.request.meta.trace_id
-                    }
-                };
-
-                const response = await router.dispatch(request, context.logger);
-                if (response.type === 'error') {
-                    return { success: false, error: response.payload };
-                }
-                return { success: true, message: "Process " + args.id + " started." };
-            },
-        });
-
-        // Register Container Tools
-        toolRegistry.register({
-            name: "spawn_container",
-            description: "Creates and starts a Docker container.",
-            parameters: {
-                type: "object",
-                properties: {
-                    name: { type: "string", description: "Name of the container" },
-                    image: { type: "string", description: "Docker image to use (e.g. alpine:latest)" },
-                    cmd: { type: "array", items: { type: "string" }, description: 'Command to run (e.g. ["ls", "-la"])' },
-                },
-                required: ["name", "image"],
-            },
-            execute: async (args: any, context?: import('@orch/daemon').HandlerContext) => {
-                if (!context) throw new Error("Context required for tool execution");
-
-                const request = {
-                    id: `tool-${Date.now()}`,
-                    topic: 'container',
-                    action: 'create',
-                    payload: args,
-                    meta: {
-                        timestamp: new Date().toISOString(),
-                        session_id: context.sessionId,
-                        trace_id: context.request.meta.trace_id
-                    }
-                };
-
-                const response = await router.dispatch(request, context.logger);
-                if (response.type === 'error') {
-                    return { success: false, error: response.payload };
-                }
-
-                // Start it
-                const startReq = {
-                    ...request,
-                    action: 'start',
-                    payload: { name: args.name }
-                };
-                await router.dispatch(startReq, context.logger);
-
-                return {
-                    success: true,
-                    message: "Container " + args.name + " started.",
-                    containerId: (response.payload as any).id,
-                };
-            },
-        });
-
-        toolRegistry.register({
-            name: "inspect_container",
-            description: "Gets low-level information on a Docker container.",
-            parameters: {
-                type: "object",
-                properties: {
-                    name: { type: "string", description: "Container name or ID" },
-                },
-                required: ["name"],
-            },
-            execute: async (args: any, context?: import('@orch/daemon').HandlerContext) => {
-                if (!context) throw new Error("Context required for tool execution");
-
-                const request = {
-                    id: `tool-${Date.now()}`,
-                    topic: 'container',
-                    action: 'inspect',
-                    payload: args,
-                    meta: {
-                        timestamp: new Date().toISOString(),
-                        session_id: context.sessionId,
-                        trace_id: context.request.meta.trace_id
-                    }
-                };
-
-                const response = await router.dispatch(request, context.logger);
-                if (response.type === 'error') {
-                    return { success: false, error: response.payload };
-                }
-                return { success: true, info: response.payload };
-            },
-        });
-
-        // Register Terminal Tool
-        toolRegistry.register({
-            name: "terminal_execute",
-            description: "Executes a command in a managed terminal session.",
-            parameters: {
-                type: "object",
-                properties: {
-                    sessionId: { type: "string", description: "Existing terminal session ID (optional)" },
-                    command: { type: "string", description: "Command text to send to the terminal" },
-                    shell: { type: "string", description: "Shell executable for new sessions" },
-                    cwd: { type: "string", description: "Working directory for new sessions" },
-                },
-                required: ["command"],
-            },
-            execute: async (args: any, context?: import('@orch/daemon').HandlerContext) => {
-                if (!context) throw new Error("Context required for tool execution");
-
-                const sessionId = (args.sessionId as string | undefined)
-                    ?? `tool-term-${Date.now()}`;
-
-                if (!args.sessionId) {
-                    const spawnRequest = {
-                        id: `tool-${Date.now()}-spawn`,
-                        topic: 'terminal',
-                        action: 'spawn',
-                        payload: {
-                            sessionId,
-                            shell: args.shell,
-                            cwd: args.cwd,
-                        },
-                        meta: {
-                            timestamp: new Date().toISOString(),
-                            session_id: context.sessionId,
-                            trace_id: context.request.meta.trace_id,
-                        },
-                    };
-
-                    const spawnResponse = await router.dispatch(spawnRequest, context.logger);
-                    if (spawnResponse.type === 'error') {
-                        return { success: false, error: spawnResponse.payload };
-                    }
-                }
-
-                const writeRequest = {
-                    id: `tool-${Date.now()}-write`,
-                    topic: 'terminal',
-                    action: 'write',
-                    payload: {
-                        sessionId,
-                        data: `${args.command}\n`,
-                    },
-                    meta: {
-                        timestamp: new Date().toISOString(),
-                        session_id: context.sessionId,
-                        trace_id: context.request.meta.trace_id,
-                    },
-                };
-
-                const writeResponse = await router.dispatch(writeRequest, context.logger);
-                if (writeResponse.type === 'error') {
-                    return { success: false, error: writeResponse.payload };
-                }
-
-                return {
-                    success: true,
-                    sessionId,
-                    message: `Command sent to terminal session ${sessionId}`,
-                };
-            },
-        });
-
-        // Register built-in AI tools
-        toolRegistry.register(createAgentSearchTool(aiConfigStore));
-
-        registerAITools(toolRegistry, router);
-        registerCanvasTools(toolRegistry, router);
-    }
-
-    private async startServers(router: Router, toolRegistry: ToolRegistry, aiConfigStore: AIConfigStore) {
-        // Start health server
-        this.healthServer = createHealthServer(
-            this.config.network.health_port,
-            this.config.network.bind_address,
-            this.logger,
-        );
-        this.registerHealthChecks();
+    private async startServers(router: Router, toolRegistry: any | null): Promise<void> {
         await this.healthServer.listen();
 
-        // Start WebSocket server
-        const mcpHttpHandler = createMcpHttpHandler(toolRegistry, this.sessionManager, this.logger);
+        let mcpHttpHandler: any = undefined;
+        if (toolRegistry) {
+            try {
+                const authModule = await import("@orch/auth");
+                const sessionManager = this.container.resolve(authModule.SessionManager);
+                mcpHttpHandler = createMcpHttpHandler(toolRegistry, sessionManager, this.logger);
+            } catch (err) {
+                this.logger.warn({ err }, "MCP HTTP handler disabled: auth subsystem unavailable");
+            }
+        }
 
         this.wsHandle = createWebSocketServer(
             this.config,
             router,
             this.logger,
             this.shutdownController.signal,
-            mcpHttpHandler
+            mcpHttpHandler,
         );
 
         this.healthServer.registerSubsystem("websocket", () => ({
@@ -755,81 +328,47 @@ export class OrchestratorApp {
             status: "healthy",
             message: `${this.wsHandle.connectionCount()} active connections`,
         }));
+        try {
+            const aiModule = await import("@orch/ai-agent");
+            if (aiModule.AIConfigStore) {
+                const aiConfigStore = this.container.resolve(aiModule.AIConfigStore);
+                this.canvasServer = createCanvasServer(
+                    this.config.network.canvas_port,
+                    this.config.network.bind_address,
+                    this.logger,
+                    aiConfigStore,
+                    this.config.storage.canvas_path,
+                );
+                await this.canvasServer.listen();
+                this.healthServer.registerSubsystem("canvas", () => ({
+                    name: "canvas",
+                    status: "healthy",
+                    message: `Canvas server running on port ${this.config.network.canvas_port}`,
+                }));
+            }
+        } catch {
+            // Canvas/AI subsystem optional.
+        }
 
-        this.canvasServer = createCanvasServer(
-            this.config.network.canvas_port,
-            this.config.network.bind_address,
-            this.logger,
-            aiConfigStore,
-            this.config.storage.canvas_path
-        );
-        await this.canvasServer.listen();
-
-        this.healthServer.registerSubsystem("canvas", () => ({
-            name: "canvas",
-            status: "healthy",
-            message: `Canvas server running on port ${this.config.network.canvas_port}`,
-        }));
-
-        // Mark as ready
         this.healthServer.markReady();
         this.logger.info("🚀 Orchestrator daemon is ready");
-
-        // Start background loops
-        this.cronScheduler.start();
-        this.containerMonitor
-            .start()
-            .catch((err: unknown) =>
-                this.logger.warn({ err }, "Failed to start container monitor"),
-            );
-    }
-
-    private registerHealthChecks() {
-        this.healthServer.registerSubsystem("database", () => ({
-            name: "database",
-            status: this.dbManager.isOpen() ? "healthy" : "unhealthy",
-        }));
-
-        this.healthServer.registerSubsystem("vault", () => ({
-            name: "vault",
-            status: this.vaultCrypto.isUnlocked() ? "healthy" : "unhealthy",
-        }));
-
-        this.healthServer.registerSubsystem("docker", () => {
-            return {
-                name: "docker",
-                status: this.containerMonitor.isRunning() ? "healthy" : "degraded",
-                message: this.containerMonitor.isRunning()
-                    ? "Docker connected and monitoring"
-                    : "Docker monitor inactive",
-            };
-        });
-
-        this.healthServer.registerSubsystem("process", () => {
-            return {
-                name: "process",
-                status: "healthy",
-                message: `${this.processManager.list().length} processes, ${this.cronScheduler.list().length} schedules`,
-            };
-        });
-
-        this.healthServer.registerSubsystem("terminal", () => {
-            return {
-                name: "terminal",
-                status: "healthy",
-                message: `${this.terminalManager.list().length} active terminal sessions`,
-            };
-        });
     }
 
     private setupReloadHandler() {
         this.onReload(() => {
-            try {
-                this.policyEngine.reload(resolve("./config/policies.toml"));
-                this.logger.info("RBAC policies reloaded");
-            } catch (err) {
-                this.logger.error({ err }, "Failed to reload policies");
-            }
+            void (async () => {
+                try {
+                    const authModule = await import("@orch/auth");
+                    if (!authModule.PolicyEngine) return;
+                    const policyEngine = this.container.resolve(authModule.PolicyEngine);
+                    if (typeof policyEngine.reload === "function") {
+                        policyEngine.reload(resolve("./config/policies.toml"));
+                        this.logger.info("RBAC policies reloaded");
+                    }
+                } catch (err) {
+                    this.logger.error({ err }, "Failed to reload policies");
+                }
+            })();
         });
     }
 
@@ -841,35 +380,105 @@ export class OrchestratorApp {
     }
 
     private async cleanup() {
-        // Graceful cleanup
-        if (this.processManager) await this.processManager.shutdownAll();
-        if (this.cronScheduler) this.cronScheduler.stop();
-        if (this.containerMonitor) this.containerMonitor.stop();
-        if (this.terminalManager) this.terminalManager.shutdownAll();
-        if (this.sessionLogger) this.sessionLogger.shutdownAll();
-        if (this.dbPool) this.dbPool.shutdownAll();
-        if (this.pluginManager) await this.pluginManager.stop();
-        if (this.canvasServer) await this.canvasServer.close();
+        if (this.shutdownController && !this.shutdownController.signal.aborted) {
+            this.shutdownController.abort();
+        }
 
-        if (this.wsHandle) await this.wsHandle.close();
-        if (this.healthServer) await this.healthServer.close();
-        if (this.vaultCrypto) this.vaultCrypto.zeroize();
-        // Session cleanup may use the DB connection, so run it before db close.
-        if (this.sessionManager) {
+        for (let i = this.loadedApps.length - 1; i >= 0; i--) {
+            const app = this.loadedApps[i];
+            if (!app?.cleanup) continue;
             try {
-                this.sessionManager.cleanup();
+                this.logger.debug({ app: app.name }, "Cleaning up app");
+                await app.cleanup(this.container);
             } catch (err) {
-                this.logger.warn({ err }, "Session cleanup skipped during shutdown");
+                this.logger.error({ err, app: app.name }, "Error during app cleanup");
             }
         }
+
+        if (this.canvasServer) await this.canvasServer.close();
+        if (this.wsHandle) await this.wsHandle.close();
+        if (this.healthServer) await this.healthServer.close();
         if (this.dbManager) this.dbManager.close();
 
-        // remove pid file before exiting
-        try {
-            await removePidFile(this.config.daemon.pid_file);
-        } catch { }
+        try { await removePidFile(this.config.daemon.pid_file); } catch { }
 
         this.logger.info("Orchestrator daemon stopped. Goodbye.");
+    }
+
+    private extractAppConfig(pkgName: string, appModule: Record<string, unknown>): AppConfig {
+        const defaultExport = appModule.default as AppConfig | undefined;
+        if (defaultExport?.name) {
+            return defaultExport;
+        }
+
+        const directExport = appModule as unknown as AppConfig;
+        if (directExport?.name) {
+            return directExport;
+        }
+
+        for (const key of Object.keys(appModule)) {
+            const candidate = appModule[key] as AppConfig | undefined;
+            if (candidate?.name) {
+                return candidate;
+            }
+        }
+
+        throw new Error(`Invalid app config in ${pkgName}/app`);
+    }
+
+    private orderAppsByDependencies(apps: AppConfig[]): AppConfig[] {
+        const byName = new Map(apps.map((app) => [app.name, app]));
+        const visited = new Set<string>();
+        const inStack = new Set<string>();
+        const ordered: AppConfig[] = [];
+
+        const visit = (name: string) => {
+            if (visited.has(name)) return;
+            if (inStack.has(name)) {
+                throw new Error(`Circular app dependency detected at ${name}`);
+            }
+            const app = byName.get(name);
+            if (!app) return;
+
+            inStack.add(name);
+            for (const dep of app.dependencies ?? []) {
+                visit(dep);
+            }
+            inStack.delete(name);
+            visited.add(name);
+            ordered.push(app);
+        };
+
+        for (const app of apps) {
+            visit(app.name);
+        }
+        return ordered;
+    }
+
+    private async importOptional(specifier: string, expectedInError: string): Promise<any | undefined> {
+        try {
+            return await import(specifier);
+        } catch (err: any) {
+            if (this.isMissingOptionalModule(err, specifier, expectedInError)) {
+                return undefined;
+            }
+            throw err;
+        }
+    }
+
+    private isMissingOptionalModule(err: any, specifier: string, expectedInError: string): boolean {
+        if (!err || err.code !== "ERR_MODULE_NOT_FOUND") {
+            return false;
+        }
+        const msg = String(err.message ?? "");
+        const lastSegment = specifier.split("/").pop();
+        if (!lastSegment) return false;
+
+        return (
+            msg.includes(expectedInError)
+            || msg.includes(specifier)
+            || msg.includes(`/dist/${lastSegment}.js`)
+        );
     }
 
     private getOrGeneratePassphrase(keyPath: string, envVarName: string): string {

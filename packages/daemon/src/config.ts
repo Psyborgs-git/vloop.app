@@ -63,6 +63,10 @@ const StorageSection = z.object({
     canvas_path: z.string().default('./data/canvases'),
 });
 
+const ApplicationsSection = z.object({
+    installed: z.array(z.string()).default([]),
+});
+
 const ConfigSchema = z.object({
     daemon: DaemonSection.default({}),
     network: NetworkSection.default({}),
@@ -72,6 +76,19 @@ const ConfigSchema = z.object({
     vault: VaultSection.default({}),
     containerd: ContainerdSection,
     storage: StorageSection.default({}),
+    applications: ApplicationsSection.default({
+        installed: [
+            "@orch/auth",
+            "@orch/vault",
+            "@orch/container",
+            "@orch/process",
+            "@orch/db-manager",
+            "@orch/ai-agent",
+            "@orch/terminal",
+            "@orch/media",
+            "@orch/plugin-manager"
+        ]
+    }),
 });
 
 export type DaemonConfig = z.infer<typeof ConfigSchema>;

@@ -331,6 +331,7 @@ export default function App() {
                         <Routes>
                             <Route path="/" element={<DashboardView />} />
                             <Route path="/chat" element={<ChatView />} />
+                            <Route path="/chat/:chatId" element={<ChatView />} />
                             <Route path="/ai-config" element={<AIConfigView />} />
                             <Route path="/workflow-builder" element={<WorkflowBuilderView />} />
                             <Route path="/workflow-runs" element={<WorkflowRunsView />} />

@@ -8,6 +8,7 @@
  * 4. Start App
  */
 
+import "reflect-metadata";
 import { loadConfig } from "@orch/daemon";
 import { OrchestratorApp } from "./app.js";
 

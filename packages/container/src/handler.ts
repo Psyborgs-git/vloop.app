@@ -108,7 +108,30 @@ export function createContainerHandler(
 
             case 'container.list': {
                 const all = data['all'] === true;
-                return { containers: await containerManager.list(all) };
+                try {
+                    return { containers: await containerManager.list(all) };
+                } catch (err) {
+                    if (err instanceof OrchestratorError) {
+                        const msg = err.message.toLowerCase();
+                        const dockerUnavailable =
+                            err.code === ErrorCode.DOCKER_UNAVAILABLE ||
+                            (err.code === ErrorCode.CONTAINER_ERROR && (
+                                msg.includes('socket hang up') ||
+                                msg.includes('econnrefused') ||
+                                msg.includes('enoent') ||
+                                msg.includes('docker is not available')
+                            ));
+
+                        if (dockerUnavailable) {
+                            return {
+                                containers: [],
+                                unavailable: true,
+                                message: 'Docker is unavailable. Container data is temporarily unavailable.',
+                            };
+                        }
+                    }
+                    throw err;
+                }
             }
 
             case 'container.inspect': {

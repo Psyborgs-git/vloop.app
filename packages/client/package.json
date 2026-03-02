@@ -9,6 +9,10 @@
         ".": {
             "import": "./dist/index.js",
             "types": "./dist/index.d.ts"
+        },
+        "./*": {
+            "import": "./dist/*.js",
+            "types": "./dist/*.d.ts"
         }
     },
     "scripts": {
@@ -17,7 +21,6 @@
         "test": "vitest run"
     },
     "dependencies": {
-        "@orch/shared": "workspace:*",
         "isomorphic-ws": "^5.0.0",
         "ws": "^8.19.0"
     },

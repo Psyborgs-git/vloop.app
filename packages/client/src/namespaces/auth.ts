@@ -1,5 +1,5 @@
 import { OrchestratorClient } from '../client.js';
-import type { PaginationOptions, PaginatedResult } from '@orch/shared';
+import type { PaginationOptions, PaginatedResult } from '../types.js';
 
 export class AuthClient {
     constructor(private client: OrchestratorClient) {}

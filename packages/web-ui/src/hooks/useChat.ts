@@ -1,12 +1,15 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { ChatMode, ChatSession, ProviderInfo, ModelInfo, ToolInfo, AgentInfo, ChatMessage, ToolCall, ToolResult } from '../components/ai/chat/index.js';
 
 export function useChat(client: any, showToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void) {
     const AUTO_COMPACT_CONTEXT_CHARS = 24_000;
+    const navigate = useNavigate();
+    const { chatId: routeChatId } = useParams<{ chatId?: string }>();
 
     // Chat state
     const [sessions, setSessions] = useState<ChatSession[]>([]);
-    const [activeSessionId, setActiveSessionId] = useState('');
+    const [activeSessionId, setActiveSessionIdState] = useState('');
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
 
@@ -21,6 +24,14 @@ export function useChat(client: any, showToast: (msg: string, type: 'success' | 
     const [selectedToolIds, setSelectedToolIds] = useState<string[]>([]);
 
     const activeSession = sessions.find(s => s.id === activeSessionId);
+
+    const setActiveSessionId = useCallback((id: string) => {
+        setActiveSessionIdState(id);
+        if (!id) return;
+        if (routeChatId !== id) {
+            navigate(`/chat/${id}`);
+        }
+    }, [navigate, routeChatId]);
 
     const requestAgent = useCallback(async <T = any>(action: string, payload: any): Promise<T> => {
         return client.request('agent', action, payload) as Promise<T>;
@@ -81,7 +92,18 @@ export function useChat(client: any, showToast: (msg: string, type: 'success' | 
                     id: s.id, title: s.title, messages: [], toolIds: s.toolIds ?? [], updatedAt: s.updatedAt,
                 }));
                 setSessions(normalized);
-                setActiveSessionId(prev => prev || normalized[0]!.id);
+
+                const routeSessionExists = routeChatId
+                    ? normalized.some(s => s.id === routeChatId)
+                    : false;
+                const nextActiveId = routeSessionExists
+                    ? routeChatId!
+                    : normalized[0]!.id;
+
+                setActiveSessionIdState(nextActiveId);
+                if (routeChatId !== nextActiveId) {
+                    navigate(`/chat/${nextActiveId}`, { replace: true });
+                }
             } else {
                 const created = await client.agent.createChat({ title: 'New Chat', mode: 'chat' });
                 setSessions([{
@@ -89,14 +111,34 @@ export function useChat(client: any, showToast: (msg: string, type: 'success' | 
                     messages: [{ role: 'system', content: 'Select a mode and model to start chatting.' }],
                     toolIds: (created as any).toolIds ?? [],
                 }]);
-                setActiveSessionId(created.id);
+                setActiveSessionIdState(created.id);
+                navigate(`/chat/${created.id}`, { replace: true });
             }
         } catch (e: any) {
             showToast(`Failed to load AI configs: ${e.message}`, 'error');
         }
-    }, [client, selectedModelId, showToast]);
+    }, [client, selectedModelId, showToast, routeChatId, navigate]);
 
     useEffect(() => { loadConfigs(); }, [loadConfigs]);
+
+    useEffect(() => {
+        if (!routeChatId) return;
+        if (activeSessionId === routeChatId) return;
+        const routeSessionExists = sessions.some(s => s.id === routeChatId);
+        if (!routeSessionExists) {
+            if (sessions.length > 0) {
+                navigate(`/chat/${sessions[0]!.id}`, { replace: true });
+            }
+            return;
+        }
+        setActiveSessionIdState(routeChatId);
+    }, [routeChatId, sessions, activeSessionId, navigate]);
+
+    useEffect(() => {
+        if (!activeSessionId) return;
+        if (routeChatId === activeSessionId) return;
+        navigate(`/chat/${activeSessionId}`, { replace: true });
+    }, [activeSessionId, routeChatId, navigate]);
 
     // Load chat history + session tools when session changes
     useEffect(() => {

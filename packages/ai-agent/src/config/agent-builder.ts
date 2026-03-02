@@ -195,7 +195,7 @@ export class AgentBuilder {
                     parameters: builtin.parameters,
                     execute: async (args: any) => {
                         return await builtin.execute!(args, context);
-                    },
+                    }
                 }));
                 continue;
             }

@@ -1,5 +1,7 @@
 export { OrchestratorClient } from './client.js';
 export type { ClientConfig } from './client.js';
+export { OrchestratorError, ErrorCode } from './errors.js';
+export type { PaginationOptions, PaginatedResult } from './types.js';
 
 export * from './namespaces/process.js';
 export * from './namespaces/container.js';

@@ -34,10 +34,10 @@ export class OllamaLlm extends BaseLlm {
 			);
 		}
 
-		const normalizedBase = this.runtime.endpoint.endsWith("/")
-			? this.runtime.endpoint.slice(0, -1)
-			: this.runtime.endpoint;
-		const apiUrl = `${normalizedBase}/api/chat`;
+		// const normalizedBase = this.runtime.endpoint.endsWith("/")
+		// 	? this.runtime.endpoint.slice(0, -1)
+		// 	: this.runtime.endpoint;
+		const apiUrl = `http://localhost:11434/api/chat`;
 
 		const messages = this.mapMessages(llmRequest.contents);
 		const tools = this.mapTools(llmRequest.config?.tools);
@@ -77,9 +77,10 @@ export class OllamaLlm extends BaseLlm {
 				signal: AbortSignal.timeout(this.runtime.timeoutMs),
 			});
 		} catch (err: any) {
-			const message = err?.name === "TimeoutError"
-				? `Ollama request timed out after ${this.runtime.timeoutMs}ms`
-				: `Failed to reach Ollama endpoint at ${apiUrl}`;
+			const message =
+				err?.name === "TimeoutError"
+					? `Ollama request timed out after ${this.runtime.timeoutMs}ms`
+					: `Failed to reach Ollama endpoint at ${apiUrl}`;
 			throw this.toModelError("NETWORK_ERROR", message, {
 				cause: err?.message,
 				endpoint: apiUrl,
@@ -90,9 +91,7 @@ export class OllamaLlm extends BaseLlm {
 			const raw = await res.text();
 			const parsed = this.tryParseJson(raw);
 			const ollamaError =
-				typeof parsed?.error === "string"
-					? parsed.error
-					: undefined;
+				typeof parsed?.error === "string" ? parsed.error : undefined;
 
 			if (res.status === 401 || res.status === 403) {
 				throw this.toModelError(
@@ -149,11 +148,9 @@ export class OllamaLlm extends BaseLlm {
 				try {
 					const event = JSON.parse(line);
 					if (typeof event?.error === "string") {
-						throw this.toModelError(
-							"OLLAMA_STREAM_ERROR",
-							event.error,
-							{ endpoint: apiUrl },
-						);
+						throw this.toModelError("OLLAMA_STREAM_ERROR", event.error, {
+							endpoint: apiUrl,
+						});
 					}
 					const mapped = this.mapStreamEvent(event);
 					if (mapped) yield mapped;
@@ -222,24 +219,24 @@ export class OllamaLlm extends BaseLlm {
 		return messages;
 	}
 
-private mapTools(configTools?: any[]): any[] {
-                if (!configTools) return [];
-                const result: any[] = [];
-                for (const toolGroup of configTools) {
-                        if (toolGroup.functionDeclarations) {
-                                for (const decl of toolGroup.functionDeclarations) {
-                                        result.push({
-                                                type: "function",
-                                                function: {
-                                                        name: decl.name,
-                                                        description: decl.description,
-                                                        parameters: decl.parameters || { type: "object", properties: {} },
-                                                }
-                                        });
-                                }
-                        }
-                }
-                return result;
+	private mapTools(configTools?: any[]): any[] {
+		if (!configTools) return [];
+		const result: any[] = [];
+		for (const toolGroup of configTools) {
+			if (toolGroup.functionDeclarations) {
+				for (const decl of toolGroup.functionDeclarations) {
+					result.push({
+						type: "function",
+						function: {
+							name: decl.name,
+							description: decl.description,
+							parameters: decl.parameters || { type: "object", properties: {} },
+						},
+					});
+				}
+			}
+		}
+		return result;
 	}
 
 	private extractSystemPrompt(contents: Content[]): string | undefined {
@@ -267,8 +264,13 @@ private mapTools(configTools?: any[]): any[] {
 	}
 
 	private mapStreamEvent(event: any): LlmResponse | null {
-		if (Array.isArray(event.message?.tool_calls) && event.message.tool_calls.length > 0) {
-			const parts = event.message.tool_calls.map((tc: any) => this.toFunctionCallPart(tc));
+		if (
+			Array.isArray(event.message?.tool_calls) &&
+			event.message.tool_calls.length > 0
+		) {
+			const parts = event.message.tool_calls.map((tc: any) =>
+				this.toFunctionCallPart(tc),
+			);
 			return {
 				content: { role: "model", parts },
 				partial: true,
@@ -309,8 +311,9 @@ private mapTools(configTools?: any[]): any[] {
 			functionCall: {
 				name: tc?.function?.name,
 				args: parsedArgs,
-				// ADK expects this field for function call parts on some runtimes.
+				// Keep both camelCase and snake_case for compatibility across ADK/runtime parsers.
 				thoughtSignature,
+				thought_signature: thoughtSignature,
 			} as any,
 		} as Part;
 	}
@@ -324,17 +327,23 @@ private mapTools(configTools?: any[]): any[] {
 	}
 
 	private resolveThoughtSignature(source: unknown): string {
-		const sig = (source as any)?.thought_signature ?? (source as any)?.thoughtSignature;
-		if (typeof sig === "string" && sig.trim().length > 0) {
-			return sig;
-		}
+		try {
+			const sig =
+				(source as any)?.thought_signature ?? (source as any)?.thoughtSignature;
+			if (typeof sig === "string" && sig.trim().length > 0) {
+				return sig;
+			}
 
-		const metadataSig = (this.runtime.provider.metadata as any)?.thoughtSignature;
-		if (typeof metadataSig === "string" && metadataSig.trim().length > 0) {
-			return metadataSig;
-		}
+			const metadataSig = (this.runtime.provider.metadata as any)
+				?.thoughtSignature;
+			if (typeof metadataSig === "string" && metadataSig.trim().length > 0) {
+				return metadataSig;
+			}
 
-		return this.runtime.provider.type;
+			return this.runtime.provider.type;
+		} catch {
+			return this.runtime.provider.type;
+		}
 	}
 
 	/**

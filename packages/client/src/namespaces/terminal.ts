@@ -1,5 +1,5 @@
 import type { OrchestratorClient } from '../client.js';
-import type { PaginationOptions, PaginatedResult } from '@orch/shared';
+import type { PaginationOptions, PaginatedResult } from '../types.js';
 
 export interface TerminalSpawnOptions {
     sessionId?: string;

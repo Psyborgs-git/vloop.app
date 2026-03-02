@@ -81,7 +81,7 @@ export class TerminalManager extends EventEmitter {
             throw new Error(`Terminal session already exists: ${options.sessionId}`);
         }
 
-        const shell = options.shell ?? detectDefaultShell();
+        const preferredShell = options.shell ?? detectDefaultShell();
         const cols = options.cols ?? 80;
         const rows = options.rows ?? 24;
         // treat empty string as unspecified so we fall back to HOME
@@ -89,12 +89,19 @@ export class TerminalManager extends EventEmitter {
         cwd = cwd ?? process.env['HOME'] ?? '/';
         const args = options.args ?? [];
 
-        const env: Record<string, string> = {
-            ...(process.env as Record<string, string>),
-            TERM: 'xterm-256color',
-            COLORTERM: 'truecolor',
-            ...options.env,
-        };
+        const env: Record<string, string> = {};
+        for (const [key, value] of Object.entries(process.env)) {
+            if (typeof value === 'string') {
+                env[key] = value;
+            }
+        }
+        for (const [key, value] of Object.entries(options.env ?? {})) {
+            if (typeof value === 'string') {
+                env[key] = value;
+            }
+        }
+        env.TERM = 'xterm-256color';
+        env.COLORTERM = 'truecolor';
 
         // validate the working directory before spawning
         try {
@@ -111,32 +118,54 @@ export class TerminalManager extends EventEmitter {
         }
 
         this.logger.info(
-            { sessionId: options.sessionId, shell, cols, rows, cwd },
+            { sessionId: options.sessionId, shell: preferredShell, cols, rows, cwd },
             `Spawning terminal session: ${options.sessionId}`,
         );
 
-        let ptyProcess;
-        try {
-            ptyProcess = pty.spawn(shell, args, {
-                name: 'xterm-256color',
-                cols,
-                rows,
-                cwd,
-                env,
-            });
-        } catch (err: any) {
+        const shellCandidates = this.resolveShellCandidates(preferredShell);
+
+        let ptyProcess: pty.IPty | undefined;
+        let selectedShell = preferredShell;
+        let lastError: unknown;
+
+        for (const shellCandidate of shellCandidates) {
+            try {
+                ptyProcess = pty.spawn(shellCandidate, args, {
+                    name: 'xterm-256color',
+                    cols,
+                    rows,
+                    cwd,
+                    env,
+                });
+                selectedShell = shellCandidate;
+                break;
+            } catch (err) {
+                lastError = err;
+                this.logger.warn(
+                    {
+                        sessionId: options.sessionId,
+                        shell: shellCandidate,
+                        cwd,
+                        err: err instanceof Error ? err.message : String(err),
+                    },
+                    'Terminal spawn attempt failed; trying fallback shell',
+                );
+            }
+        }
+
+        if (!ptyProcess) {
+            const reason = lastError instanceof Error ? lastError.message : String(lastError);
             this.logger.error(
-                { sessionId: options.sessionId, cwd, err: err.message },
+                { sessionId: options.sessionId, cwd, err: reason },
                 'Failed to spawn terminal session',
             );
-            // rethrow with understandable message
-            throw new Error(`Failed to spawn terminal: ${err.message}`);
+            throw new Error(`Failed to spawn terminal: ${reason}`);
         }
 
         const info: TerminalSessionInfo = {
             sessionId: options.sessionId,
             pid: ptyProcess.pid,
-            shell,
+            shell: selectedShell,
             cwd,
             cols,
             rows,
@@ -245,5 +274,45 @@ export class TerminalManager extends EventEmitter {
             throw new Error(`Terminal session not found: ${sessionId}`);
         }
         return session;
+    }
+
+    private resolveShellCandidates(preferred: string): string[] {
+        const candidates: string[] = [];
+
+        const add = (value: string | undefined) => {
+            if (!value || candidates.includes(value)) return;
+
+            // absolute paths should exist and be executable
+            if (value.startsWith('/')) {
+                try {
+                    if (!fs.existsSync(value)) return;
+                    fs.accessSync(value, fs.constants.X_OK);
+                } catch {
+                    return;
+                }
+            }
+
+            candidates.push(value);
+        };
+
+        add(preferred);
+        add(process.env['SHELL']);
+
+        if (process.platform === 'win32') {
+            add(process.env['COMSPEC']);
+            add('powershell.exe');
+            add('cmd.exe');
+        } else {
+            add('/bin/zsh');
+            add('/bin/bash');
+            add('/bin/sh');
+        }
+
+        // Guarantee at least one attempt.
+        if (candidates.length === 0) {
+            candidates.push(preferred || detectDefaultShell());
+        }
+
+        return candidates;
     }
 }
