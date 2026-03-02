@@ -36,7 +36,7 @@ export class DatabasePool {
             db.pragma(`key='${creds.key}'`);
 
             // Verify unlock by attempting a dummy schema read
-            db.exec('SELECT count(*) FROM sqlite_master;');
+            db.pragma('schema_version');
 
             // Optimize connection
             db.pragma('journal_mode = WAL');

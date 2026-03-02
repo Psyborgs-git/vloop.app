@@ -14,12 +14,14 @@ const config: AppConfig = {
         container.register(TerminalProfileManager, {
             useFactory: (c) => new TerminalProfileManager(
                 c.resolve(TOKENS.Database),
+                c.resolve(TOKENS.DatabaseOrm),
                 c.resolve(TOKENS.Logger)
             )
         });
         container.register(TerminalSessionStore, {
             useFactory: (c) => new TerminalSessionStore(
                 c.resolve(TOKENS.Database),
+                c.resolve(TOKENS.DatabaseOrm),
                 c.resolve(TOKENS.Logger)
             )
         });

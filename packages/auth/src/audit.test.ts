@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3-multiple-ciphers';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { AuditLogger } from './audit.js';
 
 describe('AuditLogger', () => {
@@ -17,7 +18,7 @@ describe('AuditLogger', () => {
     beforeEach(() => {
         tempDir = mkdtempSync(join(tmpdir(), 'orch-audit-test-'));
         db = new Database(join(tempDir, 'test.db'));
-        audit = new AuditLogger(db);
+        audit = new AuditLogger(db, drizzle(db));
     });
 
     afterEach(() => {

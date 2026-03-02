@@ -5,13 +5,24 @@
  * The .db file is unreadable without the encryption passphrase.
  */
 
-import Database from 'better-sqlite3-multiple-ciphers';
-import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
+import Database from 'better-sqlite3';
+import type BetterSqlite3 from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { OrchestratorError, ErrorCode } from './errors.js';
 
+export type RootDatabaseEngine = 'sqlite' | 'mysql' | 'postgres';
+/**
+ * Keep ORM type intentionally broad while multiple packages are being migrated.
+ * This avoids nominal type conflicts when Drizzle resolves from different
+ * node_modules locations in the monorepo.
+ */
+export type RootDatabaseOrm = any;
+
 export interface DatabaseOptions {
+    /** Root DB engine. Defaults to sqlite. */
+    engine?: RootDatabaseEngine;
     /** Path to the SQLite database file. */
     path: string;
     /** Encryption passphrase. The DB file is unreadable without this. */
@@ -22,10 +33,12 @@ export interface DatabaseOptions {
 
 export class DatabaseManager {
     private db: BetterSqlite3.Database | null = null;
+    private orm: RootDatabaseOrm | null = null;
     private readonly options: Required<DatabaseOptions>;
 
     constructor(options: DatabaseOptions) {
         this.options = {
+            engine: 'sqlite',
             walMode: true,
             ...options,
         };
@@ -38,6 +51,14 @@ export class DatabaseManager {
     open(): BetterSqlite3.Database {
         if (this.db) {
             return this.db;
+        }
+
+        if (this.options.engine !== 'sqlite') {
+            throw new OrchestratorError(
+                ErrorCode.CONFIG_INVALID,
+                `Database engine '${this.options.engine}' is not available for root services yet. Complete service repository migration before enabling it.`,
+                { engine: this.options.engine },
+            );
         }
 
         try {
@@ -62,11 +83,13 @@ export class DatabaseManager {
 
             // Verify the key worked by running a simple query
             // If the passphrase is wrong, this will throw
-            this.db.prepare('SELECT count(*) FROM sqlite_master').get();
+            this.db.pragma('schema_version');
+            this.orm = drizzle(this.db);
 
             return this.db;
         } catch (err) {
             this.db = null;
+            this.orm = null;
             const message = err instanceof Error ? err.message : String(err);
 
             if (message.includes('not a database') || message.includes('decrypt')) {
@@ -99,6 +122,23 @@ export class DatabaseManager {
     }
 
     /**
+     * Get Drizzle ORM facade for the root database.
+     */
+    getOrm(): RootDatabaseOrm {
+        if (!this.orm) {
+            throw new OrchestratorError(
+                ErrorCode.DB_ERROR,
+                'Database ORM is not initialized. Call open() first.',
+            );
+        }
+        return this.orm;
+    }
+
+    getEngine(): RootDatabaseEngine {
+        return this.options.engine;
+    }
+
+    /**
      * Run a migration: execute SQL statements to create/alter tables.
      */
     migrate(sql: string): void {
@@ -113,6 +153,7 @@ export class DatabaseManager {
         if (this.db) {
             this.db.close();
             this.db = null;
+            this.orm = null;
         }
     }
 

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3-multiple-ciphers';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
 import type { Logger } from '@orch/daemon';
 
 import { AIConfigStore } from './config/store.js';
@@ -29,7 +30,8 @@ describe('AgentOrchestrator Ollama chat pipeline', () => {
             error: vi.fn(),
         } as any;
 
-        store = new AIConfigStore(db as any, logger);
+        const orm = drizzle(db as any);
+        store = new AIConfigStore(db as any, orm, logger);
         store.migrate();
 
         orchestrator = new AgentOrchestrator(

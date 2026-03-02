@@ -22,6 +22,7 @@
     "dependencies": {
         "@orch/daemon": "workspace:*",
         "@orch/shared": "workspace:*",
+        "drizzle-orm": "^0.44.7",
         "bcryptjs": "^3.0.3",
         "jose": "^6.0.0",
         "minimatch": "^10.0.0",

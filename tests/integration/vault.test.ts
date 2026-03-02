@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3-multiple-ciphers';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { VaultCrypto } from '../../packages/vault/src/crypto.js';
 import { VaultStore } from '../../packages/vault/src/store.js';
 import { createVaultHandler } from '../../packages/vault/src/handler.js';
@@ -18,14 +19,16 @@ import { SecretInjector } from '../../packages/vault/src/inject.js';
 describe('Vault Lifecycle', () => {
     let tempDir: string;
     let db: InstanceType<typeof Database>;
+    let orm: ReturnType<typeof drizzle>;
     let crypto: VaultCrypto;
     let store: VaultStore;
 
     beforeEach(async () => {
         tempDir = mkdtempSync(join(tmpdir(), 'orch-vault-integ-'));
         db = new Database(join(tempDir, 'vault.db'));
+        orm = drizzle(db);
         crypto = new VaultCrypto();
-        store = new VaultStore(db, crypto);
+        store = new VaultStore(db, orm, crypto);
         await store.init('integration-test-passphrase');
     });
 
@@ -187,7 +190,7 @@ describe('Vault Lifecycle', () => {
 
             // Re-init with same passphrase
             const crypto2 = new VaultCrypto();
-            const store2 = new VaultStore(db, crypto2);
+            const store2 = new VaultStore(db, orm, crypto2);
             await store2.init('integration-test-passphrase');
 
             const secret = store2.get('persist-test');
@@ -201,7 +204,7 @@ describe('Vault Lifecycle', () => {
             crypto.zeroize();
 
             const crypto2 = new VaultCrypto();
-            const store2 = new VaultStore(db, crypto2);
+            const store2 = new VaultStore(db, orm, crypto2);
 
             await expect(store2.init('wrong-passphrase')).rejects.toThrow('Incorrect vault passphrase');
             crypto2.zeroize();

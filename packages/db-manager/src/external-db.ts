@@ -8,9 +8,25 @@
 
 import { randomUUID } from 'node:crypto';
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
+import type { RootDatabaseOrm } from '@orch/shared/db';
 import { VaultStore } from '@orch/vault';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
 import type { Logger } from '@orch/daemon';
+import { desc, eq } from 'drizzle-orm';
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+
+const externalDatabasesTable = sqliteTable('external_databases', {
+    id: text('id').primaryKey(),
+    owner: text('owner').notNull(),
+    label: text('label').notNull(),
+    db_type: text('db_type').notNull(),
+    host: text('host'),
+    port: integer('port'),
+    database_name: text('database_name'),
+    ssl: integer('ssl').notNull().default(0),
+    credentials_path: text('credentials_path'),
+    created_at: text('created_at').notNull(),
+});
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -59,6 +75,7 @@ interface ExternalDbRow {
 export class ExternalDatabaseRegistry {
     constructor(
         private readonly db: BetterSqlite3.Database,
+        private readonly orm: RootDatabaseOrm,
         private readonly vault: VaultStore,
         private readonly logger: Logger,
     ) {
@@ -114,15 +131,18 @@ export class ExternalDatabaseRegistry {
             });
         }
 
-        this.db.prepare(`
-            INSERT INTO external_databases (id, owner, label, db_type, host, port, database_name, ssl, credentials_path, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-            id, owner, opts.label, opts.dbType,
-            opts.host ?? null, opts.port ?? null,
-            opts.databaseName ?? null, opts.ssl ? 1 : 0,
-            credentialsPath, now,
-        );
+        this.orm.insert(externalDatabasesTable).values({
+            id,
+            owner,
+            label: opts.label,
+            db_type: opts.dbType,
+            host: opts.host ?? null,
+            port: opts.port ?? null,
+            database_name: opts.databaseName ?? null,
+            ssl: opts.ssl ? 1 : 0,
+            credentials_path: credentialsPath,
+            created_at: now,
+        }).run();
 
         this.logger.info({ id, owner, label: opts.label, dbType: opts.dbType }, 'Registered external database');
 
@@ -137,8 +157,8 @@ export class ExternalDatabaseRegistry {
     list(owner: string, roles: string[]): ExternalDbConfig[] {
         const isAdmin = roles.includes('admin');
         const rows = isAdmin
-            ? this.db.prepare('SELECT * FROM external_databases ORDER BY created_at DESC').all() as ExternalDbRow[]
-            : this.db.prepare('SELECT * FROM external_databases WHERE owner = ? ORDER BY created_at DESC').all(owner) as ExternalDbRow[];
+            ? this.orm.select().from(externalDatabasesTable).orderBy(desc(externalDatabasesTable.created_at)).all() as ExternalDbRow[]
+            : this.orm.select().from(externalDatabasesTable).where(eq(externalDatabasesTable.owner, owner)).orderBy(desc(externalDatabasesTable.created_at)).all() as ExternalDbRow[];
 
         return rows.map(r => ({
             id: r.id,
@@ -154,7 +174,7 @@ export class ExternalDatabaseRegistry {
     }
 
     private getRow(id: string): ExternalDbRow {
-        const row = this.db.prepare('SELECT * FROM external_databases WHERE id = ?').get(id) as ExternalDbRow | undefined;
+        const row = this.orm.select().from(externalDatabasesTable).where(eq(externalDatabasesTable.id, id)).get() as ExternalDbRow | undefined;
         if (!row) {
             throw new OrchestratorError(ErrorCode.NOT_FOUND, `External database config "${id}" not found`);
         }
@@ -170,7 +190,7 @@ export class ExternalDatabaseRegistry {
             try { this.vault.delete(row.credentials_path, true); } catch { /* ignore if not found */ }
         }
 
-        this.db.prepare('DELETE FROM external_databases WHERE id = ?').run(id);
+        this.orm.delete(externalDatabasesTable).where(eq(externalDatabasesTable.id, id)).run();
         this.logger.info({ id, identity }, 'Removed external database config');
     }
 

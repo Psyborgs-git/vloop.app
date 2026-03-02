@@ -12,8 +12,23 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
+import type { RootDatabaseOrm } from '@orch/shared/db';
 import { OrchestratorError, ErrorCode, generateSessionId } from '@orch/shared';
 import type { SessionId } from '@orch/shared';
+import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm';
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+
+const sessionsTable = sqliteTable('sessions', {
+    id: text('id').primaryKey(),
+    token_hash: text('token_hash').notNull(),
+    identity: text('identity').notNull(),
+    roles: text('roles').notNull(),
+    created_at: text('created_at').notNull(),
+    last_active: text('last_active').notNull(),
+    expires_at: text('expires_at').notNull(),
+    conn_meta: text('conn_meta'),
+    revoked: integer('revoked').notNull().default(0),
+});
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -51,10 +66,12 @@ interface SessionRow {
 
 export class SessionManager {
     private db: BetterSqlite3.Database;
+    private orm: RootDatabaseOrm;
     private options: SessionManagerOptions;
 
-    constructor(db: BetterSqlite3.Database, options: SessionManagerOptions) {
+    constructor(db: BetterSqlite3.Database, orm: RootDatabaseOrm, options: SessionManagerOptions) {
         this.db = db;
+        this.orm = orm;
         this.options = options;
         this.initSchema();
     }
@@ -88,9 +105,11 @@ export class SessionManager {
         connMeta?: Record<string, unknown>,
     ): { session: Session; token: string } {
         // Check max sessions per identity
-        const count = this.db.prepare(
-            'SELECT COUNT(*) as cnt FROM sessions WHERE identity = ? AND revoked = 0 AND expires_at > ?',
-        ).get(identity, new Date().toISOString()) as { cnt: number } | undefined;
+        const count = this.orm
+            .select({ cnt: sql<number>`count(*)` })
+            .from(sessionsTable)
+            .where(and(eq(sessionsTable.identity, identity), eq(sessionsTable.revoked, 0), gt(sessionsTable.expires_at, new Date().toISOString())))
+            .get() as { cnt: number } | undefined;
 
         if (count && count.cnt >= this.options.maxSessionsPerIdentity) {
             throw new OrchestratorError(
@@ -107,19 +126,17 @@ export class SessionManager {
             Date.now() + this.options.idleTimeoutSecs * 1000,
         ).toISOString();
 
-        this.db.prepare(`
-      INSERT INTO sessions (id, token_hash, identity, roles, created_at, last_active, expires_at, conn_meta)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-            id,
-            tokenHash,
-            identity,
-            JSON.stringify(roles),
-            now,
-            now,
-            expiresAt,
-            connMeta ? JSON.stringify(connMeta) : null,
-        );
+                this.orm.insert(sessionsTable).values({
+                        id,
+                        token_hash: tokenHash,
+                        identity,
+                        roles: JSON.stringify(roles),
+                        created_at: now,
+                        last_active: now,
+                        expires_at: expiresAt,
+                        conn_meta: connMeta ? JSON.stringify(connMeta) : null,
+                        revoked: 0,
+                }).run();
 
         return {
             session: { id, identity, roles, createdAt: now, lastActive: now, expiresAt },
@@ -135,9 +152,11 @@ export class SessionManager {
         const tokenHash = this.hashToken(token);
         const now = new Date().toISOString();
 
-        const row = this.db.prepare(
-            'SELECT * FROM sessions WHERE token_hash = ? AND revoked = 0',
-        ).get(tokenHash) as SessionRow | undefined;
+        const row = this.orm
+            .select()
+            .from(sessionsTable)
+            .where(and(eq(sessionsTable.token_hash, tokenHash), eq(sessionsTable.revoked, 0)))
+            .get() as SessionRow | undefined;
 
         if (!row) {
             throw new OrchestratorError(
@@ -167,9 +186,7 @@ export class SessionManager {
         }
 
         // Update last_active
-        this.db.prepare(
-            'UPDATE sessions SET last_active = ? WHERE id = ?',
-        ).run(now, row.id);
+        this.orm.update(sessionsTable).set({ last_active: now }).where(eq(sessionsTable.id, row.id)).run();
 
         return {
             id: row.id as SessionId,
@@ -190,9 +207,11 @@ export class SessionManager {
             now.getTime() + this.options.idleTimeoutSecs * 1000,
         ).toISOString();
 
-        const result = this.db.prepare(
-            'UPDATE sessions SET last_active = ?, expires_at = ? WHERE id = ? AND revoked = 0',
-        ).run(now.toISOString(), newExpiresAt, sessionId);
+        const result = this.orm
+            .update(sessionsTable)
+            .set({ last_active: now.toISOString(), expires_at: newExpiresAt })
+            .where(and(eq(sessionsTable.id, sessionId), eq(sessionsTable.revoked, 0)))
+            .run();
 
         if (result.changes === 0) {
             throw new OrchestratorError(
@@ -201,9 +220,7 @@ export class SessionManager {
             );
         }
 
-        const row = this.db.prepare(
-            'SELECT * FROM sessions WHERE id = ?',
-        ).get(sessionId) as SessionRow;
+        const row = this.orm.select().from(sessionsTable).where(eq(sessionsTable.id, sessionId)).get() as SessionRow;
 
         return {
             id: row.id as SessionId,
@@ -219,9 +236,7 @@ export class SessionManager {
      * Revoke a session immediately.
      */
     revoke(sessionId: SessionId): void {
-        this.db.prepare(
-            'UPDATE sessions SET revoked = 1 WHERE id = ?',
-        ).run(sessionId);
+        this.orm.update(sessionsTable).set({ revoked: 1 }).where(eq(sessionsTable.id, sessionId)).run();
     }
 
     /**
@@ -229,9 +244,12 @@ export class SessionManager {
      */
     listActive(): Session[] {
         const now = new Date().toISOString();
-        const rows = this.db.prepare(
-            'SELECT * FROM sessions WHERE revoked = 0 AND expires_at > ? ORDER BY last_active DESC',
-        ).all(now) as SessionRow[];
+        const rows = this.orm
+            .select()
+            .from(sessionsTable)
+            .where(and(eq(sessionsTable.revoked, 0), gt(sessionsTable.expires_at, now)))
+            .orderBy(desc(sessionsTable.last_active))
+            .all() as SessionRow[];
 
         return rows.map((row) => ({
             id: row.id as SessionId,
@@ -247,9 +265,17 @@ export class SessionManager {
      * Clean up expired sessions from the database.
      */
     cleanup(): number {
-        const result = this.db.prepare(
-            'DELETE FROM sessions WHERE expires_at < ? OR revoked = 1',
-        ).run(new Date().toISOString());
+        const now = new Date().toISOString();
+        const expiredOrRevoked = this.orm
+            .select({ id: sessionsTable.id })
+            .from(sessionsTable)
+            .where(sql<boolean>`${sessionsTable.expires_at} < ${now} OR ${sessionsTable.revoked} = 1`)
+            .all()
+            .map((r: { id: string }) => r.id);
+        if (expiredOrRevoked.length === 0) {
+            return 0;
+        }
+        const result = this.orm.delete(sessionsTable).where(inArray(sessionsTable.id, expiredOrRevoked)).run();
         return result.changes;
     }
 

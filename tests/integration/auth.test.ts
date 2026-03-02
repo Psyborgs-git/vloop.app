@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3-multiple-ciphers';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { Router } from '../../packages/daemon/src/router.js';
 import { createLogger } from '../../packages/daemon/src/logging.js';
 import type { HandlerContext } from '../../packages/daemon/src/router.js';
@@ -43,6 +44,7 @@ function makeRequest(
 describe('Auth Middleware Pipeline', () => {
     let tempDir: string;
     let db: InstanceType<typeof Database>;
+    let orm: ReturnType<typeof drizzle>;
     let sessionManager: SessionManager;
     let policyEngine: PolicyEngine;
     let auditLogger: AuditLogger;
@@ -53,16 +55,17 @@ describe('Auth Middleware Pipeline', () => {
     beforeEach(() => {
         tempDir = mkdtempSync(join(tmpdir(), 'orch-auth-integ-'));
         db = new Database(join(tempDir, 'test.db'));
+        orm = drizzle(db);
 
         // Session manager
-        sessionManager = new SessionManager(db, {
+        sessionManager = new SessionManager(db, orm, {
             idleTimeoutSecs: 3600,
             maxLifetimeSecs: 86400,
             maxSessionsPerIdentity: 10,
         });
 
         // User manager
-        userManager = new UserManager(db);
+        userManager = new UserManager(db, orm);
 
         // RBAC policies
         policyPath = join(tempDir, 'policies.toml');
@@ -83,7 +86,7 @@ permissions = [
         policyEngine.load(policyPath);
 
         // Audit logger
-        auditLogger = new AuditLogger(db);
+        auditLogger = new AuditLogger(db, orm);
 
         // Setup router with auth middleware
         router = new Router(logger);

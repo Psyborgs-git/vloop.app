@@ -7,10 +7,34 @@
  */
 
 import type BetterSqlite3 from "better-sqlite3-multiple-ciphers";
+import type { RootDatabaseOrm } from '@orch/shared/db';
 import { randomUUID } from "node:crypto";
 import { OrchestratorError, ErrorCode } from "@orch/shared";
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { integer, sqliteTable, text, blob } from 'drizzle-orm/sqlite-core';
 import { VaultCrypto } from "./crypto.js";
 import type { WrappedKey, EncryptedData } from "./crypto.js";
+
+const vaultMetaTable = sqliteTable('vault_meta', {
+	key: text('key').primaryKey(),
+	value: blob('value', { mode: 'buffer' }).notNull(),
+});
+
+const secretsTable = sqliteTable('secrets', {
+	id: text('id').primaryKey(),
+	name: text('name').notNull(),
+	version: integer('version').notNull(),
+	wrapped_dek: blob('wrapped_dek', { mode: 'buffer' }).notNull(),
+	dek_nonce: blob('dek_nonce', { mode: 'buffer' }).notNull(),
+	dek_tag: blob('dek_tag', { mode: 'buffer' }).notNull(),
+	ciphertext: blob('ciphertext', { mode: 'buffer' }).notNull(),
+	nonce: blob('nonce', { mode: 'buffer' }).notNull(),
+	tag: blob('tag', { mode: 'buffer' }).notNull(),
+	metadata: text('metadata'),
+	created_at: text('created_at').notNull(),
+	deleted_at: text('deleted_at'),
+	owner: text('owner').notNull().default('__system__'),
+});
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -41,15 +65,18 @@ export interface SecretMetadata {
 
 export class VaultStore {
 	private db: BetterSqlite3.Database;
+	private orm: RootDatabaseOrm;
 	private crypto: VaultCrypto;
 	private maxVersions: number;
 
 	constructor(
 		db: BetterSqlite3.Database,
+		orm: RootDatabaseOrm,
 		crypto: VaultCrypto,
 		maxVersions: number = 5,
 	) {
 		this.db = db;
+		this.orm = orm;
 		this.crypto = crypto;
 		this.maxVersions = maxVersions;
 		this.initSchema();
@@ -82,9 +109,9 @@ export class VaultStore {
         `);
 
 		// Step 2: Migration — add owner column if missing
-		try {
-			this.db.prepare("SELECT owner FROM secrets LIMIT 1").get();
-		} catch {
+		const secretColumns = this.db.pragma('table_info(secrets)') as Array<{ name: string }>;
+		const hasOwnerColumn = secretColumns.some((c) => c.name === 'owner');
+		if (!hasOwnerColumn) {
 			this.db.exec(
 				"ALTER TABLE secrets ADD COLUMN owner TEXT NOT NULL DEFAULT '__system__'",
 			);
@@ -100,16 +127,20 @@ export class VaultStore {
 	 * Initialize the vault: store salt and sentinel if first run, or verify passphrase.
 	 */
 	async init(passphrase: string): Promise<void> {
-		const existingSalt = this.db
-			.prepare("SELECT value FROM vault_meta WHERE key = 'argon2_salt'")
+		const existingSalt = this.orm
+			.select({ value: vaultMetaTable.value })
+			.from(vaultMetaTable)
+			.where(eq(vaultMetaTable.key, 'argon2_salt'))
 			.get() as { value: Buffer } | undefined;
 
 		if (existingSalt) {
 			// Existing vault — derive MEK and verify sentinel
 			await this.crypto.deriveMek(passphrase, existingSalt.value);
 
-			const sentinel = this.db
-				.prepare("SELECT value FROM vault_meta WHERE key = 'sentinel'")
+			const sentinel = this.orm
+				.select({ value: vaultMetaTable.value })
+				.from(vaultMetaTable)
+				.where(eq(vaultMetaTable.key, 'sentinel'))
 				.get() as { value: Buffer } | undefined;
 
 			if (sentinel) {
@@ -148,23 +179,18 @@ export class VaultStore {
 			const sentinelPlain = Buffer.from("orchestrator-vault-sentinel");
 			const sentinelEncrypted = this.crypto.encrypt(sentinelPlain, mek);
 
-			this.db
-				.prepare(
-					"INSERT INTO vault_meta (key, value) VALUES ('argon2_salt', ?)",
-				)
-				.run(salt);
+			this.orm.insert(vaultMetaTable).values({ key: 'argon2_salt', value: salt }).run();
 
-			this.db
-				.prepare("INSERT INTO vault_meta (key, value) VALUES ('sentinel', ?)")
-				.run(
-					Buffer.from(
-						JSON.stringify({
-							ciphertext: Array.from(sentinelEncrypted.ciphertext),
-							nonce: Array.from(sentinelEncrypted.nonce),
-							tag: Array.from(sentinelEncrypted.tag),
-						}),
-					),
-				);
+			this.orm.insert(vaultMetaTable).values({
+				key: 'sentinel',
+				value: Buffer.from(
+					JSON.stringify({
+						ciphertext: Array.from(sentinelEncrypted.ciphertext),
+						nonce: Array.from(sentinelEncrypted.nonce),
+						tag: Array.from(sentinelEncrypted.tag),
+					}),
+				),
+			}).run();
 		}
 	}
 
@@ -179,11 +205,11 @@ export class VaultStore {
 		owner: string = "__system__",
 	): SecretMetadata {
 		// Check for existing
-		const existing = this.db
-			.prepare(
-				"SELECT name FROM secrets WHERE name = ? AND deleted_at IS NULL LIMIT 1",
-			)
-			.get(name) as { name: string } | undefined;
+		const existing = this.orm
+			.select({ name: secretsTable.name })
+			.from(secretsTable)
+			.where(and(eq(secretsTable.name, name), isNull(secretsTable.deleted_at)))
+			.get() as { name: string } | undefined;
 
 		if (existing) {
 			throw new OrchestratorError(
@@ -212,17 +238,18 @@ export class VaultStore {
 		let row: SecretRow | undefined;
 
 		if (version !== undefined) {
-			row = this.db
-				.prepare(
-					"SELECT * FROM secrets WHERE name = ? AND version = ? AND deleted_at IS NULL",
-				)
-				.get(name, version) as SecretRow | undefined;
+			row = this.orm
+				.select()
+				.from(secretsTable)
+				.where(and(eq(secretsTable.name, name), eq(secretsTable.version, version), isNull(secretsTable.deleted_at)))
+				.get() as SecretRow | undefined;
 		} else {
-			row = this.db
-				.prepare(
-					"SELECT * FROM secrets WHERE name = ? AND deleted_at IS NULL ORDER BY version DESC LIMIT 1",
-				)
-				.get(name) as SecretRow | undefined;
+			row = this.orm
+				.select()
+				.from(secretsTable)
+				.where(and(eq(secretsTable.name, name), isNull(secretsTable.deleted_at)))
+				.orderBy(desc(secretsTable.version))
+				.get() as SecretRow | undefined;
 		}
 
 		if (!row) {
@@ -278,11 +305,12 @@ export class VaultStore {
 		metadata?: Record<string, unknown>,
 		requester?: { identity: string; roles: string[] },
 	): SecretMetadata {
-		const latest = this.db
-			.prepare(
-				"SELECT version, owner FROM secrets WHERE name = ? AND deleted_at IS NULL ORDER BY version DESC LIMIT 1",
-			)
-			.get(name) as { version: number; owner?: string } | undefined;
+		const latest = this.orm
+			.select({ version: secretsTable.version, owner: secretsTable.owner })
+			.from(secretsTable)
+			.where(and(eq(secretsTable.name, name), isNull(secretsTable.deleted_at)))
+			.orderBy(desc(secretsTable.version))
+			.get() as { version: number; owner?: string } | undefined;
 
 		if (!latest) {
 			throw new OrchestratorError(
@@ -324,9 +352,7 @@ export class VaultStore {
 	 */
 	delete(name: string, hard: boolean = false): void {
 		if (hard) {
-			const result = this.db
-				.prepare("DELETE FROM secrets WHERE name = ?")
-				.run(name);
+			const result = this.orm.delete(secretsTable).where(eq(secretsTable.name, name)).run();
 			if (result.changes === 0) {
 				throw new OrchestratorError(
 					ErrorCode.SECRET_NOT_FOUND,
@@ -334,11 +360,11 @@ export class VaultStore {
 				);
 			}
 		} else {
-			const result = this.db
-				.prepare(
-					"UPDATE secrets SET deleted_at = ? WHERE name = ? AND deleted_at IS NULL",
-				)
-				.run(new Date().toISOString(), name);
+			const result = this.orm
+				.update(secretsTable)
+				.set({ deleted_at: new Date().toISOString() })
+				.where(and(eq(secretsTable.name, name), isNull(secretsTable.deleted_at)))
+				.run();
 			if (result.changes === 0) {
 				throw new OrchestratorError(
 					ErrorCode.SECRET_NOT_FOUND,
@@ -364,41 +390,39 @@ export class VaultStore {
 		const { prefix, limit = 100, offset = 0, owner, roles = [] } = options;
 		const isAdmin = roles.includes("admin");
 
-		let query =
-			"SELECT DISTINCT name, MAX(version) as version, metadata, created_at, id FROM secrets WHERE deleted_at IS NULL";
-		const params: unknown[] = [];
+		let rows = this.orm
+			.select()
+			.from(secretsTable)
+			.where(isNull(secretsTable.deleted_at))
+			.orderBy(secretsTable.name, desc(secretsTable.version))
+			.all() as Array<SecretRow & { owner?: string }>;
 
-		// Owner scoping — admins see all, users see only their own + system
 		if (owner && !isAdmin) {
-			query += " AND (owner = ? OR owner = '__system__')";
-			params.push(owner);
+			rows = rows.filter((r) => (r as any).owner === owner || (r as any).owner === '__system__');
 		}
-
 		if (prefix) {
-			query += " AND name LIKE ?";
-			params.push(`${prefix}%`);
+			rows = rows.filter((r) => r.name.startsWith(prefix));
 		}
 
-		query += " GROUP BY name ORDER BY name LIMIT ? OFFSET ?";
-		params.push(limit, offset);
+		const latestByName = new Map<string, SecretRow>();
+		for (const row of rows) {
+			if (!latestByName.has(row.name)) {
+				latestByName.set(row.name, row);
+			}
+		}
 
-		const rows = this.db.prepare(query).all(...params) as Array<{
-			id: string;
-			name: string;
-			version: number;
-			metadata: string | null;
-			created_at: string;
-		}>;
-
-		return rows.map((row) => ({
-			id: row.id,
-			name: row.name,
-			version: row.version,
-			metadata: row.metadata
-				? (JSON.parse(row.metadata) as Record<string, unknown>)
-				: undefined,
-			createdAt: row.created_at,
-		}));
+		return Array.from(latestByName.values())
+			.sort((a, b) => a.name.localeCompare(b.name))
+			.slice(offset, offset + limit)
+			.map((row) => ({
+				id: row.id,
+				name: row.name,
+				version: row.version,
+				metadata: row.metadata
+					? (JSON.parse(row.metadata) as Record<string, unknown>)
+					: undefined,
+				createdAt: row.created_at,
+			}));
 	}
 
 	// ─── Private Helpers ─────────────────────────────────────────────────
@@ -416,44 +440,40 @@ export class VaultStore {
 		const encrypted = this.crypto.encrypt(Buffer.from(value, "utf-8"), dek);
 		const now = new Date().toISOString();
 
-		this.db
-			.prepare(
-				`INSERT INTO secrets (id, name, version, owner, wrapped_dek, dek_nonce, dek_tag, ciphertext, nonce, tag, metadata, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			)
-			.run(
+		this.orm
+			.insert(secretsTable)
+			.values({
 				id,
 				name,
 				version,
 				owner,
-				wrappedKey.wrappedDek,
-				wrappedKey.nonce,
-				wrappedKey.tag,
-				encrypted.ciphertext,
-				encrypted.nonce,
-				encrypted.tag,
-				metadata ? JSON.stringify(metadata) : null,
-				now,
-			);
+				wrapped_dek: wrappedKey.wrappedDek,
+				dek_nonce: wrappedKey.nonce,
+				dek_tag: wrappedKey.tag,
+				ciphertext: encrypted.ciphertext,
+				nonce: encrypted.nonce,
+				tag: encrypted.tag,
+				metadata: metadata ? JSON.stringify(metadata) : null,
+				created_at: now,
+				deleted_at: null,
+			})
+			.run();
 
 		return { id, name, version, metadata, createdAt: now };
 	}
 
 	private pruneVersions(name: string): void {
-		const versions = this.db
-			.prepare(
-				"SELECT id, version FROM secrets WHERE name = ? AND deleted_at IS NULL ORDER BY version DESC",
-			)
-			.all(name) as Array<{ id: string; version: number }>;
+		const versions = this.orm
+			.select({ id: secretsTable.id, version: secretsTable.version })
+			.from(secretsTable)
+			.where(and(eq(secretsTable.name, name), isNull(secretsTable.deleted_at)))
+			.orderBy(desc(secretsTable.version))
+			.all() as Array<{ id: string; version: number }>;
 
 		if (versions.length > this.maxVersions) {
 			const toDelete = versions.slice(this.maxVersions);
 			const ids = toDelete.map((v) => v.id);
-			this.db
-				.prepare(
-					`DELETE FROM secrets WHERE id IN (${ids.map(() => "?").join(",")})`,
-				)
-				.run(...ids);
+			this.orm.delete(secretsTable).where(inArray(secretsTable.id, ids)).run();
 		}
 	}
 }

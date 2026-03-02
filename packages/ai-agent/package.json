@@ -12,6 +12,7 @@
         "@google/adk": "^0.2.0",
         "@modelcontextprotocol/sdk": "^1.27.1",
         "@types/diff": "^8.0.0",
+        "drizzle-orm": "^0.44.7",
         "diff": "^8.0.3",
         "google-diff-match-patch": "^2.0.0",
         "ollama": "^0.6.3",

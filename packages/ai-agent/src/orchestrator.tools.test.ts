@@ -4,6 +4,7 @@ import { ToolRegistry } from './tools.js';
 import { AgentSandbox } from './sandbox.js';
 import { AIConfigStore } from './config/store.js';
 import Database from 'better-sqlite3-multiple-ciphers';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
 
 describe('AgentOrchestrator - Multi-turn Tool Execution', () => {
     let orchestrator: AgentOrchestrator;
@@ -25,7 +26,8 @@ describe('AgentOrchestrator - Multi-turn Tool Execution', () => {
             debug: vi.fn(),
         };
 
-        store = new AIConfigStore(db, logger);
+        const orm = drizzle(db as any);
+        store = new AIConfigStore(db as any, orm, logger);
         store.migrate();
 
         tools = new ToolRegistry(logger);

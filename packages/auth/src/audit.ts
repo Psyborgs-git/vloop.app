@@ -7,7 +7,24 @@
 
 import { createHash } from 'node:crypto';
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
+import type { RootDatabaseOrm } from '@orch/shared/db';
 import type { PaginationOptions, PaginatedResult } from '@orch/shared';
+import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+
+const auditLogTable = sqliteTable('audit_log', {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    timestamp: text('timestamp').notNull(),
+    session_id: text('session_id'),
+    identity: text('identity').notNull(),
+    topic: text('topic').notNull(),
+    action: text('action').notNull(),
+    resource: text('resource'),
+    outcome: text('outcome').notNull(),
+    trace_id: text('trace_id'),
+    prev_hash: text('prev_hash').notNull(),
+    entry_hash: text('entry_hash').notNull(),
+});
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -36,10 +53,12 @@ export interface AuditQueryOptions extends PaginationOptions {
 
 export class AuditLogger {
     private db: BetterSqlite3.Database;
+    private orm: RootDatabaseOrm;
     private lastHash: string = '0'.repeat(64); // Genesis hash
 
-    constructor(db: BetterSqlite3.Database) {
+    constructor(db: BetterSqlite3.Database, orm: RootDatabaseOrm) {
         this.db = db;
+        this.orm = orm;
         this.initSchema();
         this.loadLastHash();
     }
@@ -65,9 +84,12 @@ export class AuditLogger {
     }
 
     private loadLastHash(): void {
-        const row = this.db.prepare(
-            'SELECT entry_hash FROM audit_log ORDER BY id DESC LIMIT 1',
-        ).get() as { entry_hash: string } | undefined;
+        const row = this.orm
+            .select({ entry_hash: auditLogTable.entry_hash })
+            .from(auditLogTable)
+            .orderBy(desc(auditLogTable.id))
+            .limit(1)
+            .get() as { entry_hash: string } | undefined;
 
         if (row) {
             this.lastHash = row.entry_hash;
@@ -93,21 +115,21 @@ export class AuditLogger {
         const data = `${prevHash}|${timestamp}|${entry.identity}|${entry.topic}|${entry.action}|${entry.resource ?? ''}|${entry.outcome}`;
         const entryHash = createHash('sha256').update(data).digest('hex');
 
-        this.db.prepare(`
-      INSERT INTO audit_log (timestamp, session_id, identity, topic, action, resource, outcome, trace_id, prev_hash, entry_hash)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-            timestamp,
-            entry.sessionId ?? null,
-            entry.identity,
-            entry.topic,
-            entry.action,
-            entry.resource ?? null,
-            entry.outcome,
-            entry.traceId ?? null,
-            prevHash,
-            entryHash,
-        );
+        this.orm
+            .insert(auditLogTable)
+            .values({
+                timestamp,
+                session_id: entry.sessionId ?? null,
+                identity: entry.identity,
+                topic: entry.topic,
+                action: entry.action,
+                resource: entry.resource ?? null,
+                outcome: entry.outcome,
+                trace_id: entry.traceId ?? null,
+                prev_hash: prevHash,
+                entry_hash: entryHash,
+            })
+            .run();
 
         this.lastHash = entryHash;
     }
@@ -116,31 +138,24 @@ export class AuditLogger {
      * Query audit log with filters.
      */
     query(options: AuditQueryOptions = {}): PaginatedResult<AuditEntry> {
-        const conditions: string[] = [];
-        const params: unknown[] = [];
-
+        const whereClauses: any[] = [];
         if (options.from) {
-            conditions.push('timestamp >= ?');
-            params.push(options.from);
+            whereClauses.push(gte(auditLogTable.timestamp, options.from));
         }
         if (options.to) {
-            conditions.push('timestamp <= ?');
-            params.push(options.to);
+            whereClauses.push(lte(auditLogTable.timestamp, options.to));
         }
         if (options.identity) {
-            conditions.push('identity = ?');
-            params.push(options.identity);
+            whereClauses.push(eq(auditLogTable.identity, options.identity));
         }
         if (options.topic) {
-            conditions.push('topic = ?');
-            params.push(options.topic);
+            whereClauses.push(eq(auditLogTable.topic, options.topic));
         }
         if (options.outcome) {
-            conditions.push('outcome = ?');
-            params.push(options.outcome);
+            whereClauses.push(eq(auditLogTable.outcome, options.outcome));
         }
+        const whereClause = whereClauses.length > 0 ? and(...whereClauses) : undefined;
 
-        const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
         const defaultLimit = 100;
         const defaultOffset = 0;
         const rawLimit = options.limit;
@@ -154,12 +169,23 @@ export class AuditLogger {
                 ? Math.trunc(rawOffset as number)
                 : defaultOffset;
 
-        const countRow = this.db.prepare(`SELECT COUNT(*) as count FROM audit_log ${where}`).get(...params) as { count: number };
-        const total = countRow.count;
+        const countQuery = this.orm
+            .select({ count: sql<number>`count(*)` })
+            .from(auditLogTable);
+        const countRow = whereClause
+            ? countQuery.where(whereClause).get() as { count: number } | undefined
+            : countQuery.get() as { count: number } | undefined;
+        const total = countRow?.count ?? 0;
 
-        const rows = this.db.prepare(
-            `SELECT * FROM audit_log ${where} ORDER BY id DESC LIMIT ? OFFSET ?`,
-        ).all(...params, limit, offset) as Array<{
+        const rowsQuery = this.orm
+            .select()
+            .from(auditLogTable)
+            .orderBy(desc(auditLogTable.id))
+            .limit(limit)
+            .offset(offset);
+        const rows = (whereClause
+            ? rowsQuery.where(whereClause).all()
+            : rowsQuery.all()) as Array<{
             id: number;
             timestamp: string;
             session_id: string | null;

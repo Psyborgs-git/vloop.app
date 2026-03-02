@@ -26,6 +26,7 @@ const config: AppConfig = {
         container.register(ExternalDatabaseRegistry, {
             useFactory: (c) => new ExternalDatabaseRegistry(
                 c.resolve(TOKENS.Database),
+                c.resolve(TOKENS.DatabaseOrm),
                 c.resolve(VaultStore),
                 c.resolve(TOKENS.Logger)
             )

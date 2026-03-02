@@ -74,6 +74,24 @@ describe('DatabaseManager', () => {
         expect(() => mgr.getDb()).toThrow('Database is not open');
     });
 
+    it('should expose drizzle orm after open()', () => {
+        const mgr = new DatabaseManager({ path: dbPath, passphrase: 'pass' });
+        mgr.open();
+        const orm = mgr.getOrm();
+        expect(orm).toBeDefined();
+        mgr.close();
+    });
+
+    it('should reject non-sqlite root engine during staged migration', () => {
+        const mgr = new DatabaseManager({
+            engine: 'postgres',
+            path: dbPath,
+            passphrase: 'pass',
+        });
+
+        expect(() => mgr.open()).toThrow("Database engine 'postgres' is not available");
+    });
+
     it('should create parent directories if they do not exist', () => {
         const deepPath = join(tempDir, 'nested', 'dir', 'test.db');
         const mgr = new DatabaseManager({ path: deepPath, passphrase: 'pass' });

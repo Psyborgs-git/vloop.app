@@ -21,6 +21,7 @@
     "dependencies": {
         "@orch/shared": "workspace:*",
         "@orch/daemon": "workspace:*",
+        "drizzle-orm": "^0.44.7",
         "node-pty": "^1.0.0"
     },
     "devDependencies": {

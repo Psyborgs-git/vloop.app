@@ -12,6 +12,7 @@ const config: AppConfig = {
         const config = container.resolve<any>(TOKENS.Config);
         const vaultStore = new VaultStore(
             container.resolve(TOKENS.Database),
+            container.resolve(TOKENS.DatabaseOrm),
             container.resolve(VaultCrypto),
             config.vault.max_secret_versions
         );

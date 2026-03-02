@@ -1,8 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
+import type { RootDatabaseOrm } from '@orch/shared/db';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
 import type { PaginationOptions, PaginatedResult } from '@orch/shared';
+import { desc, eq, sql } from 'drizzle-orm';
+import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
+
+const usersTable = sqliteTable('users', {
+    id: text('id').primaryKey(),
+    email: text('email').notNull(),
+    password_hash: text('password_hash'),
+    allowed_roles: text('allowed_roles').notNull(),
+    created_at: text('created_at').notNull(),
+});
 
 export interface User {
     id: string;
@@ -21,9 +32,11 @@ interface UserRow {
 
 export class UserManager {
     private db: BetterSqlite3.Database;
+    private orm: RootDatabaseOrm;
 
-    constructor(db: BetterSqlite3.Database) {
+    constructor(db: BetterSqlite3.Database, orm: RootDatabaseOrm) {
         this.db = db;
+        this.orm = orm;
         this.initSchema();
     }
 
@@ -63,10 +76,13 @@ export class UserManager {
         }
 
         try {
-            this.db.prepare(`
-                INSERT INTO users (id, email, password_hash, allowed_roles, created_at)
-                VALUES (?, ?, ?, ?, ?)
-            `).run(id, email, passwordHash, JSON.stringify(allowedRoles), now);
+            this.orm.insert(usersTable).values({
+                id,
+                email,
+                password_hash: passwordHash,
+                allowed_roles: JSON.stringify(allowedRoles),
+                created_at: now,
+            }).run();
         } catch (err: any) {
             if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
                 throw new OrchestratorError(
@@ -89,7 +105,7 @@ export class UserManager {
      * Find a user by email.
      */
     findByEmail(email: string): UserRow | undefined {
-        return this.db.prepare('SELECT * FROM users WHERE email = ?').get(email) as UserRow | undefined;
+        return this.orm.select().from(usersTable).where(eq(usersTable.email, email)).get() as UserRow | undefined;
     }
 
     /**
@@ -118,10 +134,11 @@ export class UserManager {
      * Update a user's allowed roles.
      */
     updateRoles(email: string, allowedRoles: string[]): User {
-        const result = this.db.prepare('UPDATE users SET allowed_roles = ? WHERE email = ?').run(
-            JSON.stringify(allowedRoles),
-            email
-        );
+        const result = this.orm
+            .update(usersTable)
+            .set({ allowed_roles: JSON.stringify(allowedRoles) })
+            .where(eq(usersTable.email, email))
+            .run();
 
         if (result.changes === 0) {
             throw new OrchestratorError(ErrorCode.NOT_FOUND, `User with email ${email} not found.`);
@@ -141,10 +158,11 @@ export class UserManager {
      */
     async updatePassword(email: string, newPassword: string): Promise<void> {
         const passwordHash = await bcrypt.hash(newPassword, 10);
-        const result = this.db.prepare('UPDATE users SET password_hash = ? WHERE email = ?').run(
-            passwordHash,
-            email
-        );
+        const result = this.orm
+            .update(usersTable)
+            .set({ password_hash: passwordHash })
+            .where(eq(usersTable.email, email))
+            .run();
 
         if (result.changes === 0) {
             throw new OrchestratorError(ErrorCode.NOT_FOUND, `User with email ${email} not found.`);
@@ -155,7 +173,7 @@ export class UserManager {
      * Count total users.
      */
     count(): number {
-        const row = this.db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
+        const row = this.orm.select({ count: sql<number>`count(*)` }).from(usersTable).get() as { count: number };
         return row.count;
     }
 
@@ -166,10 +184,16 @@ export class UserManager {
         const limit = options.limit ?? 50;
         const offset = options.offset ?? 0;
 
-        const countRow = this.db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
+        const countRow = this.orm.select({ count: sql<number>`count(*)` }).from(usersTable).get() as { count: number };
         const total = countRow.count;
 
-        const rows = this.db.prepare('SELECT * FROM users ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?').all(limit, offset) as UserRow[];
+        const rows = this.orm
+            .select()
+            .from(usersTable)
+            .orderBy(desc(usersTable.created_at), desc(usersTable.id))
+            .limit(limit)
+            .offset(offset)
+            .all() as UserRow[];
         const items = rows.map(row => ({
             id: row.id,
             email: row.email,

@@ -3,6 +3,7 @@ import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import type { Logger } from '@orch/daemon';
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
+import type { RootDatabaseOrm } from '@orch/shared/db';
 import { PluginStore } from './store.js';
 import type { PluginRecord } from './store.js';
 import { PluginDownloader } from './downloader.js';
@@ -21,12 +22,13 @@ export class PluginManager {
 
     constructor(
         db: BetterSqlite3.Database,
+        orm: RootDatabaseOrm,
         private readonly dbProvisioner: DatabaseProvisioner,
         private readonly logger: Logger,
         dataDir: string = './data/plugins'
     ) {
         this.pluginsDir = resolvePath(dataDir);
-        this.store = new PluginStore(db);
+        this.store = new PluginStore(db, orm);
         this.downloader = new PluginDownloader(this.pluginsDir, logger);
     }
 

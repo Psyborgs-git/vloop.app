@@ -23,6 +23,7 @@ const config: AppConfig = {
                 const config = c.resolve<any>(TOKENS.Config);
                 return new AIConfigStore(
                     c.resolve(TOKENS.Database),
+                    c.resolve(TOKENS.DatabaseOrm),
                     c.resolve(TOKENS.Logger),
                     config.storage.canvas_path
                 );

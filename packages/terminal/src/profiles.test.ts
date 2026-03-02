@@ -1,6 +1,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Database from 'better-sqlite3-multiple-ciphers';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { TerminalProfileManager, CreateProfileInput, UpdateProfileInput } from './profiles.js';
 
 // Helper to create a logger stub
@@ -25,7 +26,7 @@ describe('TerminalProfileManager', () => {
     beforeEach(() => {
         db = new Database(':memory:');
         logger = createLoggerStub();
-        manager = new TerminalProfileManager(db, logger);
+        manager = new TerminalProfileManager(db, drizzle(db), logger);
     });
 
     it('creates a profile', () => {

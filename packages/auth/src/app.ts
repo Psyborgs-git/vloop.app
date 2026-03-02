@@ -14,10 +14,10 @@ const config: AppConfig = {
     register(container: DependencyContainer) {
         // Register Managers using factory to resolve primitive tokens
         container.register(UserManager, {
-            useFactory: (c) => new UserManager(c.resolve(TOKENS.Database))
+            useFactory: (c) => new UserManager(c.resolve(TOKENS.Database), c.resolve(TOKENS.DatabaseOrm))
         });
         container.register(JwtProviderManager, {
-            useFactory: (c) => new JwtProviderManager(c.resolve(TOKENS.Database))
+            useFactory: (c) => new JwtProviderManager(c.resolve(TOKENS.Database), c.resolve(TOKENS.DatabaseOrm))
         });
         container.register(JwtValidator, {
             useFactory: (c) => new JwtValidator(c.resolve(JwtProviderManager))
@@ -25,7 +25,7 @@ const config: AppConfig = {
         container.register(SessionManager, {
             useFactory: (c) => {
                 const config = c.resolve<any>(TOKENS.Config);
-                return new SessionManager(c.resolve(TOKENS.Database), {
+                return new SessionManager(c.resolve(TOKENS.Database), c.resolve(TOKENS.DatabaseOrm), {
                     idleTimeoutSecs: config.auth.session_idle_timeout_secs,
                     maxLifetimeSecs: config.auth.session_max_lifetime_secs,
                     maxSessionsPerIdentity: config.auth.max_sessions_per_identity,
@@ -35,7 +35,7 @@ const config: AppConfig = {
         // PolicyEngine is completely independent initially
         container.registerSingleton(PolicyEngine);
         container.register(AuditLogger, {
-            useFactory: (c) => new AuditLogger(c.resolve(TOKENS.Database))
+            useFactory: (c) => new AuditLogger(c.resolve(TOKENS.Database), c.resolve(TOKENS.DatabaseOrm))
         });
     },
     async init(container: DependencyContainer) {

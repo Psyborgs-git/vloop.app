@@ -1,7 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
+import type { RootDatabaseOrm } from '@orch/shared/db';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
 import type { PaginationOptions, PaginatedResult } from '@orch/shared';
+import { eq, sql, desc } from 'drizzle-orm';
+import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
+
+const jwtProvidersTable = sqliteTable('jwt_providers', {
+    id: text('id').primaryKey(),
+    issuer: text('issuer').notNull(),
+    jwks_url: text('jwks_url').notNull(),
+    audience: text('audience').notNull(),
+    created_at: text('created_at').notNull(),
+});
 
 export interface JwtProvider {
     id: string;
@@ -21,9 +32,11 @@ interface JwtProviderRow {
 
 export class JwtProviderManager {
     private db: BetterSqlite3.Database;
+    private orm: RootDatabaseOrm;
 
-    constructor(db: BetterSqlite3.Database) {
+    constructor(db: BetterSqlite3.Database, orm: RootDatabaseOrm) {
         this.db = db;
+        this.orm = orm;
         this.initSchema();
     }
 
@@ -49,10 +62,16 @@ export class JwtProviderManager {
         const now = new Date().toISOString();
 
         try {
-            this.db.prepare(`
-                INSERT INTO jwt_providers (id, issuer, jwks_url, audience, created_at)
-                VALUES (?, ?, ?, ?, ?)
-            `).run(id, issuer, jwksUrl, audience, now);
+            this.orm
+                .insert(jwtProvidersTable)
+                .values({
+                    id,
+                    issuer,
+                    jwks_url: jwksUrl,
+                    audience,
+                    created_at: now,
+                })
+                .run();
         } catch (err: any) {
             if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
                 throw new OrchestratorError(
@@ -76,14 +95,21 @@ export class JwtProviderManager {
      * Find a JWT provider by issuer.
      */
     findByIssuer(issuer: string): JwtProviderRow | undefined {
-        return this.db.prepare('SELECT * FROM jwt_providers WHERE issuer = ?').get(issuer) as JwtProviderRow | undefined;
+        return this.orm
+            .select()
+            .from(jwtProvidersTable)
+            .where(eq(jwtProvidersTable.issuer, issuer))
+            .get() as JwtProviderRow | undefined;
     }
 
     /**
      * Remove a JWT provider.
      */
     remove(issuer: string): void {
-        const result = this.db.prepare('DELETE FROM jwt_providers WHERE issuer = ?').run(issuer);
+        const result = this.orm
+            .delete(jwtProvidersTable)
+            .where(eq(jwtProvidersTable.issuer, issuer))
+            .run();
         if (result.changes === 0) {
             throw new OrchestratorError(ErrorCode.NOT_FOUND, `JWT Provider with issuer ${issuer} not found.`);
         }
@@ -96,10 +122,19 @@ export class JwtProviderManager {
         const limit = options.limit ?? 50;
         const offset = options.offset ?? 0;
 
-        const countRow = this.db.prepare('SELECT COUNT(*) as count FROM jwt_providers').get() as { count: number };
-        const total = countRow.count;
+        const countRow = this.orm
+            .select({ count: sql<number>`count(*)` })
+            .from(jwtProvidersTable)
+            .get() as { count: number } | undefined;
+        const total = countRow?.count ?? 0;
 
-        const rows = this.db.prepare('SELECT * FROM jwt_providers ORDER BY created_at DESC LIMIT ? OFFSET ?').all(limit, offset) as JwtProviderRow[];
+        const rows = this.orm
+            .select()
+            .from(jwtProvidersTable)
+            .orderBy(desc(jwtProvidersTable.created_at))
+            .limit(limit)
+            .offset(offset)
+            .all() as JwtProviderRow[];
         const items = rows.map(row => ({
             id: row.id,
             issuer: row.issuer,

@@ -22,7 +22,8 @@
     "dependencies": {
         "@orch/shared": "workspace:*",
         "@orch/daemon": "workspace:*",
-        "argon2": "^0.41.0"
+        "argon2": "^0.41.0",
+        "drizzle-orm": "^0.44.7"
     },
     "devDependencies": {
         "typescript": "^5.7.0",

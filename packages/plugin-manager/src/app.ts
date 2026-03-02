@@ -12,6 +12,7 @@ const config: AppConfig = {
         container.register(PluginManager, {
             useFactory: (c) => new PluginManager(
                 c.resolve(TOKENS.Database),
+                c.resolve(TOKENS.DatabaseOrm),
                 c.resolve(DatabaseProvisioner),
                 c.resolve(TOKENS.Logger)
             )

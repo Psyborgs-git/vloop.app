@@ -7,17 +7,20 @@ import { join } from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3-multiple-ciphers';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { SessionManager } from './session.js';
 
 describe('SessionManager', () => {
     let tempDir: string;
     let db: InstanceType<typeof Database>;
     let mgr: SessionManager;
+    let orm: ReturnType<typeof drizzle>;
 
     beforeEach(() => {
         tempDir = mkdtempSync(join(tmpdir(), 'orch-session-test-'));
         db = new Database(join(tempDir, 'test.db'));
-        mgr = new SessionManager(db, {
+        orm = drizzle(db);
+        mgr = new SessionManager(db, orm, {
             idleTimeoutSecs: 3600,
             maxLifetimeSecs: 86400,
             maxSessionsPerIdentity: 5,
@@ -85,7 +88,7 @@ describe('SessionManager', () => {
     });
 
     it('should enforce max sessions per identity', () => {
-        const limitedMgr = new SessionManager(db, {
+        const limitedMgr = new SessionManager(db, orm, {
             idleTimeoutSecs: 3600,
             maxLifetimeSecs: 86400,
             maxSessionsPerIdentity: 2,
@@ -101,7 +104,7 @@ describe('SessionManager', () => {
 
     it('should clean up expired sessions', () => {
         // Create with very short timeout
-        const shortMgr = new SessionManager(db, {
+        const shortMgr = new SessionManager(db, orm, {
             idleTimeoutSecs: -1, // Already expired
             maxLifetimeSecs: -1,
             maxSessionsPerIdentity: 100,

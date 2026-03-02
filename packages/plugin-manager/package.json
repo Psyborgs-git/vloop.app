@@ -25,6 +25,7 @@
         "@orch/shared": "workspace:*",
         "@orch/db-manager": "workspace:*",
         "@orch/vault": "workspace:*",
+        "drizzle-orm": "^0.44.7",
         "zod": "^3.24.2",
         "jszip": "^3.10.1",
         "better-sqlite3-multiple-ciphers": "^11.0.0"

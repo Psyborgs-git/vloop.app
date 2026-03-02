@@ -46,7 +46,10 @@ const AuthSection = z.object({
 });
 
 const DatabaseSection = z.object({
+    engine: z.enum(['sqlite', 'mysql', 'postgres']).default('sqlite'),
     path: z.string().default('./data/state.db'),
+    postgres_url: z.string().optional(),
+    mysql_url: z.string().optional(),
 });
 
 const VaultSection = z.object({

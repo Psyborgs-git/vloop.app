@@ -109,6 +109,7 @@ export class OrchestratorApp {
         const dbPassphrase = this.getOrGeneratePassphrase(dbKeyPath, "ORCH_DB_PASSPHRASE");
 
         this.dbManager = new DatabaseManager({
+            engine: this.config.database.engine,
             path: resolve(this.config.database.path),
             passphrase: dbPassphrase,
         });
@@ -118,6 +119,7 @@ export class OrchestratorApp {
 
         this.container.register(TOKENS.DatabaseManager, { useValue: this.dbManager });
         this.container.register(TOKENS.Database, { useValue: db });
+        this.container.register(TOKENS.DatabaseOrm, { useValue: this.dbManager.getOrm() });
 
         const vaultKeyPath = resolve("./data/keys/vault.key");
         const vaultPassphrase = this.getOrGeneratePassphrase(vaultKeyPath, "ORCH_VAULT_PASSPHRASE");

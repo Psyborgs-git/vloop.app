@@ -30,6 +30,7 @@ session_max_lifetime_secs = 86400
 max_sessions_per_identity = 10
 
 [database]
+engine = "sqlite"
 path = "./data/state.db"
 
 [vault]

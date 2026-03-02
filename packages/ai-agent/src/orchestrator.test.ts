@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Database from 'better-sqlite3-multiple-ciphers';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { AgentOrchestrator } from './orchestrator.js';
 import { ToolRegistry } from './tools.js';
 import { AgentSandbox } from './sandbox.js';
@@ -25,7 +26,8 @@ describe('AgentOrchestrator', () => {
         mockSandbox = new AgentSandbox(mockLogger);
 
         const db = new Database(':memory:');
-        store = new AIConfigStore(db as any, mockLogger);
+        const orm = drizzle(db as any);
+        store = new AIConfigStore(db as any, orm, mockLogger);
         store.migrate();
 
         orchestrator = new AgentOrchestrator(mockTools, mockSandbox, mockLogger, store);

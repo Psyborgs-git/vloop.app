@@ -6,10 +6,13 @@
  */
 
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
+import type { RootDatabaseOrm } from '@orch/shared/db';
 import type { Logger } from '@orch/daemon';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as diff from 'diff';
+import { asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { AI_CONFIG_MIGRATION } from './migrations.js';
 import {
     generateId,
@@ -35,11 +38,205 @@ const toJSON = (v: unknown): string => JSON.stringify(v ?? {});
 const fromJSON = <T>(v: string | null | undefined): T => (v ? JSON.parse(v) : {} as T);
 const now = () => new Date().toISOString();
 
+const aiProvidersTable = sqliteTable('ai_providers', {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    type: text('type').notNull(),
+    adapter: text('adapter'),
+    auth_type: text('auth_type'),
+    base_url: text('base_url'),
+    api_key_ref: text('api_key_ref'),
+    headers: text('headers'),
+    timeout_ms: integer('timeout_ms'),
+    metadata: text('metadata').notNull(),
+    created_at: text('created_at').notNull(),
+    updated_at: text('updated_at').notNull(),
+});
+
+const aiModelsTable = sqliteTable('ai_models', {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    provider_id: text('provider_id').notNull(),
+    model_id: text('model_id').notNull(),
+    runtime: text('runtime'),
+    supports_tools: integer('supports_tools'),
+    supports_streaming: integer('supports_streaming'),
+    params: text('params').notNull(),
+    created_at: text('created_at').notNull(),
+    updated_at: text('updated_at').notNull(),
+});
+
+const aiToolsTable = sqliteTable('ai_tools', {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    description: text('description').notNull(),
+    parameters_schema: text('parameters_schema').notNull(),
+    handler_type: text('handler_type').notNull(),
+    handler_config: text('handler_config').notNull(),
+    created_at: text('created_at').notNull(),
+    updated_at: text('updated_at').notNull(),
+});
+
+const aiMcpServersTable = sqliteTable('ai_mcp_servers', {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    protocol_version: text('protocol_version'),
+    capabilities: text('capabilities').notNull(),
+    transport: text('transport').notNull(),
+    handler_config: text('handler_config').notNull(),
+    created_at: text('created_at').notNull(),
+    updated_at: text('updated_at').notNull(),
+});
+
+const aiAgentsTable = sqliteTable('ai_agents', {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    description: text('description').notNull(),
+    model_id: text('model_id').notNull(),
+    system_prompt: text('system_prompt').notNull(),
+    tool_ids: text('tool_ids').notNull(),
+    params: text('params').notNull(),
+    created_at: text('created_at').notNull(),
+    updated_at: text('updated_at').notNull(),
+});
+
+const aiAgentToolsTable = sqliteTable('ai_agent_tools', {
+    agent_id: text('agent_id').notNull(),
+    tool_id: text('tool_id').notNull(),
+    sort_order: integer('sort_order').notNull(),
+});
+
+const aiAgentMcpServersTable = sqliteTable('ai_agent_mcp_servers', {
+    agent_id: text('agent_id').notNull(),
+    server_id: text('server_id').notNull(),
+    sort_order: integer('sort_order').notNull(),
+});
+
+const aiWorkflowsTable = sqliteTable('ai_workflows', {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    description: text('description').notNull(),
+    type: text('type').notNull(),
+    nodes: text('nodes').notNull(),
+    edges: text('edges').notNull(),
+    created_at: text('created_at').notNull(),
+    updated_at: text('updated_at').notNull(),
+});
+
+const aiMemoriesTable = sqliteTable('ai_memories', {
+    id: text('id').primaryKey(),
+    session_id: text('session_id'),
+    agent_id: text('agent_id'),
+    content: text('content').notNull(),
+    source_type: text('source_type'),
+    importance: integer('importance'),
+    topic: text('topic'),
+    entities: text('entities'),
+    metadata: text('metadata').notNull(),
+    created_at: text('created_at').notNull(),
+});
+
+const aiWorkflowExecutionsTable = sqliteTable('ai_workflow_executions', {
+    id: text('id').primaryKey(),
+    workflow_id: text('workflow_id').notNull(),
+    status: text('status').notNull(),
+    input: text('input').notNull(),
+    final_output: text('final_output'),
+    started_at: text('started_at').notNull(),
+    completed_at: text('completed_at'),
+});
+
+const aiWorkflowStepExecutionsTable = sqliteTable('ai_workflow_step_executions', {
+    id: text('id').primaryKey(),
+    execution_id: text('execution_id').notNull(),
+    node_id: text('node_id').notNull(),
+    status: text('status').notNull(),
+    output: text('output'),
+    error: text('error'),
+    started_at: text('started_at').notNull(),
+    completed_at: text('completed_at'),
+});
+
+const aiChatSessionsTable = sqliteTable('ai_chat_sessions', {
+    id: text('id').primaryKey(),
+    agent_id: text('agent_id'),
+    workflow_id: text('workflow_id'),
+    model_id: text('model_id'),
+    provider_id: text('provider_id'),
+    mode: text('mode'),
+    title: text('title').notNull(),
+    created_at: text('created_at').notNull(),
+    updated_at: text('updated_at').notNull(),
+});
+
+const aiChatSessionToolsTable = sqliteTable('ai_chat_session_tools', {
+    session_id: text('session_id').notNull(),
+    tool_id: text('tool_id').notNull(),
+    sort_order: integer('sort_order').notNull(),
+});
+
+const aiChatSessionMcpServersTable = sqliteTable('ai_chat_session_mcp_servers', {
+    session_id: text('session_id').notNull(),
+    server_id: text('server_id').notNull(),
+    sort_order: integer('sort_order').notNull(),
+});
+
+const aiChatMessagesTable = sqliteTable('ai_chat_messages', {
+    id: text('id').primaryKey(),
+    session_id: text('session_id').notNull(),
+    role: text('role').notNull(),
+    content: text('content').notNull(),
+    provider_type: text('provider_type'),
+    model_id: text('model_id'),
+    tool_calls: text('tool_calls').notNull(),
+    tool_results: text('tool_results').notNull(),
+    finish_reason: text('finish_reason'),
+    usage: text('usage'),
+    latency_ms: integer('latency_ms'),
+    metadata: text('metadata'),
+    created_at: text('created_at').notNull(),
+});
+
+const aiToolCallsTable = sqliteTable('ai_tool_calls', {
+    id: text('id').primaryKey(),
+    session_id: text('session_id').notNull(),
+    message_id: text('message_id').notNull(),
+    tool_name: text('tool_name').notNull(),
+    arguments: text('arguments').notNull(),
+    result: text('result'),
+    latency_ms: integer('latency_ms'),
+    created_at: text('created_at').notNull(),
+});
+
+const canvasesTable = sqliteTable('canvases', {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    description: text('description').notNull(),
+    content: text('content').notNull(),
+    metadata: text('metadata').notNull(),
+    owner: text('owner').notNull(),
+    created_at: text('created_at').notNull(),
+    updated_at: text('updated_at').notNull(),
+});
+
+const canvasCommitsTable = sqliteTable('canvas_commits', {
+    id: text('id').primaryKey(),
+    canvas_id: text('canvas_id').notNull(),
+    content: text('content').notNull(),
+    diff: text('diff').notNull(),
+    metadata: text('metadata').notNull(),
+    change_type: text('change_type').notNull(),
+    changed_by: text('changed_by').notNull(),
+    message: text('message').notNull(),
+    created_at: text('created_at').notNull(),
+});
+
 // ─── Store ───────────────────────────────────────────────────────────────────
 
 export class AIConfigStore {
     constructor(
         private readonly db: BetterSqlite3.Database,
+        private readonly orm: RootDatabaseOrm,
         private readonly logger: Logger,
         private readonly canvasesPath: string = './data/canvases',
     ) { }
@@ -53,7 +250,7 @@ export class AIConfigStore {
 
     private ensureOptionalColumns(): void {
         const hasColumn = (table: string, column: string): boolean => {
-            const info = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+            const info = this.db.pragma(`table_info(${table})`) as Array<{ name: string }>;
             return info.some(c => c.name === column);
         };
         const ensureColumn = (table: string, column: string, definition: string) => {
@@ -134,15 +331,31 @@ export class AIConfigStore {
      * Runs once per boot, skips agents that already have join table entries.
      */
     private migrateAgentToolsJson(): void {
-        const agents = this.db.prepare('SELECT id, tool_ids FROM ai_agents').all() as Array<{ id: string; tool_ids: string | null }>;
-        const insert = this.db.prepare('INSERT OR IGNORE INTO ai_agent_tools (agent_id, tool_id, sort_order) VALUES (?, ?, ?)');
-        const migrate = this.db.transaction((agentId: string, toolIds: string[]) => {
+        const agents = this.orm
+            .select({ id: aiAgentsTable.id, tool_ids: aiAgentsTable.tool_ids })
+            .from(aiAgentsTable)
+            .all() as Array<{ id: string; tool_ids: string | null }>;
+
+        const migrate = (agentId: string, toolIds: string[]) => {
             for (let i = 0; i < toolIds.length; i++) {
-                try { insert.run(agentId, toolIds[i], i); } catch { /* tool may not exist */ }
+                try {
+                    this.orm
+                        .insert(aiAgentToolsTable)
+                        .values({ agent_id: agentId, tool_id: toolIds[i], sort_order: i })
+                        .onConflictDoNothing()
+                        .run();
+                } catch {
+                    // Tool may have been deleted already; keep migration best-effort.
+                }
             }
-        });
+        };
+
         for (const agent of agents) {
-            const existing = (this.db.prepare('SELECT COUNT(*) as cnt FROM ai_agent_tools WHERE agent_id = ?').get(agent.id) as { cnt: number }).cnt;
+            const existing = this.orm
+                .select({ cnt: sql<number>`count(*)` })
+                .from(aiAgentToolsTable)
+                .where(eq(aiAgentToolsTable.agent_id, agent.id))
+                .get()?.cnt ?? 0;
             if (existing === 0 && agent.tool_ids) {
                 const ids: string[] = JSON.parse(agent.tool_ids) || [];
                 if (ids.length > 0) migrate(agent.id, ids);
@@ -155,58 +368,52 @@ export class AIConfigStore {
     createProvider(input: CreateProviderInput): ProviderConfig {
         const id = generateId() as ProviderId;
         const ts = now();
-        this.db.prepare(`
-            INSERT INTO ai_providers (id, name, type, adapter, auth_type, base_url, api_key_ref, headers, timeout_ms, metadata, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
+        this.orm.insert(aiProvidersTable).values({
             id,
-            input.name,
-            input.type,
-            input.adapter ?? null,
-            input.authType ?? null,
-            input.baseUrl ?? null,
-            input.apiKeyRef ?? null,
-            toJSON(input.headers),
-            input.timeoutMs ?? null,
-            toJSON(input.metadata),
-            ts,
-            ts,
-        );
+            name: input.name,
+            type: input.type,
+            adapter: input.adapter ?? null,
+            auth_type: input.authType ?? null,
+            base_url: input.baseUrl ?? null,
+            api_key_ref: input.apiKeyRef ?? null,
+            headers: toJSON(input.headers),
+            timeout_ms: input.timeoutMs ?? null,
+            metadata: toJSON(input.metadata),
+            created_at: ts,
+            updated_at: ts,
+        }).run();
         return this.getProvider(id)!;
     }
 
     getProvider(id: ProviderId): ProviderConfig | undefined {
-        const row = this.db.prepare('SELECT * FROM ai_providers WHERE id = ?').get(id) as any;
+        const row = this.orm.select().from(aiProvidersTable).where(eq(aiProvidersTable.id, id)).get() as any;
         return row ? this.mapProvider(row) : undefined;
     }
 
     listProviders(): ProviderConfig[] {
-        return (this.db.prepare('SELECT * FROM ai_providers ORDER BY created_at DESC').all() as any[]).map(r => this.mapProvider(r));
+        return (this.orm.select().from(aiProvidersTable).orderBy(desc(aiProvidersTable.created_at)).all() as any[]).map(r => this.mapProvider(r));
     }
 
     updateProvider(id: ProviderId, input: Partial<CreateProviderInput>): ProviderConfig {
         const existing = this.getProvider(id);
         if (!existing) throw new Error(`Provider not found: ${id}`);
-        this.db.prepare(`
-            UPDATE ai_providers SET name=?, type=?, adapter=?, auth_type=?, base_url=?, api_key_ref=?, headers=?, timeout_ms=?, metadata=?, updated_at=? WHERE id=?
-        `).run(
-            input.name ?? existing.name,
-            input.type ?? existing.type,
-            input.adapter ?? existing.adapter ?? null,
-            input.authType ?? existing.authType ?? null,
-            input.baseUrl ?? existing.baseUrl ?? null,
-            input.apiKeyRef ?? existing.apiKeyRef ?? null,
-            toJSON(input.headers ?? existing.headers),
-            input.timeoutMs ?? existing.timeoutMs ?? null,
-            toJSON(input.metadata ?? existing.metadata),
-            now(),
-            id,
-        );
+        this.orm.update(aiProvidersTable).set({
+            name: input.name ?? existing.name,
+            type: input.type ?? existing.type,
+            adapter: input.adapter ?? existing.adapter ?? null,
+            auth_type: input.authType ?? existing.authType ?? null,
+            base_url: input.baseUrl ?? existing.baseUrl ?? null,
+            api_key_ref: input.apiKeyRef ?? existing.apiKeyRef ?? null,
+            headers: toJSON(input.headers ?? existing.headers),
+            timeout_ms: input.timeoutMs ?? existing.timeoutMs ?? null,
+            metadata: toJSON(input.metadata ?? existing.metadata),
+            updated_at: now(),
+        }).where(eq(aiProvidersTable.id, id)).run();
         return this.getProvider(id)!;
     }
 
     deleteProvider(id: ProviderId): void {
-        this.db.prepare('DELETE FROM ai_providers WHERE id = ?').run(id);
+        this.orm.delete(aiProvidersTable).where(eq(aiProvidersTable.id, id)).run();
     }
 
     private mapProvider(row: any): ProviderConfig {
@@ -226,58 +433,52 @@ export class AIConfigStore {
     createModel(input: CreateModelInput): ModelConfig {
         const id = generateId() as ModelId;
         const ts = now();
-        this.db.prepare(`
-            INSERT INTO ai_models (id, name, provider_id, model_id, runtime, supports_tools, supports_streaming, params, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
+        this.orm.insert(aiModelsTable).values({
             id,
-            input.name,
-            input.providerId,
-            input.modelId,
-            input.runtime ?? null,
-            input.supportsTools == null ? null : (input.supportsTools ? 1 : 0),
-            input.supportsStreaming == null ? null : (input.supportsStreaming ? 1 : 0),
-            toJSON(input.params),
-            ts,
-            ts,
-        );
+            name: input.name,
+            provider_id: input.providerId,
+            model_id: input.modelId,
+            runtime: input.runtime ?? null,
+            supports_tools: input.supportsTools == null ? null : (input.supportsTools ? 1 : 0),
+            supports_streaming: input.supportsStreaming == null ? null : (input.supportsStreaming ? 1 : 0),
+            params: toJSON(input.params),
+            created_at: ts,
+            updated_at: ts,
+        }).run();
         return this.getModel(id)!;
     }
 
     getModel(id: ModelId): ModelConfig | undefined {
-        const row = this.db.prepare('SELECT * FROM ai_models WHERE id = ?').get(id) as any;
+        const row = this.orm.select().from(aiModelsTable).where(eq(aiModelsTable.id, id)).get() as any;
         return row ? this.mapModel(row) : undefined;
     }
 
     listModels(): ModelConfig[] {
-        return (this.db.prepare('SELECT * FROM ai_models ORDER BY created_at DESC').all() as any[]).map(r => this.mapModel(r));
+        return (this.orm.select().from(aiModelsTable).orderBy(desc(aiModelsTable.created_at)).all() as any[]).map(r => this.mapModel(r));
     }
 
     updateModel(id: ModelId, input: Partial<CreateModelInput>): ModelConfig {
         const existing = this.getModel(id);
         if (!existing) throw new Error(`Model not found: ${id}`);
-        this.db.prepare(`
-            UPDATE ai_models SET name=?, provider_id=?, model_id=?, runtime=?, supports_tools=?, supports_streaming=?, params=?, updated_at=? WHERE id=?
-        `).run(
-            input.name ?? existing.name,
-            input.providerId ?? existing.providerId,
-            input.modelId ?? existing.modelId,
-            input.runtime ?? existing.runtime ?? null,
-            input.supportsTools == null
+        this.orm.update(aiModelsTable).set({
+            name: input.name ?? existing.name,
+            provider_id: input.providerId ?? existing.providerId,
+            model_id: input.modelId ?? existing.modelId,
+            runtime: input.runtime ?? existing.runtime ?? null,
+            supports_tools: input.supportsTools == null
                 ? (existing.supportsTools == null ? null : (existing.supportsTools ? 1 : 0))
                 : (input.supportsTools ? 1 : 0),
-            input.supportsStreaming == null
+            supports_streaming: input.supportsStreaming == null
                 ? (existing.supportsStreaming == null ? null : (existing.supportsStreaming ? 1 : 0))
                 : (input.supportsStreaming ? 1 : 0),
-            toJSON(input.params ?? existing.params),
-            now(),
-            id,
-        );
+            params: toJSON(input.params ?? existing.params),
+            updated_at: now(),
+        }).where(eq(aiModelsTable.id, id)).run();
         return this.getModel(id)!;
     }
 
     deleteModel(id: ModelId): void {
-        this.db.prepare('DELETE FROM ai_models WHERE id = ?').run(id);
+        this.orm.delete(aiModelsTable).where(eq(aiModelsTable.id, id)).run();
     }
 
     private mapModel(row: any): ModelConfig {
@@ -297,38 +498,44 @@ export class AIConfigStore {
     createTool(input: CreateToolInput): ToolConfig {
         const id = generateId() as ToolConfigId;
         const ts = now();
-        this.db.prepare(`
-            INSERT INTO ai_tools (id, name, description, parameters_schema, handler_type, handler_config, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(id, input.name, input.description, toJSON(input.parametersSchema), input.handlerType, toJSON(input.handlerConfig), ts, ts);
+        this.orm.insert(aiToolsTable).values({
+            id,
+            name: input.name,
+            description: input.description,
+            parameters_schema: toJSON(input.parametersSchema),
+            handler_type: input.handlerType,
+            handler_config: toJSON(input.handlerConfig),
+            created_at: ts,
+            updated_at: ts,
+        }).run();
         return this.getTool(id)!;
     }
 
     getTool(id: ToolConfigId): ToolConfig | undefined {
-        const row = this.db.prepare('SELECT * FROM ai_tools WHERE id = ?').get(id) as any;
+        const row = this.orm.select().from(aiToolsTable).where(eq(aiToolsTable.id, id)).get() as any;
         return row ? this.mapTool(row) : undefined;
     }
 
     listTools(): ToolConfig[] {
-        return (this.db.prepare('SELECT * FROM ai_tools ORDER BY created_at DESC').all() as any[]).map(r => this.mapTool(r));
+        return (this.orm.select().from(aiToolsTable).orderBy(desc(aiToolsTable.created_at)).all() as any[]).map(r => this.mapTool(r));
     }
 
     updateTool(id: ToolConfigId, input: Partial<CreateToolInput>): ToolConfig {
         const existing = this.getTool(id);
         if (!existing) throw new Error(`Tool not found: ${id}`);
-        this.db.prepare(`
-            UPDATE ai_tools SET name=?, description=?, parameters_schema=?, handler_type=?, handler_config=?, updated_at=? WHERE id=?
-        `).run(
-            input.name ?? existing.name, input.description ?? existing.description,
-            toJSON(input.parametersSchema ?? existing.parametersSchema),
-            input.handlerType ?? existing.handlerType, toJSON(input.handlerConfig ?? existing.handlerConfig),
-            now(), id,
-        );
+        this.orm.update(aiToolsTable).set({
+            name: input.name ?? existing.name,
+            description: input.description ?? existing.description,
+            parameters_schema: toJSON(input.parametersSchema ?? existing.parametersSchema),
+            handler_type: input.handlerType ?? existing.handlerType,
+            handler_config: toJSON(input.handlerConfig ?? existing.handlerConfig),
+            updated_at: now(),
+        }).where(eq(aiToolsTable.id, id)).run();
         return this.getTool(id)!;
     }
 
     deleteTool(id: ToolConfigId): void {
-        this.db.prepare('DELETE FROM ai_tools WHERE id = ?').run(id);
+        this.orm.delete(aiToolsTable).where(eq(aiToolsTable.id, id)).run();
     }
 
     private mapTool(row: any): ToolConfig {
@@ -345,43 +552,44 @@ export class AIConfigStore {
     createMcpServer(input: CreateMcpServerInput): McpServerConfig {
         const id = generateId() as McpServerId;
         const ts = now();
-        this.db.prepare(`
-            INSERT INTO ai_mcp_servers (id, name, protocol_version, capabilities, transport, handler_config, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-            id, input.name, input.protocolVersion ?? null, toJSON(input.capabilities ?? []),
-            input.transport, toJSON(input.handlerConfig), ts, ts
-        );
+        this.orm.insert(aiMcpServersTable).values({
+            id,
+            name: input.name,
+            protocol_version: input.protocolVersion ?? null,
+            capabilities: toJSON(input.capabilities ?? []),
+            transport: input.transport,
+            handler_config: toJSON(input.handlerConfig),
+            created_at: ts,
+            updated_at: ts,
+        }).run();
         return this.getMcpServer(id)!;
     }
 
     getMcpServer(id: McpServerId): McpServerConfig | undefined {
-        const row = this.db.prepare('SELECT * FROM ai_mcp_servers WHERE id = ?').get(id) as any;
+        const row = this.orm.select().from(aiMcpServersTable).where(eq(aiMcpServersTable.id, id)).get() as any;
         return row ? this.mapMcpServer(row) : undefined;
     }
 
     listMcpServers(): McpServerConfig[] {
-        return (this.db.prepare('SELECT * FROM ai_mcp_servers ORDER BY created_at DESC').all() as any[]).map(r => this.mapMcpServer(r));
+        return (this.orm.select().from(aiMcpServersTable).orderBy(desc(aiMcpServersTable.created_at)).all() as any[]).map(r => this.mapMcpServer(r));
     }
 
     updateMcpServer(id: McpServerId, input: Partial<CreateMcpServerInput>): McpServerConfig {
         const existing = this.getMcpServer(id);
         if (!existing) throw new Error(`MCP Server not found: ${id}`);
-        this.db.prepare(`
-            UPDATE ai_mcp_servers SET name=?, protocol_version=?, capabilities=?, transport=?, handler_config=?, updated_at=? WHERE id=?
-        `).run(
-            input.name ?? existing.name,
-            input.protocolVersion ?? existing.protocolVersion ?? null,
-            toJSON(input.capabilities ?? existing.capabilities),
-            input.transport ?? existing.transport,
-            toJSON(input.handlerConfig ?? existing.handlerConfig),
-            now(), id
-        );
+        this.orm.update(aiMcpServersTable).set({
+            name: input.name ?? existing.name,
+            protocol_version: input.protocolVersion ?? existing.protocolVersion ?? null,
+            capabilities: toJSON(input.capabilities ?? existing.capabilities),
+            transport: input.transport ?? existing.transport,
+            handler_config: toJSON(input.handlerConfig ?? existing.handlerConfig),
+            updated_at: now(),
+        }).where(eq(aiMcpServersTable.id, id)).run();
         return this.getMcpServer(id)!;
     }
 
     deleteMcpServer(id: McpServerId): void {
-        this.db.prepare('DELETE FROM ai_mcp_servers WHERE id = ?').run(id);
+        this.orm.delete(aiMcpServersTable).where(eq(aiMcpServersTable.id, id)).run();
     }
 
     private mapMcpServer(row: any): McpServerConfig {
@@ -400,10 +608,17 @@ export class AIConfigStore {
     createAgent(input: CreateAgentInput): AgentConfig {
         const id = generateId() as AgentConfigId;
         const ts = now();
-        this.db.prepare(`
-            INSERT INTO ai_agents (id, name, description, model_id, system_prompt, tool_ids, params, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(id, input.name, input.description ?? '', input.modelId, input.systemPrompt ?? '', toJSON(input.toolIds ?? []), toJSON(input.params), ts, ts);
+        this.orm.insert(aiAgentsTable).values({
+            id,
+            name: input.name,
+            description: input.description ?? '',
+            model_id: input.modelId,
+            system_prompt: input.systemPrompt ?? '',
+            tool_ids: toJSON(input.toolIds ?? []),
+            params: toJSON(input.params),
+            created_at: ts,
+            updated_at: ts,
+        }).run();
         if (input.toolIds && input.toolIds.length > 0) {
             this.setAgentTools(id, input.toolIds);
         }
@@ -414,25 +629,27 @@ export class AIConfigStore {
     }
 
     getAgent(id: AgentConfigId): AgentConfig | undefined {
-        const row = this.db.prepare('SELECT * FROM ai_agents WHERE id = ?').get(id) as any;
+        const row = this.orm.select().from(aiAgentsTable).where(eq(aiAgentsTable.id, id)).get() as any;
         return row ? this.mapAgent(row) : undefined;
     }
 
     listAgents(): AgentConfig[] {
-        return (this.db.prepare('SELECT * FROM ai_agents ORDER BY created_at DESC').all() as any[]).map(r => this.mapAgent(r));
+        return (this.orm.select().from(aiAgentsTable).orderBy(desc(aiAgentsTable.created_at)).all() as any[]).map(r => this.mapAgent(r));
     }
 
     updateAgent(id: AgentConfigId, input: Partial<CreateAgentInput>): AgentConfig {
         const existing = this.getAgent(id);
         if (!existing) throw new Error(`Agent not found: ${id}`);
         const mergedToolIds = input.toolIds ?? existing.toolIds;
-        this.db.prepare(`
-            UPDATE ai_agents SET name=?, description=?, model_id=?, system_prompt=?, tool_ids=?, params=?, updated_at=? WHERE id=?
-        `).run(
-            input.name ?? existing.name, input.description ?? existing.description,
-            input.modelId ?? existing.modelId, input.systemPrompt ?? existing.systemPrompt,
-            toJSON(mergedToolIds), toJSON(input.params ?? existing.params), now(), id,
-        );
+        this.orm.update(aiAgentsTable).set({
+            name: input.name ?? existing.name,
+            description: input.description ?? existing.description,
+            model_id: input.modelId ?? existing.modelId,
+            system_prompt: input.systemPrompt ?? existing.systemPrompt,
+            tool_ids: toJSON(mergedToolIds),
+            params: toJSON(input.params ?? existing.params),
+            updated_at: now(),
+        }).where(eq(aiAgentsTable.id, id)).run();
         if (input.toolIds !== undefined) {
             this.setAgentTools(id, input.toolIds);
         }
@@ -443,57 +660,91 @@ export class AIConfigStore {
     }
 
     deleteAgent(id: AgentConfigId): void {
-        this.db.prepare('DELETE FROM ai_agents WHERE id = ?').run(id);
+        this.orm.delete(aiAgentsTable).where(eq(aiAgentsTable.id, id)).run();
     }
 
     // ── Agent ↔ Tool m2m ───────────────────────────────────────────────────
 
     /** Replace the full tool set for an agent (transactional). */
     setAgentTools(agentId: AgentConfigId, toolIds: ToolConfigId[]): void {
-        this.db.transaction(() => {
-            this.db.prepare('DELETE FROM ai_agent_tools WHERE agent_id = ?').run(agentId);
-            const insert = this.db.prepare('INSERT OR IGNORE INTO ai_agent_tools (agent_id, tool_id, sort_order) VALUES (?, ?, ?)');
-            for (let i = 0; i < toolIds.length; i++) {
-                insert.run(agentId, toolIds[i], i);
-            }
-        })();
+        this.orm.delete(aiAgentToolsTable).where(eq(aiAgentToolsTable.agent_id, agentId)).run();
+        for (let i = 0; i < toolIds.length; i++) {
+            this.orm
+                .insert(aiAgentToolsTable)
+                .values({ agent_id: agentId, tool_id: toolIds[i], sort_order: i })
+                .onConflictDoNothing()
+                .run();
+        }
     }
 
     /** Get the full ToolConfig list for an agent. */
     getAgentTools(agentId: AgentConfigId): ToolConfig[] {
-        const rows = this.db.prepare(
-            'SELECT t.* FROM ai_tools t JOIN ai_agent_tools at ON t.id = at.tool_id WHERE at.agent_id = ? ORDER BY at.sort_order'
-        ).all(agentId) as any[];
+        const toolIds = this.orm
+            .select({ tool_id: aiAgentToolsTable.tool_id })
+            .from(aiAgentToolsTable)
+            .where(eq(aiAgentToolsTable.agent_id, agentId))
+            .orderBy(aiAgentToolsTable.sort_order)
+            .all() as Array<{ tool_id: string }>;
+        if (toolIds.length === 0) {
+            return [];
+        }
+        const rows = this.orm
+            .select()
+            .from(aiToolsTable)
+            .where(inArray(aiToolsTable.id, toolIds.map((t) => t.tool_id)))
+            .all() as any[];
         return rows.map(r => this.mapTool(r));
     }
 
     // ── Agent ↔ MCP Server m2m ─────────────────────────────────────────────
 
     setAgentMcpServers(agentId: AgentConfigId, serverIds: McpServerId[]): void {
-        this.db.transaction(() => {
-            this.db.prepare('DELETE FROM ai_agent_mcp_servers WHERE agent_id = ?').run(agentId);
-            const insert = this.db.prepare('INSERT OR IGNORE INTO ai_agent_mcp_servers (agent_id, server_id, sort_order) VALUES (?, ?, ?)');
-            for (let i = 0; i < serverIds.length; i++) {
-                insert.run(agentId, serverIds[i], i);
-            }
-        })();
+        this.orm.delete(aiAgentMcpServersTable).where(eq(aiAgentMcpServersTable.agent_id, agentId)).run();
+        for (let i = 0; i < serverIds.length; i++) {
+            this.orm
+                .insert(aiAgentMcpServersTable)
+                .values({ agent_id: agentId, server_id: serverIds[i], sort_order: i })
+                .onConflictDoNothing()
+                .run();
+        }
     }
 
     getAgentMcpServers(agentId: AgentConfigId): McpServerConfig[] {
-        const rows = this.db.prepare(
-            'SELECT s.* FROM ai_mcp_servers s JOIN ai_agent_mcp_servers am ON s.id = am.server_id WHERE am.agent_id = ? ORDER BY am.sort_order'
-        ).all(agentId) as any[];
+        const serverIds = this.orm
+            .select({ server_id: aiAgentMcpServersTable.server_id })
+            .from(aiAgentMcpServersTable)
+            .where(eq(aiAgentMcpServersTable.agent_id, agentId))
+            .orderBy(aiAgentMcpServersTable.sort_order)
+            .all() as Array<{ server_id: string }>;
+        if (serverIds.length === 0) {
+            return [];
+        }
+        const rows = this.orm
+            .select()
+            .from(aiMcpServersTable)
+            .where(inArray(aiMcpServersTable.id, serverIds.map((s) => s.server_id)))
+            .all() as any[];
         return rows.map(r => this.mapMcpServer(r));
     }
 
     private mapAgent(row: any): AgentConfig {
         // Read tool IDs from the join table; fall back to legacy JSON column on first access
-        const joinRows = this.db.prepare('SELECT tool_id FROM ai_agent_tools WHERE agent_id = ? ORDER BY sort_order').all(row.id) as Array<{ tool_id: string }>;
+        const joinRows = this.orm
+            .select({ tool_id: aiAgentToolsTable.tool_id })
+            .from(aiAgentToolsTable)
+            .where(eq(aiAgentToolsTable.agent_id, row.id))
+            .orderBy(aiAgentToolsTable.sort_order)
+            .all() as Array<{ tool_id: string }>;
         const toolIds: ToolConfigId[] = joinRows.length > 0
             ? joinRows.map(r => r.tool_id as ToolConfigId)
             : (fromJSON<string[]>(row.tool_ids) as unknown as ToolConfigId[]);
             
-        const mcpRows = this.db.prepare('SELECT server_id FROM ai_agent_mcp_servers WHERE agent_id = ? ORDER BY sort_order').all(row.id) as Array<{ server_id: string }>;
+        const mcpRows = this.orm
+            .select({ server_id: aiAgentMcpServersTable.server_id })
+            .from(aiAgentMcpServersTable)
+            .where(eq(aiAgentMcpServersTable.agent_id, row.id))
+            .orderBy(aiAgentMcpServersTable.sort_order)
+            .all() as Array<{ server_id: string }>;
         const mcpServerIds: McpServerId[] = mcpRows.map(r => r.server_id as McpServerId);
 
         return {
@@ -510,36 +761,44 @@ export class AIConfigStore {
     createWorkflow(input: CreateWorkflowInput): WorkflowConfig {
         const id = generateId() as WorkflowId;
         const ts = now();
-        this.db.prepare(`
-            INSERT INTO ai_workflows (id, name, description, type, nodes, edges, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(id, input.name, input.description ?? '', input.type, toJSON(input.nodes), toJSON(input.edges), ts, ts);
+        this.orm.insert(aiWorkflowsTable).values({
+            id,
+            name: input.name,
+            description: input.description ?? '',
+            type: input.type,
+            nodes: toJSON(input.nodes),
+            edges: toJSON(input.edges),
+            created_at: ts,
+            updated_at: ts,
+        }).run();
         return this.getWorkflow(id)!;
     }
 
     getWorkflow(id: WorkflowId): WorkflowConfig | undefined {
-        const row = this.db.prepare('SELECT * FROM ai_workflows WHERE id = ?').get(id) as any;
+        const row = this.orm.select().from(aiWorkflowsTable).where(eq(aiWorkflowsTable.id, id)).get() as any;
         return row ? this.mapWorkflow(row) : undefined;
     }
 
     listWorkflows(): WorkflowConfig[] {
-        return (this.db.prepare('SELECT * FROM ai_workflows ORDER BY created_at DESC').all() as any[]).map(r => this.mapWorkflow(r));
+        return (this.orm.select().from(aiWorkflowsTable).orderBy(desc(aiWorkflowsTable.created_at)).all() as any[]).map(r => this.mapWorkflow(r));
     }
 
     updateWorkflow(id: WorkflowId, input: Partial<CreateWorkflowInput>): WorkflowConfig {
         const existing = this.getWorkflow(id);
         if (!existing) throw new Error(`Workflow not found: ${id}`);
-        this.db.prepare(`
-            UPDATE ai_workflows SET name=?, description=?, type=?, nodes=?, edges=?, updated_at=? WHERE id=?
-        `).run(
-            input.name ?? existing.name, input.description ?? existing.description,
-            input.type ?? existing.type, toJSON(input.nodes ?? existing.nodes), toJSON(input.edges ?? existing.edges), now(), id,
-        );
+        this.orm.update(aiWorkflowsTable).set({
+            name: input.name ?? existing.name,
+            description: input.description ?? existing.description,
+            type: input.type ?? existing.type,
+            nodes: toJSON(input.nodes ?? existing.nodes),
+            edges: toJSON(input.edges ?? existing.edges),
+            updated_at: now(),
+        }).where(eq(aiWorkflowsTable.id, id)).run();
         return this.getWorkflow(id)!;
     }
 
     deleteWorkflow(id: WorkflowId): void {
-        this.db.prepare('DELETE FROM ai_workflows WHERE id = ?').run(id);
+        this.orm.delete(aiWorkflowsTable).where(eq(aiWorkflowsTable.id, id)).run();
     }
 
     private mapWorkflow(row: any): WorkflowConfig {
@@ -555,56 +814,65 @@ export class AIConfigStore {
     createWorkflowExecution(input: { workflowId: WorkflowId; input: string }): string {
         const id = generateId();
         const ts = now();
-        this.db.prepare(`
-            INSERT INTO ai_workflow_executions (id, workflow_id, status, input, started_at)
-            VALUES (?, ?, 'running', ?, ?)
-        `).run(id, input.workflowId, input.input, ts);
+        this.orm.insert(aiWorkflowExecutionsTable).values({
+            id,
+            workflow_id: input.workflowId,
+            status: 'running',
+            input: input.input,
+            started_at: ts,
+            final_output: null,
+            completed_at: null,
+        }).run();
         return id;
     }
 
     updateWorkflowExecution(id: string, input: { status: 'completed' | 'failed'; finalOutput?: string }): void {
         const ts = now();
-        this.db.prepare(`
-            UPDATE ai_workflow_executions SET status = ?, final_output = ?, completed_at = ? WHERE id = ?
-        `).run(input.status, input.finalOutput ?? null, ts, id);
+        this.orm.update(aiWorkflowExecutionsTable)
+            .set({ status: input.status, final_output: input.finalOutput ?? null, completed_at: ts })
+            .where(eq(aiWorkflowExecutionsTable.id, id))
+            .run();
     }
 
     createWorkflowStepExecution(input: { executionId: string; nodeId: string }): string {
         const id = generateId();
         const ts = now();
-        this.db.prepare(`
-            INSERT INTO ai_workflow_step_executions (id, execution_id, node_id, status, started_at)
-            VALUES (?, ?, ?, 'running', ?)
-        `).run(id, input.executionId, input.nodeId, ts);
+        this.orm.insert(aiWorkflowStepExecutionsTable).values({
+            id,
+            execution_id: input.executionId,
+            node_id: input.nodeId,
+            status: 'running',
+            started_at: ts,
+            output: null,
+            error: null,
+            completed_at: null,
+        }).run();
         return id;
     }
 
     updateWorkflowStepExecution(id: string, input: { status: 'completed' | 'failed'; output?: string; error?: string }): void {
         const ts = now();
-        this.db.prepare(`
-            UPDATE ai_workflow_step_executions SET status = ?, output = ?, error = ?, completed_at = ? WHERE id = ?
-        `).run(input.status, input.output ?? null, input.error ?? null, ts, id);
+        this.orm.update(aiWorkflowStepExecutionsTable)
+            .set({ status: input.status, output: input.output ?? null, error: input.error ?? null, completed_at: ts })
+            .where(eq(aiWorkflowStepExecutionsTable.id, id))
+            .run();
     }
 
     listWorkflowExecutions(workflowId?: string): import('./types.js').WorkflowExecution[] {
-        const rows = workflowId
-            ? (this.db.prepare(`
-                SELECT e.*, w.name AS workflow_name
-                FROM ai_workflow_executions e
-                LEFT JOIN ai_workflows w ON e.workflow_id = w.id
-                WHERE e.workflow_id = ?
-                ORDER BY e.started_at DESC LIMIT 200
-              `).all(workflowId) as any[])
-            : (this.db.prepare(`
-                SELECT e.*, w.name AS workflow_name
-                FROM ai_workflow_executions e
-                LEFT JOIN ai_workflows w ON e.workflow_id = w.id
-                ORDER BY e.started_at DESC LIMIT 200
-              `).all() as any[]);
+        const wfRows = this.orm.select({ id: aiWorkflowsTable.id, name: aiWorkflowsTable.name }).from(aiWorkflowsTable).all() as Array<{ id: string; name: string }>;
+        const wfMap = new Map<string, string>(wfRows.map((w) => [w.id, w.name]));
+        const base = this.orm
+            .select()
+            .from(aiWorkflowExecutionsTable)
+            .orderBy(desc(aiWorkflowExecutionsTable.started_at))
+            .limit(200);
+        const rows = (workflowId
+            ? base.where(eq(aiWorkflowExecutionsTable.workflow_id, workflowId)).all()
+            : base.all()) as any[];
         return rows.map(r => ({
             id: r.id,
             workflowId: r.workflow_id,
-            workflowName: r.workflow_name ?? undefined,
+            workflowName: wfMap.get(r.workflow_id),
             status: r.status,
             input: r.input,
             finalOutput: r.final_output,
@@ -614,20 +882,19 @@ export class AIConfigStore {
     }
 
     getWorkflowExecution(id: string): import('./types.js').WorkflowExecution | undefined {
-        const r = this.db.prepare(`
-            SELECT e.*, w.name AS workflow_name
-            FROM ai_workflow_executions e
-            LEFT JOIN ai_workflows w ON e.workflow_id = w.id
-            WHERE e.id = ?
-        `).get(id) as any;
+        const r = this.orm.select().from(aiWorkflowExecutionsTable).where(eq(aiWorkflowExecutionsTable.id, id)).get() as any;
         if (!r) return undefined;
-        return { id: r.id, workflowId: r.workflow_id, workflowName: r.workflow_name ?? undefined, status: r.status, input: r.input, finalOutput: r.final_output, startedAt: r.started_at, completedAt: r.completed_at };
+        const wf = this.orm.select({ name: aiWorkflowsTable.name }).from(aiWorkflowsTable).where(eq(aiWorkflowsTable.id, r.workflow_id)).get() as { name: string } | undefined;
+        return { id: r.id, workflowId: r.workflow_id, workflowName: wf?.name, status: r.status, input: r.input, finalOutput: r.final_output, startedAt: r.started_at, completedAt: r.completed_at };
     }
 
     listWorkflowStepExecutions(executionId: string): import('./types.js').WorkflowStepExecution[] {
-        const rows = this.db.prepare(`
-            SELECT * FROM ai_workflow_step_executions WHERE execution_id = ? ORDER BY started_at ASC
-        `).all(executionId) as any[];
+        const rows = this.orm
+            .select()
+            .from(aiWorkflowStepExecutionsTable)
+            .where(eq(aiWorkflowStepExecutionsTable.execution_id, executionId))
+            .orderBy(asc(aiWorkflowStepExecutionsTable.started_at))
+            .all() as any[];
         return rows.map(r => ({
             id: r.id,
             executionId: r.execution_id,
@@ -645,28 +912,27 @@ export class AIConfigStore {
     createChatSession(input: CreateChatSessionInput): ChatSession {
         const id = generateId() as ChatSessionId;
         const ts = now();
-        this.db.prepare(`
-            INSERT INTO ai_chat_sessions (id, agent_id, workflow_id, model_id, provider_id, mode, title, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
+        this.orm.insert(aiChatSessionsTable).values({
             id,
-            input.agentId ?? null,
-            input.workflowId ?? null,
-            input.modelId ?? null,
-            input.providerId ?? null,
-            input.mode ?? null,
-            input.title ?? 'New Chat',
-            ts,
-            ts,
-        );
+            agent_id: input.agentId ?? null,
+            workflow_id: input.workflowId ?? null,
+            model_id: input.modelId ?? null,
+            provider_id: input.providerId ?? null,
+            mode: input.mode ?? null,
+            title: input.title ?? 'New Chat',
+            created_at: ts,
+            updated_at: ts,
+        }).run();
         // If explicit toolIds OR agentId provided, resolve the initial tool set
         if (input.toolIds && input.toolIds.length > 0) {
             this.setSessionTools(id, input.toolIds);
         } else if (input.agentId) {
-            // Inherit the agent's tool set
-            const agentToolIds = this.db
-                .prepare('SELECT tool_id FROM ai_agent_tools WHERE agent_id = ? ORDER BY sort_order')
-                .all(input.agentId) as Array<{ tool_id: string }>;
+            const agentToolIds = this.orm
+                .select({ tool_id: aiAgentToolsTable.tool_id })
+                .from(aiAgentToolsTable)
+                .where(eq(aiAgentToolsTable.agent_id, input.agentId))
+                .orderBy(aiAgentToolsTable.sort_order)
+                .all() as Array<{ tool_id: string }>;
             if (agentToolIds.length > 0) {
                 this.setSessionTools(id, agentToolIds.map(r => r.tool_id as ToolConfigId));
             }
@@ -675,9 +941,12 @@ export class AIConfigStore {
         if (input.mcpServerIds && input.mcpServerIds.length > 0) {
             this.setSessionMcpServers(id, input.mcpServerIds);
         } else if (input.agentId) {
-            const agentMcpServerIds = this.db
-                .prepare('SELECT server_id FROM ai_agent_mcp_servers WHERE agent_id = ? ORDER BY sort_order')
-                .all(input.agentId) as Array<{ server_id: string }>;
+            const agentMcpServerIds = this.orm
+                .select({ server_id: aiAgentMcpServersTable.server_id })
+                .from(aiAgentMcpServersTable)
+                .where(eq(aiAgentMcpServersTable.agent_id, input.agentId))
+                .orderBy(aiAgentMcpServersTable.sort_order)
+                .all() as Array<{ server_id: string }>;
             if (agentMcpServerIds.length > 0) {
                 this.setSessionMcpServers(id, agentMcpServerIds.map(r => r.server_id as McpServerId));
             }
@@ -687,28 +956,26 @@ export class AIConfigStore {
     }
 
     getChatSession(id: ChatSessionId): ChatSession | undefined {
-        const row = this.db.prepare('SELECT * FROM ai_chat_sessions WHERE id = ?').get(id) as any;
+        const row = this.orm.select().from(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, id)).get() as any;
         return row ? this.mapChatSession(row) : undefined;
     }
 
     listChatSessions(): ChatSession[] {
-        return (this.db.prepare('SELECT * FROM ai_chat_sessions ORDER BY updated_at DESC').all() as any[]).map(r => this.mapChatSession(r));
+        return (this.orm.select().from(aiChatSessionsTable).orderBy(desc(aiChatSessionsTable.updated_at)).all() as any[]).map(r => this.mapChatSession(r));
     }
 
     updateChatSession(id: ChatSessionId, input: Partial<CreateChatSessionInput>): ChatSession {
         const existing = this.getChatSession(id);
         if (!existing) throw new Error(`Chat session not found: ${id}`);
-        this.db.prepare(`
-            UPDATE ai_chat_sessions SET title=?, agent_id=?, workflow_id=?, model_id=?, provider_id=?, mode=?, updated_at=? WHERE id=?
-        `).run(
-            input.title ?? existing.title,
-            input.agentId ?? existing.agentId ?? null,
-            input.workflowId ?? existing.workflowId ?? null,
-            input.modelId ?? existing.modelId ?? null,
-            input.providerId ?? existing.providerId ?? null,
-            input.mode ?? existing.mode ?? null,
-            now(), id,
-        );
+        this.orm.update(aiChatSessionsTable).set({
+            title: input.title ?? existing.title,
+            agent_id: input.agentId ?? existing.agentId ?? null,
+            workflow_id: input.workflowId ?? existing.workflowId ?? null,
+            model_id: input.modelId ?? existing.modelId ?? null,
+            provider_id: input.providerId ?? existing.providerId ?? null,
+            mode: input.mode ?? existing.mode ?? null,
+            updated_at: now(),
+        }).where(eq(aiChatSessionsTable.id, id)).run();
         if (input.toolIds !== undefined) {
             this.setSessionTools(id, input.toolIds);
         }
@@ -719,56 +986,86 @@ export class AIConfigStore {
     }
 
     deleteChatSession(id: ChatSessionId): void {
-        this.db.prepare('DELETE FROM ai_chat_sessions WHERE id = ?').run(id);
+        this.orm.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, id)).run();
     }
 
     // ── Session ↔ Tool m2m ──────────────────────────────────────────────────
 
     /** Replace the full tool set for a session (transactional). */
     setSessionTools(sessionId: ChatSessionId, toolIds: ToolConfigId[]): void {
-        this.db.transaction(() => {
-            this.db.prepare('DELETE FROM ai_chat_session_tools WHERE session_id = ?').run(sessionId);
-            const insert = this.db.prepare('INSERT OR IGNORE INTO ai_chat_session_tools (session_id, tool_id, sort_order) VALUES (?, ?, ?)');
-            for (let i = 0; i < toolIds.length; i++) {
-                insert.run(sessionId, toolIds[i], i);
-            }
-        })();
+        this.orm.delete(aiChatSessionToolsTable).where(eq(aiChatSessionToolsTable.session_id, sessionId)).run();
+        for (let i = 0; i < toolIds.length; i++) {
+            this.orm
+                .insert(aiChatSessionToolsTable)
+                .values({ session_id: sessionId, tool_id: toolIds[i], sort_order: i })
+                .onConflictDoNothing()
+                .run();
+        }
     }
 
     /** Get the full ToolConfig list for a session. */
     getSessionTools(sessionId: ChatSessionId): ToolConfig[] {
-        const rows = this.db.prepare(
-            'SELECT t.* FROM ai_tools t JOIN ai_chat_session_tools st ON t.id = st.tool_id WHERE st.session_id = ? ORDER BY st.sort_order'
-        ).all(sessionId) as any[];
+        const toolIds = this.orm
+            .select({ tool_id: aiChatSessionToolsTable.tool_id })
+            .from(aiChatSessionToolsTable)
+            .where(eq(aiChatSessionToolsTable.session_id, sessionId))
+            .orderBy(aiChatSessionToolsTable.sort_order)
+            .all() as Array<{ tool_id: string }>;
+        if (toolIds.length === 0) {
+            return [];
+        }
+        const rows = this.orm
+            .select()
+            .from(aiToolsTable)
+            .where(inArray(aiToolsTable.id, toolIds.map((t) => t.tool_id)))
+            .all() as any[];
         return rows.map(r => this.mapTool(r));
     }
 
     // ── Session ↔ MCP Server m2m ────────────────────────────────────────────
 
     setSessionMcpServers(sessionId: ChatSessionId, serverIds: McpServerId[]): void {
-        this.db.transaction(() => {
-            this.db.prepare('DELETE FROM ai_chat_session_mcp_servers WHERE session_id = ?').run(sessionId);
-            const insert = this.db.prepare('INSERT OR IGNORE INTO ai_chat_session_mcp_servers (session_id, server_id, sort_order) VALUES (?, ?, ?)');
-            for (let i = 0; i < serverIds.length; i++) {
-                insert.run(sessionId, serverIds[i], i);
-            }
-        })();
+        this.orm.delete(aiChatSessionMcpServersTable).where(eq(aiChatSessionMcpServersTable.session_id, sessionId)).run();
+        for (let i = 0; i < serverIds.length; i++) {
+            this.orm
+                .insert(aiChatSessionMcpServersTable)
+                .values({ session_id: sessionId, server_id: serverIds[i], sort_order: i })
+                .onConflictDoNothing()
+                .run();
+        }
     }
 
     getSessionMcpServers(sessionId: ChatSessionId): McpServerConfig[] {
-        const rows = this.db.prepare(
-            'SELECT s.* FROM ai_mcp_servers s JOIN ai_chat_session_mcp_servers sm ON s.id = sm.server_id WHERE sm.session_id = ? ORDER BY sm.sort_order'
-        ).all(sessionId) as any[];
+        const serverIds = this.orm
+            .select({ server_id: aiChatSessionMcpServersTable.server_id })
+            .from(aiChatSessionMcpServersTable)
+            .where(eq(aiChatSessionMcpServersTable.session_id, sessionId))
+            .orderBy(aiChatSessionMcpServersTable.sort_order)
+            .all() as Array<{ server_id: string }>;
+        if (serverIds.length === 0) {
+            return [];
+        }
+        const rows = this.orm
+            .select()
+            .from(aiMcpServersTable)
+            .where(inArray(aiMcpServersTable.id, serverIds.map((s) => s.server_id)))
+            .all() as any[];
         return rows.map(r => this.mapMcpServer(r));
     }
 
     private mapChatSession(row: any): ChatSession {
-        const toolRows = this.db.prepare(
-            'SELECT tool_id FROM ai_chat_session_tools WHERE session_id = ? ORDER BY sort_order'
-        ).all(row.id) as Array<{ tool_id: string }>;
-        const mcpRows = this.db.prepare(
-            'SELECT server_id FROM ai_chat_session_mcp_servers WHERE session_id = ? ORDER BY sort_order'
-        ).all(row.id) as Array<{ server_id: string }>;
+        const toolRows = this.orm
+            .select({ tool_id: aiChatSessionToolsTable.tool_id })
+            .from(aiChatSessionToolsTable)
+            .where(eq(aiChatSessionToolsTable.session_id, row.id))
+            .orderBy(aiChatSessionToolsTable.sort_order)
+            .all() as Array<{ tool_id: string }>;
+        const mcpRows = this.orm
+            .select({ server_id: aiChatSessionMcpServersTable.server_id })
+            .from(aiChatSessionMcpServersTable)
+            .where(eq(aiChatSessionMcpServersTable.session_id, row.id))
+            .orderBy(aiChatSessionMcpServersTable.sort_order)
+            .all() as Array<{ server_id: string }>;
         return {
             id: row.id,
             agentId: row.agent_id ?? undefined,
@@ -789,84 +1086,84 @@ export class AIConfigStore {
     createChatMessage(input: CreateChatMessageInput): ChatMessage {
         const id = generateId() as ChatMessageId;
         const ts = now();
-        this.db.prepare(`
-            INSERT INTO ai_chat_messages (id, session_id, role, content, provider_type, model_id, tool_calls, tool_results, finish_reason, usage, latency_ms, metadata, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
+        this.orm.insert(aiChatMessagesTable).values({
             id,
-            input.sessionId,
-            input.role,
-            input.content,
-            input.providerType ?? null,
-            input.modelId ?? null,
-            toJSON(input.toolCalls),
-            toJSON(input.toolResults),
-            input.finishReason ?? null,
-            toJSON(input.usage),
-            input.latencyMs ?? null,
-            toJSON(input.metadata),
-            ts,
-        );
+            session_id: input.sessionId,
+            role: input.role,
+            content: input.content,
+            provider_type: input.providerType ?? null,
+            model_id: input.modelId ?? null,
+            tool_calls: toJSON(input.toolCalls),
+            tool_results: toJSON(input.toolResults),
+            finish_reason: input.finishReason ?? null,
+            usage: toJSON(input.usage),
+            latency_ms: input.latencyMs ?? null,
+            metadata: toJSON(input.metadata),
+            created_at: ts,
+        }).run();
         // Touch the session updated_at
-        this.db.prepare('UPDATE ai_chat_sessions SET updated_at = ? WHERE id = ?').run(ts, input.sessionId);
+        this.orm.update(aiChatSessionsTable).set({ updated_at: ts }).where(eq(aiChatSessionsTable.id, input.sessionId)).run();
         return this.getChatMessage(id)!;
     }
 
     getChatMessage(id: ChatMessageId): ChatMessage | undefined {
-        const row = this.db.prepare('SELECT * FROM ai_chat_messages WHERE id = ?').get(id) as any;
+        const row = this.orm.select().from(aiChatMessagesTable).where(eq(aiChatMessagesTable.id, id)).get() as any;
         return row ? this.mapChatMessage(row) : undefined;
     }
 
     listChatMessages(sessionId: ChatSessionId): ChatMessage[] {
-        return (this.db.prepare('SELECT * FROM ai_chat_messages WHERE session_id = ? ORDER BY created_at ASC').all(sessionId) as any[]).map(r => this.mapChatMessage(r));
+        return (this.orm
+            .select()
+            .from(aiChatMessagesTable)
+            .where(eq(aiChatMessagesTable.session_id, sessionId))
+            .orderBy(asc(aiChatMessagesTable.created_at))
+            .all() as any[]).map(r => this.mapChatMessage(r));
     }
 
     listChatMessagesUpTo(sessionId: ChatSessionId, messageId: ChatMessageId): ChatMessage[] {
-        const anchor = this.db
-            .prepare('SELECT rowid as row_id FROM ai_chat_messages WHERE session_id = ? AND id = ?')
-            .get(sessionId, messageId) as { row_id: number } | undefined;
-        if (!anchor) {
+        const allMessages = this.listChatMessages(sessionId);
+        const idx = allMessages.findIndex((m) => m.id === messageId);
+        if (idx < 0) {
             throw new Error(`Chat message not found in session: ${messageId}`);
         }
-
-        return (
-            this.db
-                .prepare('SELECT * FROM ai_chat_messages WHERE session_id = ? AND rowid <= ? ORDER BY rowid ASC')
-                .all(sessionId, anchor.row_id) as any[]
-        ).map((r) => this.mapChatMessage(r));
+        return allMessages.slice(0, idx + 1);
     }
 
     deleteChatMessagesAfter(sessionId: ChatSessionId, messageId: ChatMessageId): number {
-        const anchor = this.db
-            .prepare('SELECT rowid as row_id FROM ai_chat_messages WHERE session_id = ? AND id = ?')
-            .get(sessionId, messageId) as { row_id: number } | undefined;
-        if (!anchor) {
+        const allMessages = this.listChatMessages(sessionId);
+        const idx = allMessages.findIndex((m) => m.id === messageId);
+        if (idx < 0) {
             throw new Error(`Chat message not found in session: ${messageId}`);
         }
 
-        const result = this.db
-            .prepare('DELETE FROM ai_chat_messages WHERE session_id = ? AND rowid > ?')
-            .run(sessionId, anchor.row_id);
-        this.db
-            .prepare('UPDATE ai_chat_sessions SET updated_at = ? WHERE id = ?')
-            .run(now(), sessionId);
+        const ids = allMessages.slice(idx + 1).map((m) => m.id);
+        if (ids.length === 0) {
+            return 0;
+        }
+        const result = this.orm
+            .delete(aiChatMessagesTable)
+            .where(inArray(aiChatMessagesTable.id, ids))
+            .run();
+        this.orm.update(aiChatSessionsTable).set({ updated_at: now() }).where(eq(aiChatSessionsTable.id, sessionId)).run();
         return result.changes;
     }
 
     deleteChatMessagesBefore(sessionId: ChatSessionId, messageId: ChatMessageId): number {
-        const anchor = this.db
-            .prepare('SELECT rowid as row_id FROM ai_chat_messages WHERE session_id = ? AND id = ?')
-            .get(sessionId, messageId) as { row_id: number } | undefined;
-        if (!anchor) {
+        const allMessages = this.listChatMessages(sessionId);
+        const idx = allMessages.findIndex((m) => m.id === messageId);
+        if (idx < 0) {
             throw new Error(`Chat message not found in session: ${messageId}`);
         }
 
-        const result = this.db
-            .prepare('DELETE FROM ai_chat_messages WHERE session_id = ? AND rowid < ?')
-            .run(sessionId, anchor.row_id);
-        this.db
-            .prepare('UPDATE ai_chat_sessions SET updated_at = ? WHERE id = ?')
-            .run(now(), sessionId);
+        const ids = allMessages.slice(0, idx).map((m) => m.id);
+        if (ids.length === 0) {
+            return 0;
+        }
+        const result = this.orm
+            .delete(aiChatMessagesTable)
+            .where(inArray(aiChatMessagesTable.id, ids))
+            .run();
+        this.orm.update(aiChatSessionsTable).set({ updated_at: now() }).where(eq(aiChatSessionsTable.id, sessionId)).run();
         return result.changes;
     }
 
@@ -945,19 +1242,16 @@ export class AIConfigStore {
     }): void {
         const id = generateId();
         const ts = now();
-        this.db.prepare(`
-            INSERT INTO ai_tool_calls (id, session_id, message_id, tool_name, arguments, result, latency_ms, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
+        this.orm.insert(aiToolCallsTable).values({
             id,
-            input.sessionId,
-            input.messageId,
-            input.toolName,
-            input.arguments,
-            input.result ?? null,
-            input.latencyMs ?? null,
-            ts,
-        );
+            session_id: input.sessionId,
+            message_id: input.messageId,
+            tool_name: input.toolName,
+            arguments: input.arguments,
+            result: input.result ?? null,
+            latency_ms: input.latencyMs ?? null,
+            created_at: ts,
+        }).run();
     }
 
     createToolCalls(inputs: Array<{
@@ -969,27 +1263,18 @@ export class AIConfigStore {
         latencyMs?: number;
     }>): void {
         const ts = now();
-        const stmt = this.db.prepare(`
-            INSERT INTO ai_tool_calls (id, session_id, message_id, tool_name, arguments, result, latency_ms, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-
-        const insertMany = this.db.transaction((items: typeof inputs) => {
-            for (const item of items) {
-                stmt.run(
-                    generateId(),
-                    item.sessionId,
-                    item.messageId,
-                    item.toolName,
-                    item.arguments,
-                    item.result ?? null,
-                    item.latencyMs ?? null,
-                    ts
-                );
-            }
-        });
-
-        insertMany(inputs);
+        for (const item of inputs) {
+            this.orm.insert(aiToolCallsTable).values({
+                id: generateId(),
+                session_id: item.sessionId,
+                message_id: item.messageId,
+                tool_name: item.toolName,
+                arguments: item.arguments,
+                result: item.result ?? null,
+                latency_ms: item.latencyMs ?? null,
+                created_at: ts,
+            }).run();
+        }
     }
 
     // ── Memory ───────────────────────────────────────────────────────────
@@ -997,43 +1282,50 @@ export class AIConfigStore {
     createMemory(input: CreateMemoryInput): MemoryEntry {
         const id = generateId() as MemoryId;
         const ts = now();
-        this.db.prepare(`
-            INSERT INTO ai_memories (id, session_id, agent_id, content, source_type, importance, topic, entities, metadata, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
+        this.orm.insert(aiMemoriesTable).values({
             id,
-            input.sessionId ?? null,
-            input.agentId ?? null,
-            input.content,
-            input.sourceType ?? null,
-            input.importance ?? null,
-            input.topic ?? null,
-            toJSON(input.entities),
-            toJSON(input.metadata),
-            ts,
-        );
+            session_id: input.sessionId ?? null,
+            agent_id: input.agentId ?? null,
+            content: input.content,
+            source_type: input.sourceType ?? null,
+            importance: input.importance ?? null,
+            topic: input.topic ?? null,
+            entities: toJSON(input.entities),
+            metadata: toJSON(input.metadata),
+            created_at: ts,
+        }).run();
         return this.getMemory(id)!;
     }
 
     getMemory(id: MemoryId): MemoryEntry | undefined {
-        const row = this.db.prepare('SELECT * FROM ai_memories WHERE id = ?').get(id) as any;
+        const row = this.orm.select().from(aiMemoriesTable).where(eq(aiMemoriesTable.id, id)).get() as any;
         return row ? this.mapMemory(row) : undefined;
     }
 
     listMemories(agentId?: AgentConfigId): MemoryEntry[] {
         if (agentId) {
-            return (this.db.prepare('SELECT * FROM ai_memories WHERE agent_id = ? ORDER BY created_at DESC').all(agentId) as any[]).map(r => this.mapMemory(r));
+            return (this.orm
+                .select()
+                .from(aiMemoriesTable)
+                .where(eq(aiMemoriesTable.agent_id, agentId))
+                .orderBy(desc(aiMemoriesTable.created_at))
+                .all() as any[]).map(r => this.mapMemory(r));
         }
-        return (this.db.prepare('SELECT * FROM ai_memories ORDER BY created_at DESC').all() as any[]).map(r => this.mapMemory(r));
+        return (this.orm.select().from(aiMemoriesTable).orderBy(desc(aiMemoriesTable.created_at)).all() as any[]).map(r => this.mapMemory(r));
     }
 
     searchMemories(query: string): MemoryEntry[] {
         const pattern = `%${query}%`;
-        return (this.db.prepare('SELECT * FROM ai_memories WHERE content LIKE ? ORDER BY created_at DESC').all(pattern) as any[]).map(r => this.mapMemory(r));
+        return (this.orm
+            .select()
+            .from(aiMemoriesTable)
+            .where(sql`${aiMemoriesTable.content} LIKE ${pattern}`)
+            .orderBy(desc(aiMemoriesTable.created_at))
+            .all() as any[]).map(r => this.mapMemory(r));
     }
 
     deleteMemory(id: MemoryId): void {
-        this.db.prepare('DELETE FROM ai_memories WHERE id = ?').run(id);
+        this.orm.delete(aiMemoriesTable).where(eq(aiMemoriesTable.id, id)).run();
     }
 
     private mapMemory(row: any): MemoryEntry {
@@ -1121,11 +1413,16 @@ export class AIConfigStore {
         }
 
         const initialContent = input.content ?? '';
-
-        this.db.prepare(`
-            INSERT INTO canvases (id, name, description, content, metadata, owner, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(id, input.name, input.description ?? '', initialContent, toJSON(input.metadata), input.owner, ts, ts);
+        this.orm.insert(canvasesTable).values({
+            id,
+            name: input.name,
+            description: input.description ?? '',
+            content: initialContent,
+            metadata: toJSON(input.metadata),
+            owner: input.owner,
+            created_at: ts,
+            updated_at: ts,
+        }).run();
         
         const oldFiles: {path: string, content: string}[] = [];
         const diffText = this.generateDiff(oldFiles, input.files || []);
@@ -1144,15 +1441,14 @@ export class AIConfigStore {
     }
 
     getCanvas(id: CanvasId): CanvasConfig | undefined {
-        const row = this.db.prepare('SELECT * FROM canvases WHERE id = ?').get(id) as any;
+        const row = this.orm.select().from(canvasesTable).where(eq(canvasesTable.id, id)).get() as any;
         return row ? this.mapCanvas(row) : undefined;
     }
 
     listCanvases(owner?: string): CanvasConfig[] {
-        const query = owner
-            ? 'SELECT * FROM canvases WHERE owner = ? ORDER BY created_at DESC'
-            : 'SELECT * FROM canvases ORDER BY created_at DESC';
-        const rows = (owner ? this.db.prepare(query).all(owner) : this.db.prepare(query).all()) as any[];
+        const rows = (owner
+            ? this.orm.select().from(canvasesTable).where(eq(canvasesTable.owner, owner)).orderBy(desc(canvasesTable.created_at)).all()
+            : this.orm.select().from(canvasesTable).orderBy(desc(canvasesTable.created_at)).all()) as any[];
         return rows.map(r => this.mapCanvas(r));
     }
 
@@ -1167,16 +1463,13 @@ export class AIConfigStore {
         
         const contentStr = input.content ?? existing.content;
 
-        this.db.prepare(`
-            UPDATE canvases SET name=?, description=?, content=?, metadata=?, updated_at=? WHERE id=?
-        `).run(
-            input.name ?? existing.name,
-            input.description ?? existing.description,
-            contentStr,
-            toJSON(input.metadata ?? existing.metadata),
-            now(),
-            id,
-        );
+        this.orm.update(canvasesTable).set({
+            name: input.name ?? existing.name,
+            description: input.description ?? existing.description,
+            content: contentStr,
+            metadata: toJSON(input.metadata ?? existing.metadata),
+            updated_at: now(),
+        }).where(eq(canvasesTable.id, id)).run();
         
         const diffText = this.generateDiff(oldFiles, input.files || []);
         
@@ -1201,16 +1494,13 @@ export class AIConfigStore {
         const existing = this.getCanvas(id);
         if (!existing) throw new Error(`Canvas not found: ${id}`);
         
-        this.db.prepare(`
-            UPDATE canvases SET name=?, description=?, content=?, metadata=?, updated_at=? WHERE id=?
-        `).run(
-            existing.name,
-            existing.description,
-            commit.content,
-            toJSON(commit.metadata),
-            now(),
-            id,
-        );
+        this.orm.update(canvasesTable).set({
+            name: existing.name,
+            description: existing.description,
+            content: commit.content,
+            metadata: toJSON(commit.metadata),
+            updated_at: now(),
+        }).where(eq(canvasesTable.id, id)).run();
         
         this.createCanvasCommit({
             canvasId: id,
@@ -1226,7 +1516,7 @@ export class AIConfigStore {
     }
 
     deleteCanvas(id: CanvasId): void {
-        this.db.prepare('DELETE FROM canvases WHERE id = ?').run(id);
+        this.orm.delete(canvasesTable).where(eq(canvasesTable.id, id)).run();
         if (this.canvasesPath) {
             const p = path.join(this.canvasesPath, id);
             if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true });
@@ -1251,20 +1541,32 @@ export class AIConfigStore {
     createCanvasCommit(input: Omit<CanvasCommit, 'id' | 'createdAt'>): CanvasCommit {
         const id = generateId() as CanvasCommitId;
         const ts = now();
-        this.db.prepare(`
-            INSERT INTO canvas_commits (id, canvas_id, content, diff, metadata, change_type, changed_by, message, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(id, input.canvasId, input.content, input.diff ?? '', toJSON(input.metadata), input.changeType, input.changedBy, input.message, ts);
+        this.orm.insert(canvasCommitsTable).values({
+            id,
+            canvas_id: input.canvasId,
+            content: input.content,
+            diff: input.diff ?? '',
+            metadata: toJSON(input.metadata),
+            change_type: input.changeType,
+            changed_by: input.changedBy,
+            message: input.message,
+            created_at: ts,
+        }).run();
         return this.getCanvasCommit(id)!;
     }
 
     getCanvasCommit(id: CanvasCommitId): CanvasCommit | undefined {
-        const row = this.db.prepare('SELECT * FROM canvas_commits WHERE id = ?').get(id) as any;
+        const row = this.orm.select().from(canvasCommitsTable).where(eq(canvasCommitsTable.id, id)).get() as any;
         return row ? this.mapCanvasCommit(row) : undefined;
     }
 
     listCanvasCommits(canvasId: CanvasId): CanvasCommit[] {
-        const rows = (this.db.prepare('SELECT * FROM canvas_commits WHERE canvas_id = ? ORDER BY created_at DESC').all(canvasId)) as any[];
+        const rows = this.orm
+            .select()
+            .from(canvasCommitsTable)
+            .where(eq(canvasCommitsTable.canvas_id, canvasId))
+            .orderBy(desc(canvasCommitsTable.created_at))
+            .all() as any[];
         return rows.map(r => this.mapCanvasCommit(r));
     }
 

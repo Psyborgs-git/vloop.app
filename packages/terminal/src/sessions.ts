@@ -9,8 +9,25 @@
  */
 
 import type { DatabaseManager } from '@orch/shared/db';
+import type { RootDatabaseOrm } from '@orch/shared/db';
 import type { Logger } from '@orch/daemon';
 import type { PaginationOptions, PaginatedResult } from '@orch/shared';
+import { desc, eq, sql } from 'drizzle-orm';
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+
+const terminalSessionsTable = sqliteTable('terminal_sessions', {
+    id: text('id').primaryKey(),
+    owner: text('owner').notNull(),
+    shell: text('shell').notNull(),
+    cwd: text('cwd').notNull(),
+    cols: integer('cols').notNull(),
+    rows: integer('rows').notNull(),
+    profile_id: text('profile_id'),
+    log_path: text('log_path'),
+    started_at: text('started_at').notNull(),
+    ended_at: text('ended_at'),
+    exit_code: integer('exit_code'),
+});
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -32,10 +49,12 @@ export interface TerminalSessionRecord {
 
 export class TerminalSessionStore {
     private readonly db: ReturnType<DatabaseManager['open']>;
+    private readonly orm: RootDatabaseOrm;
     private readonly logger: Logger;
 
-    constructor(db: ReturnType<DatabaseManager['open']>, logger: Logger) {
+    constructor(db: ReturnType<DatabaseManager['open']>, orm: RootDatabaseOrm, logger: Logger) {
         this.db = db;
+        this.orm = orm;
         this.logger = logger.child({ component: 'terminal-session-store' });
         this.migrate();
     }
@@ -74,39 +93,39 @@ export class TerminalSessionStore {
         profileId?: string;
         logPath?: string;
     }): void {
-        this.db.prepare(`
-            INSERT INTO terminal_sessions
-                (id, owner, shell, cwd, cols, rows, profile_id, log_path, started_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-            input.id,
-            input.owner,
-            input.shell,
-            input.cwd,
-            input.cols,
-            input.rows,
-            input.profileId ?? null,
-            input.logPath ?? null,
-            new Date().toISOString(),
-        );
+        this.orm.insert(terminalSessionsTable).values({
+            id: input.id,
+            owner: input.owner,
+            shell: input.shell,
+            cwd: input.cwd,
+            cols: input.cols,
+            rows: input.rows,
+            profile_id: input.profileId ?? null,
+            log_path: input.logPath ?? null,
+            started_at: new Date().toISOString(),
+            ended_at: null,
+            exit_code: null,
+        }).run();
         this.logger.debug({ id: input.id }, 'Terminal session record created');
     }
 
     /** Mark a session as ended and record its exit code. */
     end(id: string, exitCode: number | null): void {
-        this.db.prepare(`
-            UPDATE terminal_sessions
-            SET ended_at = ?, exit_code = ?
-            WHERE id = ?
-        `).run(new Date().toISOString(), exitCode ?? null, id);
+        this.orm
+            .update(terminalSessionsTable)
+            .set({ ended_at: new Date().toISOString(), exit_code: exitCode ?? null })
+            .where(eq(terminalSessionsTable.id, id))
+            .run();
         this.logger.debug({ id, exitCode }, 'Terminal session record closed');
     }
 
     /** Retrieve a single session record. */
     get(id: string): TerminalSessionRecord | undefined {
-        const row = this.db.prepare(
-            'SELECT * FROM terminal_sessions WHERE id = ?',
-        ).get(id) as any;
+        const row = this.orm
+            .select()
+            .from(terminalSessionsTable)
+            .where(eq(terminalSessionsTable.id, id))
+            .get() as any;
         return row ? this.toRecord(row) : undefined;
     }
 
@@ -124,22 +143,29 @@ export class TerminalSessionStore {
             ? Math.max(0, Math.floor(rawOffset))
             : 0;
 
-        let countQuery = 'SELECT COUNT(*) as count FROM terminal_sessions';
-        let dataQuery = 'SELECT * FROM terminal_sessions';
-        const params: unknown[] = [];
+        const countExpr = this.orm
+            .select({ count: sql<number>`count(*)` })
+            .from(terminalSessionsTable);
+        const total = owner
+            ? (countExpr.where(eq(terminalSessionsTable.owner, owner)).get()?.count ?? 0)
+            : (countExpr.get()?.count ?? 0);
 
-        if (owner) {
-            countQuery += ' WHERE owner = ?';
-            dataQuery += ' WHERE owner = ?';
-            params.push(owner);
-        }
-
-        dataQuery += ' ORDER BY started_at DESC LIMIT ? OFFSET ?';
-
-        const countRow = this.db.prepare(countQuery).get(...params) as { count: number };
-        const total = countRow.count;
-
-        const rows = this.db.prepare(dataQuery).all(...params, limit, offset) as any[];
+        const rows = owner
+            ? this.orm
+                .select()
+                .from(terminalSessionsTable)
+                .where(eq(terminalSessionsTable.owner, owner))
+                .orderBy(desc(terminalSessionsTable.started_at))
+                .limit(limit)
+                .offset(offset)
+                .all() as any[]
+            : this.orm
+                .select()
+                .from(terminalSessionsTable)
+                .orderBy(desc(terminalSessionsTable.started_at))
+                .limit(limit)
+                .offset(offset)
+                .all() as any[];
         const items = rows.map((r) => this.toRecord(r));
 
         return { items, total, limit, offset };

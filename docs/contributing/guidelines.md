@@ -68,3 +68,4 @@ We use `vitest` for testing.
 *   **TypeScript**: Strict mode is enabled. No `any` unless absolutely necessary.
 *   **Linting**: Run `pnpm lint` before committing.
 *   **Formatting**: We use Prettier.
+*   **Database Access**: Use Drizzle ORM for service-level reads/writes. Raw SQL should be limited to migrations/bootstrap DDL or explicit dynamic SQL execution features.

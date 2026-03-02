@@ -6,7 +6,24 @@
  */
 
 import type { DatabaseManager } from '@orch/shared/db';
+import type { RootDatabaseOrm } from '@orch/shared/db';
 import type { Logger } from '@orch/daemon';
+import { asc, eq } from 'drizzle-orm';
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+
+const terminalProfilesTable = sqliteTable('terminal_profiles', {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    shell: text('shell').notNull(),
+    args: text('args').notNull(),
+    cwd: text('cwd').notNull(),
+    env: text('env').notNull(),
+    startup_commands: text('startup_commands').notNull(),
+    owner: text('owner').notNull(),
+    is_default: integer('is_default').notNull().default(0),
+    created_at: text('created_at').notNull(),
+    updated_at: text('updated_at').notNull(),
+});
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -49,10 +66,12 @@ export interface UpdateProfileInput {
 
 export class TerminalProfileManager {
     private readonly db: ReturnType<DatabaseManager['open']>;
+    private readonly orm: RootDatabaseOrm;
     private readonly logger: Logger;
 
-    constructor(db: ReturnType<DatabaseManager['open']>, logger: Logger) {
+    constructor(db: ReturnType<DatabaseManager['open']>, orm: RootDatabaseOrm, logger: Logger) {
         this.db = db;
+        this.orm = orm;
         this.logger = logger.child({ component: 'terminal-profiles' });
         this.migrate();
     }
@@ -89,27 +108,25 @@ export class TerminalProfileManager {
 
         // If setting as default, clear existing default for this owner
         if (input.isDefault) {
-            this.db.prepare(
-                'UPDATE terminal_profiles SET is_default = 0 WHERE owner = ?',
-            ).run(input.owner);
+            this.orm.update(terminalProfilesTable)
+                .set({ is_default: 0 })
+                .where(eq(terminalProfilesTable.owner, input.owner))
+                .run();
         }
 
-        this.db.prepare(`
-            INSERT INTO terminal_profiles (id, name, shell, args, cwd, env, startup_commands, owner, is_default, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
+        this.orm.insert(terminalProfilesTable).values({
             id,
-            input.name,
-            input.shell ?? '',
-            JSON.stringify(input.args ?? []),
-            input.cwd ?? '',
-            JSON.stringify(input.env ?? {}),
-            JSON.stringify(input.startupCommands ?? []),
-            input.owner,
-            input.isDefault ? 1 : 0,
-            now,
-            now,
-        );
+            name: input.name,
+            shell: input.shell ?? '',
+            args: JSON.stringify(input.args ?? []),
+            cwd: input.cwd ?? '',
+            env: JSON.stringify(input.env ?? {}),
+            startup_commands: JSON.stringify(input.startupCommands ?? []),
+            owner: input.owner,
+            is_default: input.isDefault ? 1 : 0,
+            created_at: now,
+            updated_at: now,
+        }).run();
 
         this.logger.info({ id, name: input.name, owner: input.owner }, 'Terminal profile created');
         return this.get(id)!;
@@ -119,9 +136,7 @@ export class TerminalProfileManager {
      * Get a profile by ID.
      */
     get(id: string): TerminalProfile | undefined {
-        const row = this.db.prepare(
-            'SELECT * FROM terminal_profiles WHERE id = ?',
-        ).get(id) as any;
+        const row = this.orm.select().from(terminalProfilesTable).where(eq(terminalProfilesTable.id, id)).get() as any;
         return row ? this.toProfile(row) : undefined;
     }
 
@@ -130,8 +145,8 @@ export class TerminalProfileManager {
      */
     list(owner?: string): TerminalProfile[] {
         const rows = owner
-            ? this.db.prepare('SELECT * FROM terminal_profiles WHERE owner = ? ORDER BY name').all(owner) as any[]
-            : this.db.prepare('SELECT * FROM terminal_profiles ORDER BY name').all() as any[];
+            ? this.orm.select().from(terminalProfilesTable).where(eq(terminalProfilesTable.owner, owner)).orderBy(asc(terminalProfilesTable.name)).all() as any[]
+            : this.orm.select().from(terminalProfilesTable).orderBy(asc(terminalProfilesTable.name)).all() as any[];
         return rows.map((r) => this.toProfile(r));
     }
 
@@ -139,9 +154,10 @@ export class TerminalProfileManager {
      * Get the default profile for an owner.
      */
     getDefault(owner: string): TerminalProfile | undefined {
-        const row = this.db.prepare(
-            'SELECT * FROM terminal_profiles WHERE owner = ? AND is_default = 1',
-        ).get(owner) as any;
+        const row = this.orm.select().from(terminalProfilesTable)
+            .where(eq(terminalProfilesTable.owner, owner))
+            .all()
+            .find((r: any) => r.is_default === 1) as any;
         return row ? this.toProfile(row) : undefined;
     }
 
@@ -155,27 +171,25 @@ export class TerminalProfileManager {
         const now = new Date().toISOString();
 
         if (input.isDefault) {
-            this.db.prepare(
-                'UPDATE terminal_profiles SET is_default = 0 WHERE owner = ?',
-            ).run(existing.owner);
+            this.orm.update(terminalProfilesTable)
+                .set({ is_default: 0 })
+                .where(eq(terminalProfilesTable.owner, existing.owner))
+                .run();
         }
 
-        this.db.prepare(`
-            UPDATE terminal_profiles SET
-                name = ?, shell = ?, args = ?, cwd = ?, env = ?,
-                startup_commands = ?, is_default = ?, updated_at = ?
-            WHERE id = ?
-        `).run(
-            input.name ?? existing.name,
-            input.shell ?? existing.shell,
-            JSON.stringify(input.args ?? existing.args),
-            input.cwd ?? existing.cwd,
-            JSON.stringify(input.env ?? existing.env),
-            JSON.stringify(input.startupCommands ?? existing.startupCommands),
-            (input.isDefault ?? existing.isDefault) ? 1 : 0,
-            now,
-            id,
-        );
+        this.orm.update(terminalProfilesTable)
+            .set({
+                name: input.name ?? existing.name,
+                shell: input.shell ?? existing.shell,
+                args: JSON.stringify(input.args ?? existing.args),
+                cwd: input.cwd ?? existing.cwd,
+                env: JSON.stringify(input.env ?? existing.env),
+                startup_commands: JSON.stringify(input.startupCommands ?? existing.startupCommands),
+                is_default: (input.isDefault ?? existing.isDefault) ? 1 : 0,
+                updated_at: now,
+            })
+            .where(eq(terminalProfilesTable.id, id))
+            .run();
 
         this.logger.info({ id }, 'Terminal profile updated');
         return this.get(id);
@@ -185,7 +199,7 @@ export class TerminalProfileManager {
      * Delete a profile.
      */
     delete(id: string): boolean {
-        const result = this.db.prepare('DELETE FROM terminal_profiles WHERE id = ?').run(id);
+        const result = this.orm.delete(terminalProfilesTable).where(eq(terminalProfilesTable.id, id)).run();
         if (result.changes > 0) {
             this.logger.info({ id }, 'Terminal profile deleted');
             return true;

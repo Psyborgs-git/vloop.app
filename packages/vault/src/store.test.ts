@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3-multiple-ciphers';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { VaultStore } from './store.js';
 import { VaultCrypto } from './crypto.js';
 
@@ -20,7 +21,7 @@ describe('VaultStore', () => {
         tempDir = mkdtempSync(join(tmpdir(), 'orch-vault-test-'));
         db = new Database(join(tempDir, 'vault.db'));
         crypto = new VaultCrypto();
-        store = new VaultStore(db, crypto, 3); // max 3 versions
+        store = new VaultStore(db, drizzle(db), crypto, 3); // max 3 versions
 
         // Initialize vault with passphrase
         await store.init('test-vault-passphrase');

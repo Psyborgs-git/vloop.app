@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3-multiple-ciphers';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { UserManager } from './user.js';
 
 describe('UserManager', () => {
@@ -13,7 +14,7 @@ describe('UserManager', () => {
     beforeEach(() => {
         tempDir = mkdtempSync(join(tmpdir(), 'orch-user-test-'));
         db = new Database(join(tempDir, 'test.db'));
-        userManager = new UserManager(db);
+        userManager = new UserManager(db, drizzle(db));
     });
 
     afterEach(() => {
