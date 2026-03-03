@@ -1,6 +1,6 @@
 # System Architecture Overview
 
-vloop is built as a modular, monolithic daemon (`@orch/daemon`) that integrates various subsystems into a cohesive orchestration platform. It follows a "hub-and-spoke" model where the central daemon manages communication, security, and lifecycle for all connected components.
+vloop is built as a modular, monolithic daemon (`@orch/daemon`) that integrates various subsystems into a cohesive orchestration platform. It follows a "hub-and-spoke" model where the orchestrator is a secure gateway and each package is a typed `AppComponent` that manages its own lifecycle (`register → init → start → stop → cleanup`).
 
 ## High-Level Design
 
@@ -15,7 +15,8 @@ The system is composed of the following key layers:
 2.  **Core Daemon (`@orch/daemon` & `@orch/orchestrator`)**:
     *   **Router**: Dispatches incoming messages to appropriate feature handlers.
     *   **Security Kernel**: Enforces Authentication (JWT), Authorization (RBAC), and Audit Logging.
-    *   **Service Manager**: Manages the lifecycle of background services and plugins.
+    *   **ComponentLifecycleManager**: Orders components by dependencies and orchestrates typed lifecycle transitions.
+    *   **Gateway Runtime**: Owns shared infra (health server, websocket server, config/database wiring, session/policy enforcement).
 
 3.  **Feature Subsystems**:
     *   **Process Manager (`@orch/process`)**: Spawns and supervises OS-level processes.
@@ -100,3 +101,4 @@ graph TD
 *   **Encrypted-by-Default**: The system assumes it is running in a potentially hostile environment (e.g., a shared dev machine), so all persistent state is encrypted at rest.
 *   **Event-Driven**: The internal architecture heavily relies on event emitters and WebSocket messages, enabling real-time updates for all connected clients.
 *   **Policy-as-Code**: Access control is defined in TOML configuration files, allowing for transparent and version-controlled security policies.
+*   **Typed Lifecycle Contract**: Installed apps must implement `AppComponent`; the orchestrator validates contract shape at load time and exposes a secured admin-only lifecycle control topic.

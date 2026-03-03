@@ -1,5 +1,9 @@
 # AI Agent & Orchestrator Migration Notes (2026-03)
 
+> Note: This document captures the earlier ai-agent consolidation phase.
+> For the latest architecture state after the hard contract cutover, see
+> [Typed App Lifecycle Migration (2026-03)](./typed-app-lifecycle-migration-2026-03.md).
+
 This document records the architecture migration completed during this session.
 
 ## Scope
