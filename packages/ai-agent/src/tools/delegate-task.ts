@@ -1,9 +1,14 @@
 import type { HandlerContext } from '@orch/daemon';
 import type { ToolDefinition } from '../tools.js';
-import type { AgentOrchestrator } from '../orchestrator.js';
-import type { AgentConfigId } from '../config/types.js';
+import type { AgentOrchestratorV2 } from '../v2/orchestrator.js';
+import type { AgentConfigId } from '../v2/types.js';
 
-export function createDelegateTaskTool(orchestrator: AgentOrchestrator): ToolDefinition {
+type DelegateTaskParams = { agentId: string; task: string };
+type DelegateTaskResult =
+    | { success: true; agentId: string; response: unknown }
+    | { success: false; error: string };
+
+export function createDelegateTaskTool(orchestrator: AgentOrchestratorV2): ToolDefinition<DelegateTaskParams, DelegateTaskResult> {
     return {
         name: 'delegate_task',
         description: 'Delegate a specific task or prompt to another AI agent and get its response.',
@@ -21,13 +26,13 @@ export function createDelegateTaskTool(orchestrator: AgentOrchestrator): ToolDef
             },
             required: ['agentId', 'task']
         },
-        execute: async (params: { agentId: string, task: string }, _context?: HandlerContext) => {
+        execute: async (params: DelegateTaskParams, _context?: HandlerContext) => {
             try {
                 // Create a temporary session for the delegated task
-                const session = await (orchestrator as any).configStore.createChat({
+                const session = orchestrator.repos.session.create({
                     title: `Delegated Task: ${params.task.substring(0, 20)}...`,
                     mode: 'agent',
-                    agentId: params.agentId
+                    agentId: params.agentId as AgentConfigId,
                 });
 
                 // Run the agent chat and collect the full response
@@ -40,12 +45,12 @@ export function createDelegateTaskTool(orchestrator: AgentOrchestrator): ToolDef
                 return {
                     success: true,
                     agentId: params.agentId,
-                    response: result.content
+                    response: result.result
                 };
-            } catch (error: any) {
+            } catch (error: unknown) {
                 return {
                     success: false,
-                    error: error.message || 'Failed to delegate task'
+                    error: error instanceof Error ? error.message : 'Failed to delegate task',
                 };
             }
         }

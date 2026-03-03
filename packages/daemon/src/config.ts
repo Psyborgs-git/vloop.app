@@ -10,6 +10,7 @@ import { resolve } from 'node:path';
 import { parse as parseTOML } from 'smol-toml';
 import { z } from 'zod';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
+import type { OrchestratorConfig } from '@orch/shared';
 
 // ─── Zod Schema ──────────────────────────────────────────────────────────────
 
@@ -24,6 +25,7 @@ const NetworkSection = z.object({
     ws_port: z.number().int().min(1).max(65535).default(9443),
     health_port: z.number().int().min(1).max(65535).default(9444),
     canvas_port: z.number().int().min(1).max(65535).default(9445),
+    mcp_port: z.number().int().min(1).max(65535).default(9446),
     max_connections: z.number().int().min(1).default(1000),
     ping_interval_secs: z.number().int().min(1).default(30),
     pong_timeout_secs: z.number().int().min(1).default(10),
@@ -70,6 +72,18 @@ const ApplicationsSection = z.object({
     installed: z.array(z.string()).default([]),
 });
 
+const TerminalSection = z.object({
+    log_path: z.string().default('./data/terminal-logs'),
+});
+
+const DbManagerSection = z.object({
+    workspaces_path: z.string().default('./data/workspaces'),
+});
+
+const AiAgentSection = z.object({
+    db_path: z.string().default('./data/ai-agent.db'),
+});
+
 const ConfigSchema = z.object({
     daemon: DaemonSection.default({}),
     network: NetworkSection.default({}),
@@ -92,9 +106,18 @@ const ConfigSchema = z.object({
             "@orch/plugin-manager"
         ]
     }),
+    terminal: TerminalSection.default({}),
+    db_manager: DbManagerSection.default({}),
+    ai_agent: AiAgentSection.default({}),
 });
 
 export type DaemonConfig = z.infer<typeof ConfigSchema>;
+
+// ─── Type Compatibility Guard ─────────────────────────────────────────────────
+// Compile error here means the Zod schema has drifted from OrchestratorConfig.
+// Fix: update the Zod schema above OR the interfaces in @orch/shared/src/config.ts.
+export type _AssertDaemonConfigSatisfiesContract = DaemonConfig extends OrchestratorConfig ? true
+    : ['ERROR: DaemonConfig does not satisfy OrchestratorConfig — update the Zod schema'];
 
 // ─── Environment Variable Overlay ────────────────────────────────────────────
 

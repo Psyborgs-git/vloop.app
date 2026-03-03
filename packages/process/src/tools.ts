@@ -1,6 +1,19 @@
 import type { DependencyContainer } from "tsyringe";
+import type { AppToolRegistryContract, AppRouterContract, AppToolExecutionContext } from "@orch/shared";
 
-export function registerTools(_container: DependencyContainer, toolRegistry: any, router: any) {
+interface SpawnProcessArgs {
+    id: string;
+    command: string;
+    args?: string[];
+    cwd?: string;
+    restartPolicy?: "always" | "on-failure" | "never";
+}
+
+export function registerTools(
+    _container: DependencyContainer,
+    toolRegistry: AppToolRegistryContract,
+    router: AppRouterContract,
+) {
     toolRegistry.register({
         name: "spawn_process",
         description: "Spawns a new background process or command.",
@@ -19,8 +32,9 @@ export function registerTools(_container: DependencyContainer, toolRegistry: any
             },
             required: ["id", "command"],
         },
-        execute: async (args: any, context?: any) => {
+        execute: async (args: SpawnProcessArgs, context?: AppToolExecutionContext) => {
             if (!context) throw new Error("Context required for tool execution");
+            if (!router.dispatch) throw new Error("Router dispatch is required for tool execution");
 
             const request = {
                 id: `tool-${Date.now()}`,
@@ -30,7 +44,7 @@ export function registerTools(_container: DependencyContainer, toolRegistry: any
                 meta: {
                     timestamp: new Date().toISOString(),
                     session_id: context.sessionId,
-                    trace_id: context.request.meta.trace_id
+                    trace_id: context.request?.meta?.trace_id,
                 }
             };
 

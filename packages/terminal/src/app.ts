@@ -1,6 +1,6 @@
 import type { DependencyContainer } from "tsyringe";
 import type { AppConfig } from "@orch/shared";
-import { TOKENS } from "@orch/shared";
+import { TOKENS, resolveConfig } from "@orch/shared";
 import { resolve } from "node:path";
 
 import { TerminalManager, TerminalProfileManager, SessionLogger, TerminalSessionStore } from "./index.js";
@@ -27,7 +27,7 @@ const config: AppConfig = {
         });
         container.register(SessionLogger, {
             useFactory: (c) => new SessionLogger({
-                logDir: resolve("./data/terminal-logs"), // Or from config
+                logDir: resolve(resolveConfig(c, 'terminal').log_path),
                 logger: c.resolve(TOKENS.Logger),
                 sessionStore: c.resolve(TerminalSessionStore)
             })

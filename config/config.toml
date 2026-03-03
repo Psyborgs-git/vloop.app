@@ -10,6 +10,7 @@ bind_address = "0.0.0.0"
 ws_port = 9443
 health_port = 9444
 canvas_port = 9445
+mcp_port = 9446
 max_connections = 1000
 ping_interval_secs = 30
 pong_timeout_secs = 10
@@ -41,3 +42,17 @@ soft_delete_retention_days = 30
 [containerd]
 socket_path = "/run/containerd/containerd.sock"
 namespace = "orchestrator"
+
+# ── Per-app namespaces ──────────────────────────────────────────────────────
+
+[terminal]
+# Directory where terminal session transcripts are stored.
+log_path = "./data/terminal-logs"
+
+[db_manager]
+# Root directory under which per-workspace SQLite databases are provisioned.
+workspaces_path = "./data/workspaces"
+
+[ai_agent]
+# Dedicated SQLite database file used by the AI-agent subsystem.
+db_path = "./data/ai-agent.db"

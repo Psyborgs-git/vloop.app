@@ -139,6 +139,13 @@ export class DatabaseManager {
     }
 
     /**
+     * Returns the active encryption passphrase currently in use.
+     */
+    getPassphrase(): string {
+        return this.options.passphrase;
+    }
+
+    /**
      * Run a migration: execute SQL statements to create/alter tables.
      */
     migrate(sql: string): void {

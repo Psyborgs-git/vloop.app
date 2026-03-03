@@ -169,8 +169,10 @@ export class AnthropicLlm extends BaseLlm {
                         args: c.input,
                         thoughtSignature,
                         thought_signature: thoughtSignature,
-                    } as any
-                });
+                    } as any,
+                    thoughtSignature,
+                    thought_signature: thoughtSignature,
+                } as any);
             }
         }
 

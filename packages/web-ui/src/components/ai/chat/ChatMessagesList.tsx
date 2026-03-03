@@ -23,7 +23,7 @@ export function ChatMessagesList() {
 
     return (
         <List sx={{
-            flexGrow: 1,
+            flex: 1,
             overflowY: 'auto',
             p: { xs: 2, md: 3 },
             pb: { xs: 2, md: 2.5 },

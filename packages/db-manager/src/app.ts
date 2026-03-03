@@ -1,6 +1,6 @@
 import type { DependencyContainer } from "tsyringe";
 import type { AppConfig } from "@orch/shared";
-import { TOKENS } from "@orch/shared";
+import { TOKENS, resolveConfig } from "@orch/shared";
 import { resolve } from "node:path";
 import { VaultStore } from "@orch/vault";
 
@@ -12,7 +12,7 @@ const config: AppConfig = {
     register(container: DependencyContainer) {
         container.register(DatabaseProvisioner, {
             useFactory: (c) => new DatabaseProvisioner(
-                resolve("./data/workspaces"),
+                resolve(resolveConfig(c, 'db_manager').workspaces_path),
                 c.resolve(VaultStore),
                 c.resolve(TOKENS.Logger)
             )

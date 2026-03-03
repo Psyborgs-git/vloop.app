@@ -83,4 +83,35 @@ describe('AnthropicLlm', () => {
         expect(first.done).toBe(false);
         expect(fetchMock).toHaveBeenCalledTimes(2);
     });
+
+    it('emits functionCall with thought signature aliases for tool_use blocks', async () => {
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                content: [
+                    {
+                        type: 'tool_use',
+                        name: 'lookup',
+                        input: { q: 'hello' },
+                    },
+                ],
+                stop_reason: 'tool_use',
+            }),
+        } as any);
+
+        const llm = new AnthropicLlm({ model });
+        const events = llm.generateContentAsync({
+            contents: [{ role: 'user', parts: [{ text: 'hi' }] }],
+            config: {},
+        } as any, false);
+
+        const first = await events.next();
+        expect(first.done).toBe(false);
+
+        const toolCall = first.value?.content?.parts?.[0]?.functionCall as any;
+        expect(toolCall?.thoughtSignature).toBe('anthropic');
+        expect(toolCall?.thought_signature).toBe('anthropic');
+        expect((first.value?.content?.parts?.[0] as any)?.thoughtSignature).toBe('anthropic');
+        expect((first.value?.content?.parts?.[0] as any)?.thought_signature).toBe('anthropic');
+    });
 });

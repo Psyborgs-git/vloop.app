@@ -1,6 +1,21 @@
 import type { DependencyContainer } from "tsyringe";
+import type { AppToolRegistryContract, AppRouterContract, AppToolExecutionContext } from "@orch/shared";
 
-export function registerTools(_container: DependencyContainer, toolRegistry: any, router: any) {
+interface SpawnContainerArgs {
+    name: string;
+    image: string;
+    cmd?: string[];
+}
+
+interface InspectContainerArgs {
+    name: string;
+}
+
+export function registerTools(
+    _container: DependencyContainer,
+    toolRegistry: AppToolRegistryContract,
+    router: AppRouterContract,
+) {
     toolRegistry.register({
         name: "spawn_container",
         description: "Creates and starts a Docker container.",
@@ -13,8 +28,9 @@ export function registerTools(_container: DependencyContainer, toolRegistry: any
             },
             required: ["name", "image"],
         },
-        execute: async (args: any, context?: any) => {
+        execute: async (args: SpawnContainerArgs, context?: AppToolExecutionContext) => {
             if (!context) throw new Error("Context required for tool execution");
+            if (!router.dispatch) throw new Error("Router dispatch is required for tool execution");
 
             const request = {
                 id: `tool-${Date.now()}`,
@@ -24,7 +40,7 @@ export function registerTools(_container: DependencyContainer, toolRegistry: any
                 meta: {
                     timestamp: new Date().toISOString(),
                     session_id: context.sessionId,
-                    trace_id: context.request.meta.trace_id
+                    trace_id: context.request?.meta?.trace_id,
                 }
             };
 
@@ -44,7 +60,9 @@ export function registerTools(_container: DependencyContainer, toolRegistry: any
             return {
                 success: true,
                 message: "Container " + args.name + " started.",
-                containerId: (response.payload as any).id,
+                containerId: typeof response.payload === 'object' && response.payload !== null
+                    ? (response.payload as { id?: string }).id
+                    : undefined,
             };
         },
     });
@@ -59,8 +77,9 @@ export function registerTools(_container: DependencyContainer, toolRegistry: any
             },
             required: ["name"],
         },
-        execute: async (args: any, context?: any) => {
+        execute: async (args: InspectContainerArgs, context?: AppToolExecutionContext) => {
             if (!context) throw new Error("Context required for tool execution");
+            if (!router.dispatch) throw new Error("Router dispatch is required for tool execution");
 
             const request = {
                 id: `tool-${Date.now()}`,
@@ -70,7 +89,7 @@ export function registerTools(_container: DependencyContainer, toolRegistry: any
                 meta: {
                     timestamp: new Date().toISOString(),
                     session_id: context.sessionId,
-                    trace_id: context.request.meta.trace_id
+                    trace_id: context.request?.meta?.trace_id,
                 }
             };
 

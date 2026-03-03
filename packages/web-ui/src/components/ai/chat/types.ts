@@ -7,6 +7,8 @@ export interface ChatMessage {
     id?: string;
     role: 'system' | 'assistant' | 'user' | 'tool';
     content: string;
+    parentId?: string | null;
+    branch?: string;
     toolCalls?: ToolCall[];
     toolResults?: ToolResult[];
     requestedToolConfirmations?: Record<string, unknown>;
@@ -20,6 +22,7 @@ export interface ChatSession {
     title: string;
     messages: ChatMessage[];
     toolIds: string[];
+    headMessageId?: string | null;
     updatedAt?: string;
 }
 

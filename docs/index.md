@@ -28,6 +28,7 @@ Built on a robust, multi-tenant architecture, vloop provides a unified interface
 ### [Architecture](./architecture/overview.md)
 *   [System Overview](./architecture/overview.md): High-level design and component interaction.
 *   [Data Flow](./architecture/data-flow.md): Lifecycle of a request and security boundaries.
+*   [AI Agent Migration (2026-03)](./architecture/ai-agent-migration-2026-03.md): Consolidation of ai-agent ownership, app entrypoint unification, and dedicated MCP server port.
 
 ### Features
 *   [Security & Auth](./features/security.md): Authentication, RBAC, Vault, and Audit Logging.

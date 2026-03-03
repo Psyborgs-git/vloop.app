@@ -1,9 +1,14 @@
 import type { HandlerContext } from '@orch/daemon';
 import type { ToolDefinition } from '../tools.js';
-import type { AgentOrchestrator } from '../orchestrator.js';
-import type { WorkflowId } from '../config/types.js';
+import type { AgentOrchestratorV2 } from '../v2/orchestrator.js';
+import type { WorkflowId } from '../v2/types.js';
 
-export function createTriggerWorkflowTool(orchestrator: AgentOrchestrator): ToolDefinition {
+type TriggerWorkflowParams = { workflowId: string; input: string };
+type TriggerWorkflowResult =
+    | { success: true; workflowId: string; result: unknown }
+    | { success: false; error: string };
+
+export function createTriggerWorkflowTool(orchestrator: AgentOrchestratorV2): ToolDefinition<TriggerWorkflowParams, TriggerWorkflowResult> {
     return {
         name: 'trigger_workflow',
         description: 'Trigger an AI workflow by its ID with the given input.',
@@ -21,22 +26,19 @@ export function createTriggerWorkflowTool(orchestrator: AgentOrchestrator): Tool
             },
             required: ['workflowId', 'input']
         },
-        execute: async (params: { workflowId: string, input: string }, _context?: HandlerContext) => {
+        execute: async (params: TriggerWorkflowParams, _context?: HandlerContext) => {
             try {
-                const result = await orchestrator.workflowRunner.run(
-                    params.workflowId as WorkflowId,
-                    params.input
-                );
+                const result = await orchestrator.runWorkflow(params.workflowId as WorkflowId, params.input);
                 
                 return {
                     success: true,
                     workflowId: params.workflowId,
                     result
                 };
-            } catch (error: any) {
+            } catch (error: unknown) {
                 return {
                     success: false,
-                    error: error.message || 'Failed to trigger workflow'
+                    error: error instanceof Error ? error.message : 'Failed to trigger workflow',
                 };
             }
         }

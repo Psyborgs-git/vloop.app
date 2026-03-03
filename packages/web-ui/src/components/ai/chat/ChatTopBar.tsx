@@ -26,7 +26,6 @@ export function ChatTopBar() {
         activeSessionId,
         setActiveSessionId,
         activeSession,
-        mode,
         loading,
         handleNewChat,
         handleCompactContext,

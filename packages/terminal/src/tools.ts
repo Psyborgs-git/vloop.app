@@ -1,6 +1,18 @@
 import type { DependencyContainer } from "tsyringe";
+import type { AppToolRegistryContract, AppRouterContract, AppToolExecutionContext } from "@orch/shared";
 
-export function registerTools(_container: DependencyContainer, toolRegistry: any, router: any) {
+interface TerminalExecuteArgs {
+    sessionId?: string;
+    command: string;
+    shell?: string;
+    cwd?: string;
+}
+
+export function registerTools(
+    _container: DependencyContainer,
+    toolRegistry: AppToolRegistryContract,
+    router: AppRouterContract,
+) {
     toolRegistry.register({
         name: "terminal_execute",
         description: "Executes a command in a managed terminal session.",
@@ -14,8 +26,9 @@ export function registerTools(_container: DependencyContainer, toolRegistry: any
             },
             required: ["command"],
         },
-        execute: async (args: any, context?: any) => {
+        execute: async (args: TerminalExecuteArgs, context?: AppToolExecutionContext) => {
             if (!context) throw new Error("Context required for tool execution");
+            if (!router.dispatch) throw new Error("Router dispatch is required for tool execution");
 
             const sessionId = (args.sessionId as string | undefined)
                 ?? `tool-term-${Date.now()}`;
@@ -33,7 +46,7 @@ export function registerTools(_container: DependencyContainer, toolRegistry: any
                     meta: {
                         timestamp: new Date().toISOString(),
                         session_id: context.sessionId,
-                        trace_id: context.request.meta.trace_id,
+                        trace_id: context.request?.meta?.trace_id,
                     },
                 };
 
@@ -54,7 +67,7 @@ export function registerTools(_container: DependencyContainer, toolRegistry: any
                 meta: {
                     timestamp: new Date().toISOString(),
                     session_id: context.sessionId,
-                    trace_id: context.request.meta.trace_id,
+                    trace_id: context.request?.meta?.trace_id,
                 },
             };
 

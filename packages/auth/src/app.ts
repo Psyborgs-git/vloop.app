@@ -1,6 +1,6 @@
 import type { DependencyContainer } from "tsyringe";
 import type { AppConfig } from "@orch/shared";
-import { TOKENS } from "@orch/shared";
+import { TOKENS, resolveConfig } from "@orch/shared";
 
 import { UserManager } from "./user.js";
 import { JwtProviderManager } from "./jwt-provider.js";
@@ -24,11 +24,12 @@ const config: AppConfig = {
         });
         container.register(SessionManager, {
             useFactory: (c) => {
-                const config = c.resolve<any>(TOKENS.Config);
+                const { session_idle_timeout_secs, session_max_lifetime_secs, max_sessions_per_identity } =
+                    resolveConfig(c, 'auth');
                 return new SessionManager(c.resolve(TOKENS.Database), c.resolve(TOKENS.DatabaseOrm), {
-                    idleTimeoutSecs: config.auth.session_idle_timeout_secs,
-                    maxLifetimeSecs: config.auth.session_max_lifetime_secs,
-                    maxSessionsPerIdentity: config.auth.max_sessions_per_identity,
+                    idleTimeoutSecs: session_idle_timeout_secs,
+                    maxLifetimeSecs: session_max_lifetime_secs,
+                    maxSessionsPerIdentity: max_sessions_per_identity,
                 });
             }
         });

@@ -6,8 +6,9 @@ import { JwtValidator } from "./jwt.js";
 import { JwtProviderManager } from "./jwt-provider.js";
 import { PolicyEngine } from "./rbac.js";
 import { AuditLogger } from "./audit.js";
+import type { AppRouterContract, AppMiddlewareHandler, AppTopicHandler } from "@orch/shared";
 
-export function registerRoutes(container: DependencyContainer, router: any) {
+export function registerRoutes(container: DependencyContainer, router: AppRouterContract) {
     const sessionManager = container.resolve(SessionManager);
     const userManager = container.resolve(UserManager);
     const jwtValidator = container.resolve(JwtValidator);
@@ -16,8 +17,8 @@ export function registerRoutes(container: DependencyContainer, router: any) {
     const auditLogger = container.resolve(AuditLogger);
 
     // Apply global auth middleware
-    router.use(createAuthMiddleware(sessionManager, policyEngine, auditLogger));
+    router.use(createAuthMiddleware(sessionManager, policyEngine, auditLogger) as AppMiddlewareHandler);
 
     // Register handlers
-    router.register("auth", createAuthHandler(sessionManager, userManager, jwtValidator, jwtProviderManager));
+    router.register("auth", createAuthHandler(sessionManager, userManager, jwtValidator, jwtProviderManager) as AppTopicHandler);
 }

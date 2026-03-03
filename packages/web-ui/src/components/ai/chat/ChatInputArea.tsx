@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { TextField, Box, IconButton, Button, Typography, Menu, MenuItem, ListSubheader, FormGroup, FormControlLabel, Checkbox, CircularProgress } from '@mui/material';
+import { TextField, Box, IconButton, Button, Typography, Menu, MenuItem, ListSubheader, FormGroup, FormControlLabel, Checkbox, CircularProgress, alpha } from '@mui/material';
 import { Cpu, Bot, Wrench, Send, Plus, ChevronDown, SlidersHorizontal, Mic } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useChatController } from './ChatControllerContext.js';
@@ -53,18 +53,23 @@ export function ChatInputArea() {
     return (
         <Box
             sx={{
-                position: 'sticky', bottom: 12, p: 1.1,
+                position: 'sticky', bottom: '12px', p: 1.1,
+                height: 'fit-content', maxHeight: '40vh',
                 display: 'flex', flexDirection: 'column', gap: 1,
                 border: '1px solid', borderColor: 'divider', borderRadius: 2,
                 transition: 'border-color 0.15s, box-shadow 0.15s, transform 0.15s',
                 mx: 'auto', width: '100%',
                 overflow: "auto",
-                backgroundColor: 'background.paper', opacity: 0.96, backdropFilter: 'blur(8px)', zIndex: 2,
+                backgroundColor: 'background.paper', 
+                opacity: 0.96, 
+                backdropFilter: 'blur(8px)',
+                zIndex: 2,
                 '&:focus-within': {
                     borderColor: 'primary.main',
-                    boxShadow: '0 0 0 2px rgba(25,118,210,0.16), 0 10px 28px rgba(0,0,0,0.08)',
+                    boxShadow: theme => `0 0 0 2px ${alpha(theme.palette.divider,0.16)}, 0 10px 28px ${theme.palette.divider, 0.08}`,
                     transform: 'translateY(-1px)',
                 },
+                
             }}>
             <TextField
                 fullWidth variant="standard" placeholder={placeholder || 'Describe what to build next'}

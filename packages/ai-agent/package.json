@@ -14,9 +14,11 @@
         "@types/diff": "^8.0.0",
         "drizzle-orm": "^0.44.7",
         "diff": "^8.0.3",
+        "express": "^5.2.1",
         "google-diff-match-patch": "^2.0.0",
         "ollama": "^0.6.3",
         "playwright": "^1.58.2",
+        "ws": "^8.19.0",
         "zod": "~4.3.6"
     },
     "devDependencies": {

@@ -15,7 +15,9 @@ export type {
 export { parseRequest, serializeResponse } from './protocol.js';
 
 export { createWebSocketServer } from './server.js';
+export type { WebSocketServerHandle } from './server.js';
 export { createHealthServer } from './health.js';
+export type { HealthServer } from './health.js';
 export { createLogger } from './logging.js';
 export type { Logger } from './logging.js';
 export { setupSignalHandlers } from './signal.js';

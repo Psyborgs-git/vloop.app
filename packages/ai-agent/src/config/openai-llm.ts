@@ -173,8 +173,10 @@ export class OpenAILlm extends BaseLlm {
                         args: this.parseToolArguments(tc.function.arguments),
                         thoughtSignature,
                         thought_signature: thoughtSignature,
-                    } as any
-                });
+                    } as any,
+                    thoughtSignature,
+                    thought_signature: thoughtSignature,
+                } as any);
             }
         }
 

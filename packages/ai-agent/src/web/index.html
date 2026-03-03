@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>vloop Canvas</title>
+    <style>
+      :root {
+        --bg: #050816;
+        --text: #e6ecff;
+        --muted: #9da8cc;
+        --card: rgba(21, 29, 60, 0.72);
+        --stroke: rgba(148, 163, 255, 0.25);
+        --accent: #7a8cff;
+        --accent-2: #3de1ff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        color: var(--text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        background: radial-gradient(circle at 10% 10%, #1d2b63 0%, transparent 45%),
+          radial-gradient(circle at 90% 80%, #0d6ea8 0%, transparent 35%),
+          var(--bg);
+        overflow-x: hidden;
+      }
+
+      .noise {
+        pointer-events: none;
+        position: fixed;
+        inset: 0;
+        opacity: 0.06;
+        background-image: radial-gradient(#ffffff 0.6px, transparent 0.6px);
+        background-size: 4px 4px;
+      }
+
+      .orb {
+        position: fixed;
+        width: 42vmax;
+        aspect-ratio: 1;
+        border-radius: 50%;
+        filter: blur(80px);
+        opacity: 0.28;
+        pointer-events: none;
+        animation: drift 14s ease-in-out infinite alternate;
+      }
+
+      .orb.one {
+        background: #7b61ff;
+        top: -15vmax;
+        left: -10vmax;
+      }
+
+      .orb.two {
+        background: #00d4ff;
+        right: -12vmax;
+        bottom: -18vmax;
+        animation-delay: -4s;
+      }
+
+      @keyframes drift {
+        from {
+          transform: translate3d(0, 0, 0) scale(1);
+        }
+        to {
+          transform: translate3d(2.2vmax, -1.4vmax, 0) scale(1.06);
+        }
+      }
+
+      main {
+        width: min(1120px, 92vw);
+        margin: 0 auto;
+        padding: 30px 0 48px;
+      }
+
+      .top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 18px;
+      }
+
+      .logo {
+        font-weight: 800;
+        letter-spacing: 0.2px;
+        font-size: 1.2rem;
+      }
+
+      .logo b {
+        background: linear-gradient(90deg, var(--accent), var(--accent-2));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+
+      .pill {
+        border: 1px solid var(--stroke);
+        border-radius: 999px;
+        padding: 7px 12px;
+        color: var(--muted);
+        font-size: 0.8rem;
+        backdrop-filter: blur(8px);
+      }
+
+      .hero {
+        border: 1px solid var(--stroke);
+        background: linear-gradient(140deg, rgba(73, 95, 186, 0.18), rgba(18, 25, 57, 0.45));
+        backdrop-filter: blur(10px);
+        border-radius: 24px;
+        padding: clamp(22px, 5vw, 42px);
+        margin-bottom: 22px;
+        box-shadow: 0 18px 70px rgba(0, 0, 0, 0.35);
+      }
+
+      h1 {
+        font-size: clamp(1.9rem, 4.8vw, 3.7rem);
+        line-height: 1.02;
+        margin: 0 0 8px;
+      }
+
+      .subtitle {
+        margin: 0;
+        color: var(--muted);
+        max-width: 780px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 14px;
+      }
+
+      .card {
+        border: 1px solid var(--stroke);
+        background: var(--card);
+        border-radius: 18px;
+        padding: 16px;
+        text-decoration: none;
+        color: inherit;
+        transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+      }
+
+      .card:hover {
+        transform: translateY(-2px);
+        border-color: rgba(153, 173, 255, 0.5);
+        box-shadow: 0 18px 32px rgba(0, 0, 0, 0.24);
+      }
+
+      .card h3 {
+        margin: 0 0 8px;
+        font-size: 1.04rem;
+      }
+
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      .meta {
+        margin-top: 12px;
+        font-size: 0.78rem;
+        color: #bac7ff;
+        opacity: 0.9;
+      }
+
+      .empty {
+        border: 1px dashed var(--stroke);
+        border-radius: 18px;
+        padding: 30px;
+        text-align: center;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="orb one"></div>
+    <div class="orb two"></div>
+    <div class="noise"></div>
+
+    <main>
+      <div class="top">
+        <div class="logo">vloop <b>canvas</b></div>
+        <div class="pill">Realtime IPC enabled</div>
+      </div>
+
+      <section class="hero">
+        <h1>Interactive AI canvases that stay in sync.</h1>
+        <p class="subtitle">
+          Browse active canvases, open live environments, and receive backend state updates automatically through the preloaded canvas IPC client.
+        </p>
+      </section>
+
+      <section id="canvas-grid" class="grid" aria-live="polite"></section>
+    </main>
+
+    <script>
+      const grid = document.getElementById('canvas-grid');
+
+      function cardForCanvas(canvas) {
+        const a = document.createElement('a');
+        a.className = 'card';
+        a.href = `/${canvas.id}/index.html`;
+
+        const title = canvas.name || 'Untitled Canvas';
+        const description = canvas.description || 'No description provided.';
+        const created = canvas.createdAt ? new Date(canvas.createdAt).toLocaleString() : 'unknown';
+
+        a.innerHTML = `
+          <h3>${title}</h3>
+          <p>${description}</p>
+          <div class="meta">id: ${canvas.id.slice(0, 10)} • created: ${created}</div>
+        `;
+
+        return a;
+      }
+
+      async function loadCanvases() {
+        grid.innerHTML = '';
+        try {
+          const res = await fetch('/canvases', { headers: { Accept: 'application/json' } });
+          if (!res.ok) throw new Error(`Failed to load canvases (${res.status})`);
+          const data = await res.json();
+          const canvases = Array.isArray(data?.canvases) ? data.canvases : [];
+
+          if (canvases.length === 0) {
+            grid.innerHTML = '<div class="empty">No canvases yet. Create one from the AI agent and it will appear here.</div>';
+            return;
+          }
+
+          canvases.forEach((canvas) => grid.appendChild(cardForCanvas(canvas)));
+        } catch (error) {
+          grid.innerHTML = `<div class="empty">${error.message}</div>`;
+        }
+      }
+
+      loadCanvases();
+
+      document.addEventListener('mousemove', (e) => {
+        const nx = (e.clientX / window.innerWidth - 0.5) * 8;
+        const ny = (e.clientY / window.innerHeight - 0.5) * 8;
+        document.querySelector('.orb.one').style.transform = `translate(${nx}px, ${ny}px)`;
+        document.querySelector('.orb.two').style.transform = `translate(${-nx}px, ${-ny}px)`;
+      });
+    </script>
+  </body>
+</html>

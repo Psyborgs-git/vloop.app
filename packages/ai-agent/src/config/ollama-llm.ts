@@ -315,6 +315,8 @@ export class OllamaLlm extends BaseLlm {
 				thoughtSignature,
 				thought_signature: thoughtSignature,
 			} as any,
+			thoughtSignature,
+			thought_signature: thoughtSignature,
 		} as Part;
 	}
 

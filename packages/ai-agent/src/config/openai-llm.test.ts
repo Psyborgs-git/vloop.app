@@ -72,6 +72,9 @@ describe('OpenAILlm', () => {
 
         const toolCall = first.value?.content?.parts?.[0]?.functionCall as any;
         expect(toolCall?.thoughtSignature).toBe('openai');
+        expect(toolCall?.thought_signature).toBe('openai');
+        expect((first.value?.content?.parts?.[0] as any)?.thoughtSignature).toBe('openai');
+        expect((first.value?.content?.parts?.[0] as any)?.thought_signature).toBe('openai');
     });
 
     it('throws a clear error when choices[0].message is missing', async () => {

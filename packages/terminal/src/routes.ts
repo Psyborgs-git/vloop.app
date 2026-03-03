@@ -1,7 +1,8 @@
 import type { DependencyContainer } from "tsyringe";
 import { createTerminalHandler, TerminalManager, TerminalProfileManager, SessionLogger, TerminalSessionStore } from "./index.js";
+import type { AppRouterContract, AppTopicHandler } from "@orch/shared";
 
-export function registerRoutes(container: DependencyContainer, router: any) {
+export function registerRoutes(container: DependencyContainer, router: AppRouterContract) {
     const manager = container.resolve(TerminalManager);
     const profileManager = container.resolve(TerminalProfileManager);
     const sessionLogger = container.resolve(SessionLogger);
@@ -9,6 +10,6 @@ export function registerRoutes(container: DependencyContainer, router: any) {
 
     router.register(
         "terminal",
-        createTerminalHandler(manager, profileManager, sessionLogger, sessionStore)
+        createTerminalHandler(manager, profileManager, sessionLogger, sessionStore) as AppTopicHandler,
     );
 }

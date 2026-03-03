@@ -70,5 +70,7 @@ describe('OllamaLlm', () => {
         const toolCall = first.value?.content?.parts?.[0]?.functionCall as any;
         expect(toolCall?.thoughtSignature).toBe('ollama');
         expect(toolCall?.thought_signature).toBe('ollama');
+        expect((first.value?.content?.parts?.[0] as any)?.thoughtSignature).toBe('ollama');
+        expect((first.value?.content?.parts?.[0] as any)?.thought_signature).toBe('ollama');
     });
 });

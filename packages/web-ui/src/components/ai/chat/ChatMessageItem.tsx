@@ -1,4 +1,4 @@
-import { Box, Avatar, Typography, Paper, Accordion, AccordionSummary, AccordionDetails, Chip, ListItem, CircularProgress, Tooltip, IconButton, Stack, alpha } from '@mui/material';
+import { Box, Avatar, Typography, Accordion, AccordionSummary, AccordionDetails, Chip, ListItem, CircularProgress, Tooltip, IconButton, Stack, alpha } from '@mui/material';
 import { User as UserIcon, Command, Bot, ChevronDown, Wrench, Brain, RotateCcw, GitFork } from 'lucide-react';
 import { ChatMessage } from './types.js';
 import { useState, useEffect } from 'react';
