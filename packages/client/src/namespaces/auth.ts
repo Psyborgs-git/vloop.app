@@ -60,4 +60,33 @@ export class AuthClient {
     public async listProviders(options: PaginationOptions = {}): Promise<PaginatedResult<any>> {
         return this.client.request('auth', 'provider.list', options);
     }
+
+    // ── Persistent Token Management ────────────────────────────────────
+
+    /**
+     * Create a persistent API token.
+     */
+    public async createToken(options: {
+        name: string;
+        tokenType?: 'user' | 'agent';
+        roles?: string[];
+        scopes?: string[];
+        ttlSecs?: number;
+    }): Promise<{ token: any; rawToken: string }> {
+        return this.client.request('auth', 'token.create', options);
+    }
+
+    /**
+     * List persistent tokens for the current identity or a specified one.
+     */
+    public async listTokens(identity?: string): Promise<{ tokens: any[] }> {
+        return this.client.request('auth', 'token.list', { identity });
+    }
+
+    /**
+     * Revoke a persistent token by its ID.
+     */
+    public async revokeToken(tokenId: string): Promise<{ success: boolean }> {
+        return this.client.request('auth', 'token.revoke', { tokenId });
+    }
 }

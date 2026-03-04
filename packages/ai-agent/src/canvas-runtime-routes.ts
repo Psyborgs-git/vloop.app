@@ -1,8 +1,8 @@
-import type { Router } from '@orch/daemon';
+import type { AppRouterContract } from '@orch/shared';
 import type { CanvasStateManager } from './canvas-state-manager.js';
 
 export function registerCanvasRuntimeTopic(
-    router: Router,
+    router: AppRouterContract,
     getStateManager: () => CanvasStateManager | undefined,
 ) {
     router.register('canvas', async (action, payload) => {

@@ -5,20 +5,71 @@
  * plus m2m join tables for tools and MCP servers.
  */
 
-import { eq, asc } from 'drizzle-orm';
+import { eq, asc, inArray } from 'drizzle-orm';
 import type { RootDatabaseOrm } from '@orch/shared/db';
 import {
 	aiSessionsTable, aiSessionToolsTable, aiSessionMcpServersTable,
 	aiToolsTable, aiMcpServersTable,
 } from '../schema.js';
-import { fromJSON, now } from '../repo-helpers.js';
+import { now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
 import type {
 	SessionId, Session, CreateSessionInput,
 	MessageId, ToolConfigId, ToolConfig,
 	McpServerId, McpServerConfig,
 } from '../types.js';
-import type { ISessionRepo } from './interfaces.js';
+import type { ISessionRepo, RepoListQuery } from './interfaces.js';
+import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
+
+const mapSession = createRowMapper<Session>({
+	id: (row) => row.id as SessionId,
+	agentId: (row) => opt(row.agent_id as Session['agentId'] | null),
+	workflowId: (row) => opt(row.workflow_id as Session['workflowId'] | null),
+	modelId: (row) => opt(row.model_id as Session['modelId'] | null),
+	providerId: (row) => opt(row.provider_id as Session['providerId'] | null),
+	mode: (row) => opt(row.mode as Session['mode'] | null),
+	title: (row) => row.title as string,
+	toolIds: () => [],
+	mcpServerIds: () => undefined,
+	headMessageId: (row) => opt(row.head_message_id as MessageId | null),
+	createdAt: (row) => row.created_at as string,
+	updatedAt: (row) => row.updated_at as string,
+});
+
+const mapTool = createRowMapper<ToolConfig>({
+	id: (row) => row.id as ToolConfigId,
+	name: (row) => row.name as string,
+	description: (row) => row.description as string,
+	parametersSchema: (row) => jsonOr<Record<string, unknown>>(row.parameters_schema, {}),
+	handlerType: (row) => row.handler_type as ToolConfig['handlerType'],
+	handlerConfig: (row) => jsonOr<Record<string, unknown>>(row.handler_config, {}),
+	createdAt: (row) => row.created_at as string,
+	updatedAt: (row) => row.updated_at as string,
+});
+
+const mapMcpServer = createRowMapper<McpServerConfig>({
+	id: (row) => row.id as McpServerId,
+	name: (row) => row.name as string,
+	protocolVersion: (row) => opt(row.protocol_version as string | null),
+	capabilities: (row) => jsonOr<string[]>(row.capabilities, []),
+	transport: (row) => row.transport as McpServerConfig['transport'],
+	handlerConfig: (row) => jsonOr<Record<string, unknown>>(row.handler_config, {}),
+	createdAt: (row) => row.created_at as string,
+	updatedAt: (row) => row.updated_at as string,
+});
+
+const sessionColumns = {
+	id: aiSessionsTable.id,
+	agentId: aiSessionsTable.agent_id,
+	workflowId: aiSessionsTable.workflow_id,
+	modelId: aiSessionsTable.model_id,
+	providerId: aiSessionsTable.provider_id,
+	mode: aiSessionsTable.mode,
+	title: aiSessionsTable.title,
+	headMessageId: aiSessionsTable.head_message_id,
+	createdAt: aiSessionsTable.created_at,
+	updatedAt: aiSessionsTable.updated_at,
+} as const;
 
 export class SessionRepo implements ISessionRepo {
 	constructor(private readonly orm: RootDatabaseOrm) {}
@@ -52,12 +103,21 @@ export class SessionRepo implements ISessionRepo {
 		return this.map(row, toolIds, mcpServerIds);
 	}
 
-	list(): Session[] {
-		return (this.orm.select().from(aiSessionsTable).all() as any[]).map(row => {
-			const toolIds = this.getToolIds(row.id);
-			const mcpServerIds = this.getMcpServerIds(row.id);
-			return this.map(row, toolIds, mcpServerIds);
-		});
+	list(query?: RepoListQuery<keyof typeof sessionColumns>): Session[] {
+		const statement = applyListQuery(this.orm.select().from(aiSessionsTable), sessionColumns, query);
+		const rows = statement.all() as Record<string, unknown>[];
+		if (!rows.length) return [];
+
+		const eagerRelations = query?.relationLoad !== 'lazy';
+		const sessionIds = rows.map((row) => row.id as SessionId);
+		const toolMap = eagerRelations ? this.getToolIdsBySessionIds(sessionIds) : new Map<SessionId, ToolConfigId[]>();
+		const mcpMap = eagerRelations ? this.getMcpServerIdsBySessionIds(sessionIds) : new Map<SessionId, McpServerId[]>();
+
+		return rows.map((row) => this.map(
+			row,
+			toolMap.get(row.id as SessionId) ?? [],
+			mcpMap.get(row.id as SessionId) ?? [],
+		));
 	}
 
 	update(id: SessionId, input: Partial<CreateSessionInput>): Session {
@@ -89,13 +149,14 @@ export class SessionRepo implements ISessionRepo {
 
 	setTools(sessionId: SessionId, toolIds: ToolConfigId[]): void {
 		this.orm.delete(aiSessionToolsTable).where(eq(aiSessionToolsTable.session_id, sessionId)).run();
-		toolIds.forEach((toolId, i) => {
-			this.orm.insert(aiSessionToolsTable).values({
+		if (!toolIds.length) return;
+		this.orm.insert(aiSessionToolsTable).values(
+			toolIds.map((toolId, i) => ({
 				session_id: sessionId,
 				tool_id: toolId,
 				sort_order: i,
-			}).run();
-		});
+			})),
+		).run();
 	}
 
 	getTools(sessionId: SessionId): ToolConfig[] {
@@ -114,27 +175,19 @@ export class SessionRepo implements ISessionRepo {
 			.where(eq(aiSessionToolsTable.session_id, sessionId))
 			.orderBy(asc(aiSessionToolsTable.sort_order))
 			.all() as any[];
-		return rows.map(r => ({
-			id: r.id,
-			name: r.name,
-			description: r.description,
-			parametersSchema: fromJSON(r.parameters_schema) ?? {},
-			handlerType: r.handler_type,
-			handlerConfig: fromJSON(r.handler_config) ?? {},
-			createdAt: r.created_at,
-			updatedAt: r.updated_at,
-		}));
+		return rows.map((r) => mapTool(r as Record<string, unknown>));
 	}
 
 	setMcpServers(sessionId: SessionId, serverIds: McpServerId[]): void {
 		this.orm.delete(aiSessionMcpServersTable).where(eq(aiSessionMcpServersTable.session_id, sessionId)).run();
-		serverIds.forEach((serverId, i) => {
-			this.orm.insert(aiSessionMcpServersTable).values({
+		if (!serverIds.length) return;
+		this.orm.insert(aiSessionMcpServersTable).values(
+			serverIds.map((serverId, i) => ({
 				session_id: sessionId,
 				server_id: serverId,
 				sort_order: i,
-			}).run();
-		});
+			})),
+		).run();
 	}
 
 	getMcpServers(sessionId: SessionId): McpServerConfig[] {
@@ -153,16 +206,7 @@ export class SessionRepo implements ISessionRepo {
 			.where(eq(aiSessionMcpServersTable.session_id, sessionId))
 			.orderBy(asc(aiSessionMcpServersTable.sort_order))
 			.all() as any[];
-		return rows.map(r => ({
-			id: r.id,
-			name: r.name,
-			protocolVersion: r.protocol_version ?? undefined,
-			capabilities: fromJSON(r.capabilities) ?? [],
-			transport: r.transport,
-			handlerConfig: fromJSON(r.handler_config) ?? {},
-			createdAt: r.created_at,
-			updatedAt: r.updated_at,
-		}));
+		return rows.map((r) => mapMcpServer(r as Record<string, unknown>));
 	}
 
 	// ── Internal ─────────────────────────────────────────────────────────
@@ -183,20 +227,52 @@ export class SessionRepo implements ISessionRepo {
 			.all() as any[]).map(r => r.server_id);
 	}
 
-	private map(row: any, toolIds: ToolConfigId[], mcpServerIds: McpServerId[]): Session {
+	private getToolIdsBySessionIds(sessionIds: SessionId[]): Map<SessionId, ToolConfigId[]> {
+		if (!sessionIds.length) return new Map();
+		const rows = this.orm.select({
+			session_id: aiSessionToolsTable.session_id,
+			tool_id: aiSessionToolsTable.tool_id,
+		})
+			.from(aiSessionToolsTable)
+			.where(inArray(aiSessionToolsTable.session_id, sessionIds))
+			.orderBy(asc(aiSessionToolsTable.sort_order))
+			.all() as Array<{ session_id: SessionId; tool_id: ToolConfigId }>;
+
+		const grouped = new Map<SessionId, ToolConfigId[]>();
+		for (const row of rows) {
+			const list = grouped.get(row.session_id) ?? [];
+			list.push(row.tool_id);
+			grouped.set(row.session_id, list);
+		}
+		return grouped;
+	}
+
+	private getMcpServerIdsBySessionIds(sessionIds: SessionId[]): Map<SessionId, McpServerId[]> {
+		if (!sessionIds.length) return new Map();
+		const rows = this.orm.select({
+			session_id: aiSessionMcpServersTable.session_id,
+			server_id: aiSessionMcpServersTable.server_id,
+		})
+			.from(aiSessionMcpServersTable)
+			.where(inArray(aiSessionMcpServersTable.session_id, sessionIds))
+			.orderBy(asc(aiSessionMcpServersTable.sort_order))
+			.all() as Array<{ session_id: SessionId; server_id: McpServerId }>;
+
+		const grouped = new Map<SessionId, McpServerId[]>();
+		for (const row of rows) {
+			const list = grouped.get(row.session_id) ?? [];
+			list.push(row.server_id);
+			grouped.set(row.session_id, list);
+		}
+		return grouped;
+	}
+
+	private map(row: Record<string, unknown>, toolIds: ToolConfigId[], mcpServerIds: McpServerId[]): Session {
+		const base = mapSession(row);
 		return {
-			id: row.id,
-			agentId: row.agent_id ?? undefined,
-			workflowId: row.workflow_id ?? undefined,
-			modelId: row.model_id ?? undefined,
-			providerId: row.provider_id ?? undefined,
-			mode: row.mode ?? undefined,
-			title: row.title,
+			...base,
 			toolIds,
 			mcpServerIds: mcpServerIds.length ? mcpServerIds : undefined,
-			headMessageId: row.head_message_id ?? undefined,
-			createdAt: row.created_at,
-			updatedAt: row.updated_at,
 		};
 	}
 }

@@ -4,19 +4,64 @@
  * Manages the agent entity plus m2m join tables for tools and MCP servers.
  */
 
-import { eq, asc } from 'drizzle-orm';
+import { eq, asc, inArray } from 'drizzle-orm';
 import type { RootDatabaseOrm } from '@orch/shared/db';
 import {
 	aiAgentsTable, aiAgentToolsTable, aiAgentMcpServersTable,
 	aiToolsTable, aiMcpServersTable,
 } from '../schema.js';
-import { toJSON, fromJSON, now } from '../repo-helpers.js';
+import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
 import type {
 	AgentConfigId, AgentConfig, CreateAgentInput,
 	ToolConfigId, ToolConfig, McpServerId, McpServerConfig,
 } from '../types.js';
-import type { IAgentRepo } from './interfaces.js';
+import type { IAgentRepo, RepoListQuery } from './interfaces.js';
+import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
+
+const mapAgent = createRowMapper<AgentConfig>({
+	id: (row) => row.id as AgentConfigId,
+	name: (row) => row.name as string,
+	description: (row) => row.description as string,
+	modelId: (row) => row.model_id as AgentConfig['modelId'],
+	systemPrompt: (row) => row.system_prompt as string,
+	toolIds: (row) => jsonOr<ToolConfigId[]>(row.tool_ids, []),
+	mcpServerIds: () => undefined,
+	params: (row) => jsonOr<AgentConfig['params']>(row.params, undefined),
+	createdAt: (row) => row.created_at as string,
+	updatedAt: (row) => row.updated_at as string,
+});
+
+const mapTool = createRowMapper<ToolConfig>({
+	id: (row) => row.id as ToolConfigId,
+	name: (row) => row.name as string,
+	description: (row) => row.description as string,
+	parametersSchema: (row) => jsonOr<Record<string, unknown>>(row.parameters_schema, {}),
+	handlerType: (row) => row.handler_type as ToolConfig['handlerType'],
+	handlerConfig: (row) => jsonOr<Record<string, unknown>>(row.handler_config, {}),
+	createdAt: (row) => row.created_at as string,
+	updatedAt: (row) => row.updated_at as string,
+});
+
+const mapMcpServer = createRowMapper<McpServerConfig>({
+	id: (row) => row.id as McpServerId,
+	name: (row) => row.name as string,
+	protocolVersion: (row) => opt(row.protocol_version as string | null),
+	capabilities: (row) => jsonOr<string[]>(row.capabilities, []),
+	transport: (row) => row.transport as McpServerConfig['transport'],
+	handlerConfig: (row) => jsonOr<Record<string, unknown>>(row.handler_config, {}),
+	createdAt: (row) => row.created_at as string,
+	updatedAt: (row) => row.updated_at as string,
+});
+
+const agentColumns = {
+	id: aiAgentsTable.id,
+	name: aiAgentsTable.name,
+	description: aiAgentsTable.description,
+	modelId: aiAgentsTable.model_id,
+	createdAt: aiAgentsTable.created_at,
+	updatedAt: aiAgentsTable.updated_at,
+} as const;
 
 export class AgentRepo implements IAgentRepo {
 	constructor(private readonly orm: RootDatabaseOrm) {}
@@ -48,19 +93,21 @@ export class AgentRepo implements IAgentRepo {
 			.from(aiAgentMcpServersTable)
 			.where(eq(aiAgentMcpServersTable.agent_id, id))
 			.orderBy(asc(aiAgentMcpServersTable.sort_order))
-			.all() as any[]).map(r => r.server_id);
+			.all() as Array<{ server_id: McpServerId }>).map(r => r.server_id);
 		return this.map(row, mcpServerIds);
 	}
 
-	list(): AgentConfig[] {
-		return (this.orm.select().from(aiAgentsTable).all() as any[]).map(row => {
-			const mcpServerIds = (this.orm.select({ server_id: aiAgentMcpServersTable.server_id })
-				.from(aiAgentMcpServersTable)
-				.where(eq(aiAgentMcpServersTable.agent_id, row.id))
-				.orderBy(asc(aiAgentMcpServersTable.sort_order))
-				.all() as any[]).map(r => r.server_id);
-			return this.map(row, mcpServerIds);
-		});
+	list(query?: RepoListQuery<keyof typeof agentColumns>): AgentConfig[] {
+		const statement = applyListQuery(this.orm.select().from(aiAgentsTable), agentColumns, query);
+		const rows = statement.all() as Record<string, unknown>[];
+		if (!rows.length) return [];
+
+		const eagerRelations = query?.relationLoad !== 'lazy';
+		const relationMap = eagerRelations
+			? this.getMcpServerIdsByAgentIds(rows.map((row) => row.id as AgentConfigId))
+			: new Map<AgentConfigId, McpServerId[]>();
+
+		return rows.map((row) => this.map(row, relationMap.get(row.id as AgentConfigId) ?? []));
 	}
 
 	update(id: AgentConfigId, input: Partial<CreateAgentInput>): AgentConfig {
@@ -87,13 +134,14 @@ export class AgentRepo implements IAgentRepo {
 
 	setTools(agentId: AgentConfigId, toolIds: ToolConfigId[]): void {
 		this.orm.delete(aiAgentToolsTable).where(eq(aiAgentToolsTable.agent_id, agentId)).run();
-		toolIds.forEach((toolId, i) => {
-			this.orm.insert(aiAgentToolsTable).values({
+		if (!toolIds.length) return;
+		this.orm.insert(aiAgentToolsTable).values(
+			toolIds.map((toolId, i) => ({
 				agent_id: agentId,
 				tool_id: toolId,
 				sort_order: i,
-			}).run();
-		});
+			})),
+		).run();
 	}
 
 	getTools(agentId: AgentConfigId): ToolConfig[] {
@@ -112,27 +160,19 @@ export class AgentRepo implements IAgentRepo {
 			.where(eq(aiAgentToolsTable.agent_id, agentId))
 			.orderBy(asc(aiAgentToolsTable.sort_order))
 			.all() as any[];
-		return rows.map(r => ({
-			id: r.id,
-			name: r.name,
-			description: r.description,
-			parametersSchema: fromJSON(r.parameters_schema) ?? {},
-			handlerType: r.handler_type,
-			handlerConfig: fromJSON(r.handler_config) ?? {},
-			createdAt: r.created_at,
-			updatedAt: r.updated_at,
-		}));
+		return rows.map((r) => mapTool(r as Record<string, unknown>));
 	}
 
 	setMcpServers(agentId: AgentConfigId, serverIds: McpServerId[]): void {
 		this.orm.delete(aiAgentMcpServersTable).where(eq(aiAgentMcpServersTable.agent_id, agentId)).run();
-		serverIds.forEach((serverId, i) => {
-			this.orm.insert(aiAgentMcpServersTable).values({
+		if (!serverIds.length) return;
+		this.orm.insert(aiAgentMcpServersTable).values(
+			serverIds.map((serverId, i) => ({
 				agent_id: agentId,
 				server_id: serverId,
 				sort_order: i,
-			}).run();
-		});
+			})),
+		).run();
 	}
 
 	getMcpServers(agentId: AgentConfigId): McpServerConfig[] {
@@ -151,30 +191,34 @@ export class AgentRepo implements IAgentRepo {
 			.where(eq(aiAgentMcpServersTable.agent_id, agentId))
 			.orderBy(asc(aiAgentMcpServersTable.sort_order))
 			.all() as any[];
-		return rows.map(r => ({
-			id: r.id,
-			name: r.name,
-			protocolVersion: r.protocol_version ?? undefined,
-			capabilities: fromJSON(r.capabilities) ?? [],
-			transport: r.transport,
-			handlerConfig: fromJSON(r.handler_config) ?? {},
-			createdAt: r.created_at,
-			updatedAt: r.updated_at,
-		}));
+		return rows.map((r) => mapMcpServer(r as Record<string, unknown>));
 	}
 
-	private map(row: any, mcpServerIds: string[]): AgentConfig {
+	private getMcpServerIdsByAgentIds(agentIds: AgentConfigId[]): Map<AgentConfigId, McpServerId[]> {
+		if (!agentIds.length) return new Map();
+		const rows = this.orm.select({
+			agent_id: aiAgentMcpServersTable.agent_id,
+			server_id: aiAgentMcpServersTable.server_id,
+		})
+			.from(aiAgentMcpServersTable)
+			.where(inArray(aiAgentMcpServersTable.agent_id, agentIds))
+			.orderBy(asc(aiAgentMcpServersTable.sort_order))
+			.all() as Array<{ agent_id: AgentConfigId; server_id: McpServerId }>;
+
+		const grouped = new Map<AgentConfigId, McpServerId[]>();
+		for (const row of rows) {
+			const list = grouped.get(row.agent_id) ?? [];
+			list.push(row.server_id);
+			grouped.set(row.agent_id, list);
+		}
+		return grouped;
+	}
+
+	private map(row: Record<string, unknown>, mcpServerIds: McpServerId[]): AgentConfig {
+		const base = mapAgent(row);
 		return {
-			id: row.id,
-			name: row.name,
-			description: row.description,
-			modelId: row.model_id,
-			systemPrompt: row.system_prompt,
-			toolIds: fromJSON(row.tool_ids) ?? [],
-			mcpServerIds: mcpServerIds.length ? mcpServerIds as McpServerId[] : undefined,
-			params: fromJSON(row.params) ?? undefined,
-			createdAt: row.created_at,
-			updatedAt: row.updated_at,
+			...base,
+			mcpServerIds: mcpServerIds.length ? mcpServerIds : undefined,
 		};
 	}
 }

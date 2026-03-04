@@ -5,10 +5,31 @@
 import { eq } from 'drizzle-orm';
 import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiToolsTable } from '../schema.js';
-import { toJSON, fromJSON, now } from '../repo-helpers.js';
+import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
 import type { ToolConfigId, ToolConfig, CreateToolInput } from '../types.js';
-import type { IToolRepo } from './interfaces.js';
+import type { IToolRepo, RepoListQuery } from './interfaces.js';
+import { applyListQuery, createRowMapper, jsonOr } from './query-helpers.js';
+
+const mapTool = createRowMapper<ToolConfig>({
+	id: (row) => row.id as ToolConfigId,
+	name: (row) => row.name as string,
+	description: (row) => row.description as string,
+	parametersSchema: (row) => jsonOr<Record<string, unknown>>(row.parameters_schema, {}),
+	handlerType: (row) => row.handler_type as ToolConfig['handlerType'],
+	handlerConfig: (row) => jsonOr<Record<string, unknown>>(row.handler_config, {}),
+	createdAt: (row) => row.created_at as string,
+	updatedAt: (row) => row.updated_at as string,
+});
+
+const toolColumns = {
+	id: aiToolsTable.id,
+	name: aiToolsTable.name,
+	description: aiToolsTable.description,
+	handlerType: aiToolsTable.handler_type,
+	createdAt: aiToolsTable.created_at,
+	updatedAt: aiToolsTable.updated_at,
+} as const;
 
 export class ToolRepo implements IToolRepo {
 	constructor(private readonly orm: RootDatabaseOrm) {}
@@ -35,8 +56,9 @@ export class ToolRepo implements IToolRepo {
 		return row ? this.map(row) : undefined;
 	}
 
-	list(): ToolConfig[] {
-		return (this.orm.select().from(aiToolsTable).all() as any[]).map(r => this.map(r));
+	list(query?: RepoListQuery<keyof typeof toolColumns>): ToolConfig[] {
+		const statement = applyListQuery(this.orm.select().from(aiToolsTable), toolColumns, query);
+		return (statement.all() as Record<string, unknown>[]).map(mapTool);
 	}
 
 	update(id: ToolConfigId, input: Partial<CreateToolInput>): ToolConfig {
@@ -54,16 +76,7 @@ export class ToolRepo implements IToolRepo {
 		this.orm.delete(aiToolsTable).where(eq(aiToolsTable.id, id)).run();
 	}
 
-	private map(row: any): ToolConfig {
-		return {
-			id: row.id,
-			name: row.name,
-			description: row.description,
-			parametersSchema: fromJSON(row.parameters_schema) ?? {},
-			handlerType: row.handler_type,
-			handlerConfig: fromJSON(row.handler_config) ?? {},
-			createdAt: row.created_at,
-			updatedAt: row.updated_at,
-		};
+	private map(row: Record<string, unknown>): ToolConfig {
+		return mapTool(row);
 	}
 }

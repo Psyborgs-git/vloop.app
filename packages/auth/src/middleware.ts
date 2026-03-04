@@ -2,8 +2,8 @@
  * Auth + RBAC middleware for the message router.
  *
  * This middleware:
- * 1. Extracts the session token from the request meta.
- * 2. Validates the session via SessionManager.
+ * 1. Extracts the session/persistent token from the request meta.
+ * 2. Validates via SessionManager or TokenManager (persistent tokens).
  * 3. Evaluates RBAC permissions via PolicyEngine.
  * 4. Logs the mutation to the AuditLogger.
  * 5. Enriches the HandlerContext with identity/roles/sessionId.
@@ -11,6 +11,7 @@
 
 import type { Middleware } from '@orch/daemon';
 import type { SessionManager } from './session.js';
+import type { TokenManager } from './token-manager.js';
 import type { PolicyEngine } from './rbac.js';
 import type { AuditLogger } from './audit.js';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
@@ -44,6 +45,7 @@ export function createAuthMiddleware(
     sessionManager: SessionManager,
     policyEngine: PolicyEngine,
     auditLogger: AuditLogger,
+    tokenManager?: TokenManager,
 ): Middleware {
     return async (context, next) => {
         const { request, logger, ws } = context;
@@ -53,7 +55,7 @@ export function createAuthMiddleware(
             return next();
         }
 
-        // ── Step 1: Validate session ───────────────────────────────────────
+        // ── Step 1: Validate session or persistent token ───────────────────
 
         // Get session token from connection state (preferred) or request meta (fallback for internal calls)
         let sessionToken = request.meta.session_id;
@@ -73,15 +75,30 @@ export function createAuthMiddleware(
             );
         }
 
-        const session = sessionManager.validate(sessionToken);
+        let identity: string;
+        let roles: string[];
+        let sessionId: string;
+
+        // Try persistent token first (prefixed with orch_), then session
+        if (tokenManager && sessionToken.startsWith('orch_')) {
+            const validated = tokenManager.validate(sessionToken);
+            identity = validated.identity;
+            roles = validated.roles;
+            sessionId = validated.id;
+        } else {
+            const session = sessionManager.validate(sessionToken);
+            identity = session.identity;
+            roles = session.roles;
+            sessionId = session.id;
+        }
 
         // Enrich context
-        context.identity = session.identity;
-        context.roles = session.roles;
-        context.sessionId = session.id;
+        context.identity = identity;
+        context.roles = roles;
+        context.sessionId = sessionId;
 
         logger.debug(
-            { identity: session.identity, roles: session.roles },
+            { identity, roles },
             'Session validated',
         );
 
@@ -90,7 +107,7 @@ export function createAuthMiddleware(
         const resource = getResourceId(request.topic, request.action, request.payload);
 
         const isAllowed = policyEngine.evaluate(
-            session.roles,
+            roles,
             request.topic,
             request.action,
             resource,
@@ -101,8 +118,8 @@ export function createAuthMiddleware(
         const isMutation = !READ_ACTIONS.has(request.action);
         if (isMutation || !isAllowed) {
             auditLogger.log({
-                sessionId: session.id,
-                identity: session.identity,
+                sessionId,
+                identity,
                 topic: request.topic,
                 action: request.action,
                 resource,
@@ -116,10 +133,10 @@ export function createAuthMiddleware(
         if (!isAllowed) {
             throw new OrchestratorError(
                 ErrorCode.PERMISSION_DENIED,
-                `Permission denied: ${session.identity} lacks ${request.topic}:${request.action}:${resource}`,
+                `Permission denied: ${identity} lacks ${request.topic}:${request.action}:${resource}`,
                 {
-                    identity: session.identity,
-                    roles: session.roles,
+                    identity,
+                    roles,
                     required: `${request.topic}:${request.action}:${resource}`,
                 },
             );

@@ -2,6 +2,10 @@
 
 This document records the hard-cutover migration from legacy app config objects to strict typed lifecycle components.
 
+> Note: MCP ownership details in this document were later superseded by
+> [MCP Server Split + Persistent Token Model (2026-03)](./mcp-split-persistent-tokens-2026-03.md),
+> where MCP HTTP transport moved from `@orch/ai-agent` to `@orch/mcp-server`.
+
 ## Goals
 
 - Make every package app a reusable, self-managed component.
@@ -64,7 +68,7 @@ Orchestrator remains the boundary for:
 
 ### Fully migrated to `AppComponent`
 
-- `@orch/ai-agent` (owns MCP + canvas runtime lifecycle)
+- `@orch/ai-agent` (owns canvas + ToolRegistry runtime lifecycle)
 - `@orch/auth`
 - `@orch/vault`
 - `@orch/db-manager`

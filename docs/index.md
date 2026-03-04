@@ -30,6 +30,7 @@ Built on a robust, multi-tenant architecture, vloop provides a unified interface
 *   [Data Flow](./architecture/data-flow.md): Lifecycle of a request and security boundaries.
 *   [AI Agent Migration (2026-03)](./architecture/ai-agent-migration-2026-03.md): Consolidation of ai-agent ownership, app entrypoint unification, and dedicated MCP server port.
 *   [Typed App Lifecycle Migration (2026-03)](./architecture/typed-app-lifecycle-migration-2026-03.md): Hard cutover to `AppComponent`, self-managed package lifecycle, secured restart control plane, and orchestrator gateway cleanup.
+*   [MCP Split & Persistent Tokens (2026-03)](./architecture/mcp-split-persistent-tokens-2026-03.md): Extraction of `@orch/mcp-server` component, persistent API token model, and unified auth middleware.
 
 ### Features
 *   [Security & Auth](./features/security.md): Authentication, RBAC, Vault, and Audit Logging.

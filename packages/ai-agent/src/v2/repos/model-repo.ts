@@ -5,10 +5,36 @@
 import { eq } from 'drizzle-orm';
 import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiModelsTable } from '../schema.js';
-import { toJSON, fromJSON, now } from '../repo-helpers.js';
+import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
 import type { ModelId, ModelConfig, CreateModelInput } from '../types.js';
-import type { IModelRepo } from './interfaces.js';
+import type { IModelRepo, RepoListQuery } from './interfaces.js';
+import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
+
+const mapModel = createRowMapper<ModelConfig>({
+	id: (row) => row.id as ModelId,
+	name: (row) => row.name as string,
+	providerId: (row) => row.provider_id as ModelConfig['providerId'],
+	modelId: (row) => row.model_id as string,
+	runtime: (row) => opt(row.runtime as ModelConfig['runtime'] | null),
+	supportsTools: (row) => Boolean(row.supports_tools),
+	supportsStreaming: (row) => Boolean(row.supports_streaming),
+	params: (row) => jsonOr<ModelConfig['params']>(row.params, {}),
+	createdAt: (row) => row.created_at as string,
+	updatedAt: (row) => row.updated_at as string,
+});
+
+const modelColumns = {
+	id: aiModelsTable.id,
+	name: aiModelsTable.name,
+	providerId: aiModelsTable.provider_id,
+	modelId: aiModelsTable.model_id,
+	runtime: aiModelsTable.runtime,
+	supportsTools: aiModelsTable.supports_tools,
+	supportsStreaming: aiModelsTable.supports_streaming,
+	createdAt: aiModelsTable.created_at,
+	updatedAt: aiModelsTable.updated_at,
+} as const;
 
 export class ModelRepo implements IModelRepo {
 	constructor(private readonly orm: RootDatabaseOrm) {}
@@ -37,8 +63,9 @@ export class ModelRepo implements IModelRepo {
 		return row ? this.map(row) : undefined;
 	}
 
-	list(): ModelConfig[] {
-		return (this.orm.select().from(aiModelsTable).all() as any[]).map(r => this.map(r));
+	list(query?: RepoListQuery<keyof typeof modelColumns>): ModelConfig[] {
+		const statement = applyListQuery(this.orm.select().from(aiModelsTable), modelColumns, query);
+		return (statement.all() as Record<string, unknown>[]).map(mapModel);
 	}
 
 	update(id: ModelId, input: Partial<CreateModelInput>): ModelConfig {
@@ -58,18 +85,7 @@ export class ModelRepo implements IModelRepo {
 		this.orm.delete(aiModelsTable).where(eq(aiModelsTable.id, id)).run();
 	}
 
-	private map(row: any): ModelConfig {
-		return {
-			id: row.id,
-			name: row.name,
-			providerId: row.provider_id,
-			modelId: row.model_id,
-			runtime: row.runtime ?? undefined,
-			supportsTools: Boolean(row.supports_tools),
-			supportsStreaming: Boolean(row.supports_streaming),
-			params: fromJSON(row.params) ?? {},
-			createdAt: row.created_at,
-			updatedAt: row.updated_at,
-		};
+	private map(row: Record<string, unknown>): ModelConfig {
+		return mapModel(row);
 	}
 }

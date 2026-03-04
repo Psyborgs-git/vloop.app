@@ -8,13 +8,37 @@
 import { eq, desc, asc, and } from 'drizzle-orm';
 import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiStateNodesTable } from '../schema.js';
-import { toJSON, fromJSON, now } from '../repo-helpers.js';
+import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
 import type {
 	StateNodeId, ExecutionId, StateNode, CreateStateNodeInput,
 	StateNodeStatus,
 } from '../types.js';
-import type { IStateNodeRepo } from './interfaces.js';
+import type { IStateNodeRepo, RepoListQuery } from './interfaces.js';
+import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
+
+const mapStateNode = createRowMapper<StateNode>({
+	id: (row) => row.id as StateNodeId,
+	executionId: (row) => row.execution_id as ExecutionId,
+	parentId: (row) => (row.parent_id as StateNodeId | null) ?? null,
+	kind: (row) => row.kind as StateNode['kind'],
+	status: (row) => row.status as StateNodeStatus,
+	payload: (row) => jsonOr<Record<string, unknown>>(row.payload, {}),
+	checkpoint: (row) => jsonOr<Record<string, unknown> | undefined>(row.checkpoint, undefined),
+	note: (row) => opt(row.note as string | null),
+	startedAt: (row) => row.started_at as string,
+	completedAt: (row) => opt(row.completed_at as string | null),
+});
+
+const stateNodeColumns = {
+	id: aiStateNodesTable.id,
+	executionId: aiStateNodesTable.execution_id,
+	parentId: aiStateNodesTable.parent_id,
+	kind: aiStateNodesTable.kind,
+	status: aiStateNodesTable.status,
+	startedAt: aiStateNodesTable.started_at,
+	completedAt: aiStateNodesTable.completed_at,
+} as const;
 
 export class StateNodeRepo implements IStateNodeRepo {
 	constructor(private readonly orm: RootDatabaseOrm) {}
@@ -43,11 +67,12 @@ export class StateNodeRepo implements IStateNodeRepo {
 		return row ? this.map(row) : undefined;
 	}
 
-	listByExecution(executionId: ExecutionId): StateNode[] {
-		return (this.orm.select().from(aiStateNodesTable)
+	listByExecution(executionId: ExecutionId, query?: RepoListQuery<keyof typeof stateNodeColumns>): StateNode[] {
+		let statement = this.orm.select().from(aiStateNodesTable)
 			.where(eq(aiStateNodesTable.execution_id, executionId))
-			.orderBy(asc(aiStateNodesTable.started_at))
-			.all() as any[]).map(r => this.map(r));
+			.orderBy(asc(aiStateNodesTable.started_at));
+		statement = applyListQuery(statement, stateNodeColumns, query);
+		return (statement.all() as Record<string, unknown>[]).map(mapStateNode);
 	}
 
 	updateStatus(id: StateNodeId, status: StateNodeStatus, completedAt?: string): void {
@@ -79,7 +104,7 @@ export class StateNodeRepo implements IStateNodeRepo {
 		return (this.orm.select().from(aiStateNodesTable)
 			.where(eq(aiStateNodesTable.parent_id, parentId))
 			.orderBy(asc(aiStateNodesTable.started_at))
-			.all() as any[]).map(r => this.map(r));
+			.all() as Record<string, unknown>[]).map(mapStateNode);
 	}
 
 	getLastCompleted(executionId: ExecutionId): StateNode | undefined {
@@ -96,18 +121,7 @@ export class StateNodeRepo implements IStateNodeRepo {
 
 	// ── Mapping ──────────────────────────────────────────────────────────
 
-	private map(row: any): StateNode {
-		return {
-			id: row.id,
-			executionId: row.execution_id,
-			parentId: row.parent_id ?? null,
-			kind: row.kind,
-			status: row.status,
-			payload: fromJSON(row.payload) ?? {},
-			checkpoint: fromJSON(row.checkpoint),
-			note: row.note ?? undefined,
-			startedAt: row.started_at,
-			completedAt: row.completed_at ?? undefined,
-		};
+	private map(row: Record<string, unknown>): StateNode {
+		return mapStateNode(row);
 	}
 }

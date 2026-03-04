@@ -5,13 +5,29 @@
 import { eq, desc } from 'drizzle-orm';
 import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiAuditEventsTable } from '../schema.js';
-import { toJSON, fromJSON, now } from '../repo-helpers.js';
+import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
 import type {
 	ExecutionId, AuditEventId,
 	AuditEvent, CreateAuditEventInput,
 } from '../types.js';
-import type { IAuditEventRepo } from './interfaces.js';
+import type { IAuditEventRepo, RepoListQuery } from './interfaces.js';
+import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
+
+const mapAuditEvent = createRowMapper<AuditEvent>({
+	id: (row) => row.id as AuditEventId,
+	executionId: (row) => opt(row.execution_id as ExecutionId | null),
+	kind: (row) => row.kind as AuditEvent['kind'],
+	payload: (row) => jsonOr<Record<string, unknown>>(row.payload, {}),
+	createdAt: (row) => row.created_at as string,
+});
+
+const auditColumns = {
+	id: aiAuditEventsTable.id,
+	executionId: aiAuditEventsTable.execution_id,
+	kind: aiAuditEventsTable.kind,
+	createdAt: aiAuditEventsTable.created_at,
+} as const;
 
 export class AuditEventRepo implements IAuditEventRepo {
 	constructor(private readonly orm: RootDatabaseOrm) {}
@@ -29,20 +45,15 @@ export class AuditEventRepo implements IAuditEventRepo {
 		return { id, executionId: input.executionId, kind: input.kind, payload: input.payload ?? {}, createdAt: ts };
 	}
 
-	listByExecution(executionId: ExecutionId): AuditEvent[] {
-		return (this.orm.select().from(aiAuditEventsTable)
+	listByExecution(executionId: ExecutionId, query?: RepoListQuery<keyof typeof auditColumns>): AuditEvent[] {
+		let statement = this.orm.select().from(aiAuditEventsTable)
 			.where(eq(aiAuditEventsTable.execution_id, executionId))
-			.orderBy(desc(aiAuditEventsTable.created_at))
-			.all() as any[]).map(r => this.map(r));
+			.orderBy(desc(aiAuditEventsTable.created_at));
+		statement = applyListQuery(statement, auditColumns, query);
+		return (statement.all() as Record<string, unknown>[]).map(mapAuditEvent);
 	}
 
-	private map(row: any): AuditEvent {
-		return {
-			id: row.id,
-			executionId: row.execution_id ?? undefined,
-			kind: row.kind,
-			payload: fromJSON(row.payload) ?? {},
-			createdAt: row.created_at,
-		};
+	private map(row: Record<string, unknown>): AuditEvent {
+		return mapAuditEvent(row);
 	}
 }

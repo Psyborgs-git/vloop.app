@@ -1,0 +1,36 @@
+{
+    "name": "@orch/mcp-server",
+    "version": "0.1.0",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "import": "./dist/index.js",
+            "types": "./dist/index.d.ts"
+        },
+        "./*": {
+            "import": "./dist/*.js",
+            "types": "./dist/*.d.ts"
+        }
+    },
+    "scripts": {
+        "build": "tsc --build",
+        "clean": "rm -rf dist"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.27.1",
+        "@orch/daemon": "workspace:*",
+        "@orch/shared": "workspace:*",
+        "express": "^5.2.1"
+    },
+    "devDependencies": {
+        "typescript": "^5.7.0"
+    },
+    "files": [
+        "dist"
+    ],
+    "publishConfig": {
+        "access": "public"
+    }
+}

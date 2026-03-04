@@ -1,6 +1,6 @@
 # AI Orchestration
 
-vloop transforms your local system into a powerful environment for autonomous AI agents. The AI Agent subsystem (`@orch/ai-agent`) manages the lifecycle of agents, tools, workflows, and integrations with external models.
+vloop transforms your local system into a powerful environment for autonomous AI agents. The AI Agent subsystem (`@orch/ai-agent`) manages the lifecycle of agents, tools, workflows, and integrations with external models. The MCP HTTP transport is handled by a separate `@orch/mcp-server` component.
 
 ## Architecture (v2)
 

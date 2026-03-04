@@ -9,12 +9,44 @@
 import { eq, asc } from 'drizzle-orm';
 import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiMessagesTable } from '../schema.js';
-import { toJSON, fromJSON, now } from '../repo-helpers.js';
+import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
 import type {
 	MessageId, SessionId, Message, CreateMessageInput,
 } from '../types.js';
-import type { IMessageRepo } from './interfaces.js';
+import type { IMessageRepo, RepoListQuery } from './interfaces.js';
+import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
+
+const mapMessage = createRowMapper<Message>({
+	id: (row) => row.id as MessageId,
+	sessionId: (row) => row.session_id as SessionId,
+	parentId: (row) => (row.parent_id as MessageId | null) ?? null,
+	branch: (row) => row.branch as string,
+	role: (row) => row.role as Message['role'],
+	content: (row) => row.content as string,
+	toolCalls: (row) => jsonOr<any[] | undefined>(row.tool_calls, undefined),
+	toolResults: (row) => jsonOr<any[] | undefined>(row.tool_results, undefined),
+	providerType: (row) => opt(row.provider_type as Message['providerType'] | null),
+	modelId: (row) => opt(row.model_id as string | null),
+	finishReason: (row) => opt(row.finish_reason as string | null),
+	usage: (row) => jsonOr<Message['usage']>(row.usage, undefined),
+	latencyMs: (row) => opt(row.latency_ms as number | null),
+	metadata: (row) => jsonOr<Record<string, unknown> | undefined>(row.metadata, undefined),
+	createdAt: (row) => row.created_at as string,
+});
+
+const messageColumns = {
+	id: aiMessagesTable.id,
+	sessionId: aiMessagesTable.session_id,
+	parentId: aiMessagesTable.parent_id,
+	branch: aiMessagesTable.branch,
+	role: aiMessagesTable.role,
+	providerType: aiMessagesTable.provider_type,
+	modelId: aiMessagesTable.model_id,
+	finishReason: aiMessagesTable.finish_reason,
+	latencyMs: aiMessagesTable.latency_ms,
+	createdAt: aiMessagesTable.created_at,
+} as const;
 
 export class MessageRepo implements IMessageRepo {
 	constructor(private readonly orm: RootDatabaseOrm) {}
@@ -48,11 +80,12 @@ export class MessageRepo implements IMessageRepo {
 		return row ? this.map(row) : undefined;
 	}
 
-	listBySession(sessionId: SessionId): Message[] {
-		return (this.orm.select().from(aiMessagesTable)
+	listBySession(sessionId: SessionId, query?: RepoListQuery<keyof typeof messageColumns>): Message[] {
+		let statement = this.orm.select().from(aiMessagesTable)
 			.where(eq(aiMessagesTable.session_id, sessionId))
-			.orderBy(asc(aiMessagesTable.created_at))
-			.all() as any[]).map(r => this.map(r));
+			.orderBy(asc(aiMessagesTable.created_at));
+		statement = applyListQuery(statement, messageColumns, query);
+		return (statement.all() as Record<string, unknown>[]).map(mapMessage);
 	}
 
 	getAncestry(messageId: MessageId): Message[] {
@@ -70,7 +103,7 @@ export class MessageRepo implements IMessageRepo {
 		return (this.orm.select().from(aiMessagesTable)
 			.where(eq(aiMessagesTable.parent_id, parentId))
 			.orderBy(asc(aiMessagesTable.created_at))
-			.all() as any[]).map(r => this.map(r));
+			.all() as Record<string, unknown>[]).map(mapMessage);
 	}
 
 	getLinearChain(leafId: MessageId): Message[] {
@@ -88,23 +121,7 @@ export class MessageRepo implements IMessageRepo {
 
 	// ── Mapping ──────────────────────────────────────────────────────────
 
-	private map(row: any): Message {
-		return {
-			id: row.id,
-			sessionId: row.session_id,
-			parentId: row.parent_id ?? null,
-			branch: row.branch,
-			role: row.role,
-			content: row.content,
-			toolCalls: fromJSON(row.tool_calls),
-			toolResults: fromJSON(row.tool_results),
-			providerType: row.provider_type ?? undefined,
-			modelId: row.model_id ?? undefined,
-			finishReason: row.finish_reason ?? undefined,
-			usage: fromJSON(row.usage),
-			latencyMs: row.latency_ms ?? undefined,
-			metadata: fromJSON(row.metadata),
-			createdAt: row.created_at,
-		};
+	private map(row: Record<string, unknown>): Message {
+		return mapMessage(row);
 	}
 }

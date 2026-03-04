@@ -5,10 +5,31 @@
 import { eq } from 'drizzle-orm';
 import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiMcpServersTable } from '../schema.js';
-import { toJSON, fromJSON, now } from '../repo-helpers.js';
+import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
 import type { McpServerId, McpServerConfig, CreateMcpServerInput } from '../types.js';
-import type { IMcpServerRepo } from './interfaces.js';
+import type { IMcpServerRepo, RepoListQuery } from './interfaces.js';
+import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
+
+const mapMcpServer = createRowMapper<McpServerConfig>({
+	id: (row) => row.id as McpServerId,
+	name: (row) => row.name as string,
+	protocolVersion: (row) => opt(row.protocol_version as string | null),
+	capabilities: (row) => jsonOr<string[]>(row.capabilities, []),
+	transport: (row) => row.transport as McpServerConfig['transport'],
+	handlerConfig: (row) => jsonOr<Record<string, unknown>>(row.handler_config, {}),
+	createdAt: (row) => row.created_at as string,
+	updatedAt: (row) => row.updated_at as string,
+});
+
+const mcpColumns = {
+	id: aiMcpServersTable.id,
+	name: aiMcpServersTable.name,
+	protocolVersion: aiMcpServersTable.protocol_version,
+	transport: aiMcpServersTable.transport,
+	createdAt: aiMcpServersTable.created_at,
+	updatedAt: aiMcpServersTable.updated_at,
+} as const;
 
 export class McpServerRepo implements IMcpServerRepo {
 	constructor(private readonly orm: RootDatabaseOrm) {}
@@ -35,8 +56,9 @@ export class McpServerRepo implements IMcpServerRepo {
 		return row ? this.map(row) : undefined;
 	}
 
-	list(): McpServerConfig[] {
-		return (this.orm.select().from(aiMcpServersTable).all() as any[]).map(r => this.map(r));
+	list(query?: RepoListQuery<keyof typeof mcpColumns>): McpServerConfig[] {
+		const statement = applyListQuery(this.orm.select().from(aiMcpServersTable), mcpColumns, query);
+		return (statement.all() as Record<string, unknown>[]).map(mapMcpServer);
 	}
 
 	update(id: McpServerId, input: Partial<CreateMcpServerInput>): McpServerConfig {
@@ -54,16 +76,7 @@ export class McpServerRepo implements IMcpServerRepo {
 		this.orm.delete(aiMcpServersTable).where(eq(aiMcpServersTable.id, id)).run();
 	}
 
-	private map(row: any): McpServerConfig {
-		return {
-			id: row.id,
-			name: row.name,
-			protocolVersion: row.protocol_version ?? undefined,
-			capabilities: fromJSON(row.capabilities) ?? [],
-			transport: row.transport,
-			handlerConfig: fromJSON(row.handler_config) ?? {},
-			createdAt: row.created_at,
-			updatedAt: row.updated_at,
-		};
+	private map(row: Record<string, unknown>): McpServerConfig {
+		return mapMcpServer(row);
 	}
 }

@@ -9,7 +9,7 @@ The system is composed of the following key layers:
 1.  **Interface Layer**:
     *   **CLI (`@orch/cli`)**: The primary command-line tool for operators.
     *   **Web UI (`@orch/web-ui`)**: A React-based dashboard for visual management.
-    *   **MCP Server**: A dedicated Express server (initialized from `@orch/ai-agent`) for Model Context Protocol connectivity.
+    *   **MCP Server (`@orch/mcp-server`)**: A dedicated AppComponent running an Express server for Model Context Protocol connectivity (StreamableHTTP + SSE). Authenticates via Bearer token through SessionManager or persistent TokenManager.
     *   **WebSocket API**: The real-time, bidirectional communication channel used by all clients.
 
 2.  **Core Daemon (`@orch/daemon` & `@orch/orchestrator`)**:
@@ -21,7 +21,8 @@ The system is composed of the following key layers:
 3.  **Feature Subsystems**:
     *   **Process Manager (`@orch/process`)**: Spawns and supervises OS-level processes.
     *   **Container Manager (`@orch/container`)**: Interfaces with the Docker Engine API.
-    *   **AI Orchestrator (`@orch/ai-agent`)**: Manages LLM interactions, tools, and workflows via the v2 architecture — Drizzle-backed repos for all entities (providers, models, agents, sessions, messages, workflows, canvases), Google ADK for agent execution, DAG-based message history with fork/rerun/compact, pluggable LLM adapters (Anthropic, OpenAI, Ollama, Google), and the package’s single app entrypoint (`packages/ai-agent/src/app.ts`).
+    *   **AI Orchestrator (`@orch/ai-agent`)**: Manages LLM interactions, tools, and workflows via the v2 architecture — Drizzle-backed repos for all entities (providers, models, agents, sessions, messages, workflows, canvases), Google ADK for agent execution, DAG-based message history with fork/rerun/compact, pluggable LLM adapters (Anthropic, OpenAI, Ollama, Google), Canvas server, and the ToolRegistry (published under `TOKENS.ToolRegistry` for cross-package consumption by `@orch/mcp-server`).
+    *   **MCP Server (`@orch/mcp-server`)**: Owns the MCP HTTP server lifecycle. Dynamically exposes all tools from the shared ToolRegistry and validates auth tokens (session or persistent) via `@orch/auth`.
     *   **Database Manager (`@orch/db-manager`)**: Provisions SQLite/Postgres/MySQL databases.
     *   **Terminal Manager (`@orch/terminal`)**: Manages persistent PTY sessions.
     *   **Vault (`@orch/vault`)**: Securely stores secrets using AES-256-GCM encryption.

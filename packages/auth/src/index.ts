@@ -23,3 +23,6 @@ export { JwtProviderManager } from './jwt-provider.js';
 export type { JwtProvider } from './jwt-provider.js';
 
 export { createAuthHandler } from './handler.js';
+
+export { TokenManager } from './token-manager.js';
+export type { PersistentToken, CreateTokenInput, ValidatedToken, TokenType, TokenManagerOptions } from './token-manager.js';

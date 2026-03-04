@@ -1,10 +1,10 @@
 import type { DependencyContainer } from "tsyringe";
-import type { AppConfig } from "@orch/shared";
+import type { AppComponent, AppComponentContext } from "@orch/shared";
 import { TOKENS } from "@orch/shared";
 
 import { ProcessManager, CronScheduler, ProcessLogManager } from "./index.js";
 
-const config: AppConfig = {
+const config: AppComponent = {
     name: "@orch/process",
     register(container: DependencyContainer) {
         container.register(ProcessManager, {
@@ -15,7 +15,7 @@ const config: AppConfig = {
         });
         container.registerSingleton(ProcessLogManager);
     },
-    init(container: DependencyContainer) {
+    init({ container }: AppComponentContext) {
         const processManager = container.resolve(ProcessManager);
         const cronScheduler = container.resolve(CronScheduler);
 
@@ -43,10 +43,16 @@ const config: AppConfig = {
                 }, 1000);
             });
         });
-
+    },
+    start({ container }: AppComponentContext) {
+        const cronScheduler = container.resolve(CronScheduler);
         cronScheduler.start();
     },
-    async cleanup(container: DependencyContainer) {
+    stop({ container }: AppComponentContext) {
+        const cronScheduler = container.resolve(CronScheduler);
+        cronScheduler.stop();
+    },
+    async cleanup({ container }: AppComponentContext) {
         const processManager = container.resolve(ProcessManager);
         const cronScheduler = container.resolve(CronScheduler);
         cronScheduler.stop();

@@ -1,10 +1,10 @@
 import type { DependencyContainer } from "tsyringe";
-import type { AppConfig } from "@orch/shared";
+import type { AppComponent, AppComponentContext } from "@orch/shared";
 import { TOKENS } from "@orch/shared";
 
 import { DockerClient, ImageManager, ContainerManager, LogStreamer, ContainerMonitor } from "./index.js";
 
-const config: AppConfig = {
+const config: AppComponent = {
     name: "@orch/container",
     register(container: DependencyContainer) {
         container.registerSingleton(DockerClient);
@@ -25,14 +25,21 @@ const config: AppConfig = {
             )
         });
     },
-    init(container: DependencyContainer) {
+    init(_ctx: AppComponentContext) {
+        // No one-time setup needed; runtime monitor starts in start().
+    },
+    start({ container }: AppComponentContext) {
         const monitor = container.resolve(ContainerMonitor);
         const logger = container.resolve<any>(TOKENS.Logger);
         monitor.start().catch((err: unknown) => {
             logger.warn({ err }, "Failed to start container monitor");
         });
     },
-    cleanup(container: DependencyContainer) {
+    stop({ container }: AppComponentContext) {
+        const monitor = container.resolve(ContainerMonitor);
+        monitor.stop();
+    },
+    cleanup({ container }: AppComponentContext) {
         const monitor = container.resolve(ContainerMonitor);
         monitor.stop();
     }

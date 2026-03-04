@@ -1,11 +1,11 @@
 import type { DependencyContainer } from "tsyringe";
-import type { AppConfig } from "@orch/shared";
+import type { AppComponent, AppComponentContext } from "@orch/shared";
 import { TOKENS, resolveConfig } from "@orch/shared";
 import { resolve } from "node:path";
 
 import { TerminalManager, TerminalProfileManager, SessionLogger, TerminalSessionStore } from "./index.js";
 
-const config: AppConfig = {
+const config: AppComponent = {
     name: "@orch/terminal",
     register(container: DependencyContainer) {
         container.register(TerminalManager, {
@@ -33,7 +33,19 @@ const config: AppConfig = {
             })
         });
     },
-    cleanup(container: DependencyContainer) {
+    init(_ctx: AppComponentContext) {
+        // No one-time setup; sessions are created on demand.
+    },
+    start(_ctx: AppComponentContext) {
+        // Terminal sessions are created on demand, no persistent runtime.
+    },
+    stop({ container }: AppComponentContext) {
+        const terminalManager = container.resolve(TerminalManager);
+        const sessionLogger = container.resolve(SessionLogger);
+        terminalManager.shutdownAll();
+        sessionLogger.shutdownAll();
+    },
+    cleanup({ container }: AppComponentContext) {
         const terminalManager = container.resolve(TerminalManager);
         const sessionLogger = container.resolve(SessionLogger);
         terminalManager.shutdownAll();

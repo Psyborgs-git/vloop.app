@@ -5,10 +5,39 @@
 import { eq } from 'drizzle-orm';
 import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiProvidersTable } from '../schema.js';
-import { toJSON, fromJSON, now } from '../repo-helpers.js';
+import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
 import type { ProviderId, ProviderConfig, CreateProviderInput } from '../types.js';
-import type { IProviderRepo } from './interfaces.js';
+import type { IProviderRepo, RepoListQuery } from './interfaces.js';
+import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
+
+const mapProvider = createRowMapper<ProviderConfig>({
+	id: (row) => row.id as ProviderId,
+	name: (row) => row.name as string,
+	type: (row) => row.type as ProviderConfig['type'],
+	adapter: (row) => opt(row.adapter as ProviderConfig['adapter'] | null),
+	authType: (row) => opt(row.auth_type as ProviderConfig['authType'] | null),
+	baseUrl: (row) => opt(row.base_url as string | null),
+	apiKeyRef: (row) => opt(row.api_key_ref as string | null),
+	headers: (row) => jsonOr<Record<string, string>>(row.headers, {}),
+	timeoutMs: (row) => opt(row.timeout_ms as number | null),
+	metadata: (row) => jsonOr<Record<string, unknown>>(row.metadata, {}),
+	createdAt: (row) => row.created_at as string,
+	updatedAt: (row) => row.updated_at as string,
+});
+
+const providerColumns = {
+	id: aiProvidersTable.id,
+	name: aiProvidersTable.name,
+	type: aiProvidersTable.type,
+	adapter: aiProvidersTable.adapter,
+	authType: aiProvidersTable.auth_type,
+	baseUrl: aiProvidersTable.base_url,
+	apiKeyRef: aiProvidersTable.api_key_ref,
+	timeoutMs: aiProvidersTable.timeout_ms,
+	createdAt: aiProvidersTable.created_at,
+	updatedAt: aiProvidersTable.updated_at,
+} as const;
 
 export class ProviderRepo implements IProviderRepo {
 	constructor(private readonly orm: RootDatabaseOrm) {}
@@ -39,8 +68,9 @@ export class ProviderRepo implements IProviderRepo {
 		return row ? this.map(row) : undefined;
 	}
 
-	list(): ProviderConfig[] {
-		return (this.orm.select().from(aiProvidersTable).all() as any[]).map(r => this.map(r));
+	list(query?: RepoListQuery<keyof typeof providerColumns>): ProviderConfig[] {
+		const statement = applyListQuery(this.orm.select().from(aiProvidersTable), providerColumns, query);
+		return (statement.all() as Record<string, unknown>[]).map(mapProvider);
 	}
 
 	update(id: ProviderId, input: Partial<CreateProviderInput>): ProviderConfig {
@@ -62,20 +92,7 @@ export class ProviderRepo implements IProviderRepo {
 		this.orm.delete(aiProvidersTable).where(eq(aiProvidersTable.id, id)).run();
 	}
 
-	private map(row: any): ProviderConfig {
-		return {
-			id: row.id,
-			name: row.name,
-			type: row.type,
-			adapter: row.adapter ?? undefined,
-			authType: row.auth_type ?? undefined,
-			baseUrl: row.base_url ?? undefined,
-			apiKeyRef: row.api_key_ref ?? undefined,
-			headers: fromJSON(row.headers) ?? {},
-			timeoutMs: row.timeout_ms ?? undefined,
-			metadata: fromJSON(row.metadata) ?? {},
-			createdAt: row.created_at,
-			updatedAt: row.updated_at,
-		};
+	private map(row: Record<string, unknown>): ProviderConfig {
+		return mapProvider(row);
 	}
 }

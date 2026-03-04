@@ -1,7 +1,8 @@
+import type { AppHandlerContext } from '@orch/shared';
 import { PluginManager } from './manager.js';
 
 export function createPluginHandler(pluginManager: PluginManager) {
-    return async (action: string, payload: any, context: import('@orch/daemon').HandlerContext) => {
+    return async (action: string, payload: any, context: AppHandlerContext) => {
         // Enforce RBAC for plugin management?
         // Assuming admin for now for management, or specific roles.
         // For public commands like list, maybe looser.

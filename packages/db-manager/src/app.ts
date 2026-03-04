@@ -1,12 +1,12 @@
 import type { DependencyContainer } from "tsyringe";
-import type { AppConfig } from "@orch/shared";
+import type { AppComponent, AppComponentContext } from "@orch/shared";
 import { TOKENS, resolveConfig } from "@orch/shared";
 import { resolve } from "node:path";
 import { VaultStore } from "@orch/vault";
 
 import { DatabaseProvisioner, DatabasePool, ExternalDatabaseRegistry } from "./index.js";
 
-const config: AppConfig = {
+const config: AppComponent = {
     name: "@orch/db-manager",
     dependencies: ["@orch/vault"],
     register(container: DependencyContainer) {
@@ -32,7 +32,17 @@ const config: AppConfig = {
             )
         });
     },
-    cleanup(container: DependencyContainer) {
+    init(_ctx: AppComponentContext) {
+        // No one-time setup needed.
+    },
+    start(_ctx: AppComponentContext) {
+        // No persistent runtime services.
+    },
+    stop({ container }: AppComponentContext) {
+        const dbPool = container.resolve(DatabasePool);
+        dbPool.shutdownAll();
+    },
+    cleanup({ container }: AppComponentContext) {
         const dbPool = container.resolve(DatabasePool);
         dbPool.shutdownAll();
     }

@@ -4,11 +4,13 @@ vloop is built around a zero-trust architecture where every action—whether fro
 
 ## 1. Authentication
 
-All requests to the vloop daemon must include a valid JSON Web Token (JWT). The system supports multiple identity providers (IdP) and can also act as its own issuer.
+All requests to the vloop daemon must include a valid session token or persistent API token. The system supports multiple identity providers (IdP) and can also act as its own issuer.
 
-*   **Session Management**: Sessions are persisted in an encrypted SQLite database.
-*   **Token Types**: Currently supports Bearer tokens issued by the `auth` subsystem.
-*   **Idle Timeout**: Sessions automatically expire after a configurable period (default: 1 hour).
+*   **Session Management**: Sessions are persisted in an encrypted SQLite database with SHA-256 hashed tokens.
+*   **Persistent Tokens**: Long-lived, revocable API tokens (`orch_` prefix) for users and agents. Support custom TTL (or no expiry), roles, and fine-grained scopes. Created via `auth token.create` action or `orch auth token-create` CLI command.
+*   **Token Types**: Session tokens (short-lived, idle-timeout based) and persistent tokens (long-lived, revocable, scope-aware).
+*   **Idle Timeout**: Sessions automatically expire after a configurable period (default: 1 hour). Persistent tokens use custom TTL or never expire.
+*   **Auth Flow**: WebSocket connections authenticate via `auth.login` topic → session created → token returned. Persistent tokens bypass login and authenticate directly on any request (WS or MCP HTTP).
 
 ## 2. Authorization (RBAC)
 

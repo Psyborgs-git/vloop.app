@@ -149,36 +149,100 @@ export interface AppToolsModule {
 }
 
 export type AppModuleExports = Record<string, unknown> & {
-    default?: AppConfig;
+    default?: AppComponent;
 };
 
-/**
- * Base App configuration interface.
- * Any plugin/app module should export a default object conforming to this interface
- * in its `index.ts` or `app.ts` file.
- */
-export interface AppConfig {
+// ── Component lifecycle ──────────────────────────────────────────────────────
+
+export const ComponentState = {
+    Created: "created",
+    Registered: "registered",
+    Initialized: "initialized",
+    Running: "running",
+    Stopped: "stopped",
+    Error: "error",
+    Destroyed: "destroyed",
+} as const;
+
+export type ComponentStateValue =
+    (typeof ComponentState)[keyof typeof ComponentState];
+
+export interface ComponentStatus {
     name: string;
-    dependencies?: string[];
-    
+    state: ComponentStateValue;
+    startedAt?: string;
+    stoppedAt?: string;
+    error?: string;
+}
+
+/**
+ * Injected context available to components during lifecycle phases.
+ * Provided by the orchestrator gateway.
+ */
+export interface AppComponentContext {
+    container: DependencyContainer;
+    healthRegistry: AppHealthServerContract;
+    shutdownSignal: AbortSignal;
+    router: AppRouterContract;
+    toolRegistry?: AppToolRegistryContract;
+}
+
+/**
+ * Strict component contract for all orchestrator applications.
+ *
+ * Every installed package must export a default `AppComponent` from its
+ * `app.ts` entry-point.  The orchestrator calls lifecycle methods in a
+ * well-defined order:
+ *
+ *   register → init → start → … → stop → cleanup
+ *
+ * This mirrors a React-like mount/unmount lifecycle: components manage
+ * their own runtime state while the orchestrator controls context injection,
+ * dependency ordering, and permission enforcement.
+ */
+export interface AppComponent {
+    readonly name: string;
+    readonly dependencies?: readonly string[];
+
     /**
-     * Synchronous registration of injectables.
-     * Use this phase to map abstract interfaces to concrete classes in the container.
+     * Synchronous DI registration phase.
+     * Map abstract interfaces to concrete implementations in the container.
+     * Called once at startup, in dependency order.
      */
-    register?(container: DependencyContainer): void;
-    
+    register(container: DependencyContainer): void;
+
     /**
-     * Initiation phase. 
-     * Use this to run migrations, initialize background jobs, or connect to external systems.
-     * Can be async.
+     * One-time async initialization: run migrations, create schemas, seed
+     * data, or establish connections.  Called once at startup after all
+     * components have been registered, in dependency order.
      */
-    init?(container: DependencyContainer): Promise<void> | void;
-    
+    init(ctx: AppComponentContext): Promise<void> | void;
+
     /**
-     * Cleanup hook.
-     * Called during orchestrator shutdown. Use this to close connections or cancel loops.
+     * Start runtime services: background jobs, HTTP servers, listeners,
+     * monitors.  May be called more than once across the component lifetime
+     * (after a stop → start restart cycle).  Called in dependency order.
      */
-    cleanup?(container: DependencyContainer): Promise<void> | void;
+    start(ctx: AppComponentContext): Promise<void> | void;
+
+    /**
+     * Gracefully stop runtime services.  Must be idempotent — safe to
+     * call multiple times.  Called in reverse dependency order.
+     */
+    stop(ctx: AppComponentContext): Promise<void> | void;
+
+    /**
+     * Final teardown: close connections, zero sensitive memory, release
+     * resources.  Called once at daemon shutdown after stop(), in reverse
+     * dependency order.  No recovery is possible after cleanup.
+     */
+    cleanup(ctx: AppComponentContext): Promise<void> | void;
+
+    /**
+     * Optional inline health check.  When provided, the lifecycle manager
+     * automatically registers it with the health server on component start.
+     */
+    healthCheck?(ctx: AppComponentContext): AppSubsystemHealth;
 }
 
 /**

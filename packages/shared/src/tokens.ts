@@ -6,4 +6,7 @@ export const TOKENS = {
     Logger: Symbol('LOGGER'),
     VaultPassphrase: Symbol('VAULT_PASSPHRASE'),
     VaultStore: Symbol('VAULT_STORE'),
+    ToolRegistry: Symbol('TOOL_REGISTRY'),
+    SessionManager: Symbol('SESSION_MANAGER'),
+    TokenManager: Symbol('TOKEN_MANAGER'),
 };

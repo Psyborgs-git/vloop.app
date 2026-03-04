@@ -1,15 +1,33 @@
-import type { HandlerContext } from '@orch/daemon';
+import type { AppHandlerContext } from '@orch/shared';
 import { LocalMediaAdapter } from './adapters/local.js';
 import { GoogleDriveAdapter } from './adapters/google-drive.js';
 import { OneDriveAdapter } from './adapters/onedrive.js';
 
+interface MediaListPayload {
+    source: 'local' | 'google-drive' | 'onedrive';
+    path?: string;
+    accessToken?: string;
+}
+
 export function createMediaHandler(localRootPath: string) {
     const localAdapter = new LocalMediaAdapter(localRootPath);
 
-    return async (action: string, payload: any, _context: HandlerContext) => {
+    return async (
+        action: string,
+        payload: unknown,
+        _context: AppHandlerContext,
+    ) => {
         switch (action) {
             case 'list': {
-                const { source, path, accessToken } = payload;
+                const {
+                    source,
+                    path,
+                    accessToken,
+                } = (payload ?? {}) as MediaListPayload;
+
+                if (!source) {
+                    throw new Error('source is required');
+                }
                 
                 if (source === 'local') {
                     return await localAdapter.listFiles(path);

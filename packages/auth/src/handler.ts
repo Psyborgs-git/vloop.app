@@ -4,12 +4,14 @@ import type { SessionManager } from './session.js';
 import type { UserManager } from './user.js';
 import type { JwtValidator } from './jwt.js';
 import type { JwtProviderManager } from './jwt-provider.js';
+import type { TokenManager, CreateTokenInput, TokenType } from './token-manager.js';
 
 export function createAuthHandler(
     sessionManager: SessionManager,
     userManager: UserManager,
     jwtValidator: JwtValidator,
-    jwtProviderManager: JwtProviderManager
+    jwtProviderManager: JwtProviderManager,
+    tokenManager?: TokenManager,
 ): TopicHandler {
     return async (action, payload: any, context) => {
         const { ws } = context;
@@ -111,6 +113,51 @@ export function createAuthHandler(
                 const limit = payload?.limit ? Number(payload.limit) : undefined;
                 const offset = payload?.offset ? Number(payload.offset) : undefined;
                 return jwtProviderManager.list({ limit, offset });
+            }
+
+            // ── Persistent token management ───────────────────────────────
+
+            case 'token.create': {
+                if (!tokenManager) {
+                    throw new OrchestratorError(ErrorCode.SERVICE_UNAVAILABLE, 'Token manager not available.');
+                }
+                const { name, tokenType, roles: tokenRoles, scopes, ttlSecs } = payload;
+                if (!name || typeof name !== 'string') {
+                    throw new OrchestratorError(ErrorCode.VALIDATION_ERROR, 'Token name is required.');
+                }
+                const input: CreateTokenInput = {
+                    name,
+                    identity: context.identity ?? 'unknown',
+                    tokenType: (tokenType as TokenType) ?? 'user',
+                    roles: Array.isArray(tokenRoles) ? tokenRoles : (context.roles ?? []),
+                    scopes: Array.isArray(scopes) ? scopes : ['*'],
+                    ttlSecs: ttlSecs ? Number(ttlSecs) : undefined,
+                };
+                const result = tokenManager.create(input);
+                return { token: result.token, rawToken: result.rawToken };
+            }
+
+            case 'token.list': {
+                if (!tokenManager) {
+                    throw new OrchestratorError(ErrorCode.SERVICE_UNAVAILABLE, 'Token manager not available.');
+                }
+                const identity = payload?.identity ?? context.identity;
+                if (identity) {
+                    return { tokens: tokenManager.listByIdentity(identity) };
+                }
+                return { tokens: tokenManager.listActive() };
+            }
+
+            case 'token.revoke': {
+                if (!tokenManager) {
+                    throw new OrchestratorError(ErrorCode.SERVICE_UNAVAILABLE, 'Token manager not available.');
+                }
+                const { tokenId } = payload;
+                if (!tokenId || typeof tokenId !== 'string') {
+                    throw new OrchestratorError(ErrorCode.VALIDATION_ERROR, 'tokenId is required.');
+                }
+                tokenManager.revoke(tokenId);
+                return { success: true, tokenId };
             }
 
             default:

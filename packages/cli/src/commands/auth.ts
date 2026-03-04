@@ -142,4 +142,81 @@ export function registerAuthCommands(program: Command) {
                 await client.disconnect();
             }
         });
+
+    // ── Persistent Token Commands ──────────────────────────────────────
+
+    auth.command('token-create')
+        .description('Create a persistent API token')
+        .requiredOption('-n, --name <name>', 'Token name/label')
+        .option('-t, --type <type>', 'Token type (user or agent)', 'user')
+        .option('-r, --roles <roles>', 'Comma-separated roles')
+        .option('-s, --scopes <scopes>', 'Comma-separated scopes', '*')
+        .option('--ttl <seconds>', 'Time-to-live in seconds (0 = no expiry)')
+        .action(async (options) => {
+            const client = await getClient();
+            try {
+                const result = await client.auth.createToken({
+                    name: options.name,
+                    tokenType: options.type,
+                    roles: options.roles ? options.roles.split(',').map((r: string) => r.trim()) : undefined,
+                    scopes: options.scopes.split(',').map((s: string) => s.trim()),
+                    ttlSecs: options.ttl ? Number(options.ttl) : undefined,
+                });
+                console.log(chalk.green('Token created successfully.'));
+                console.log(chalk.yellow('Save this token — it will not be shown again:'));
+                console.log(result.rawToken);
+                console.log(chalk.dim(`\nToken ID: ${result.token.id}`));
+                console.log(chalk.dim(`Name: ${result.token.name}`));
+                console.log(chalk.dim(`Expires: ${result.token.expiresAt ?? 'never'}`));
+            } catch (err: any) {
+                console.error(chalk.red(`Failed to create token: ${err.message}`));
+                process.exit(1);
+            } finally {
+                await client.disconnect();
+            }
+        });
+
+    auth.command('token-list')
+        .description('List persistent tokens')
+        .option('-i, --identity <identity>', 'Filter by identity')
+        .action(async (options) => {
+            const client = await getClient();
+            try {
+                const result = await client.auth.listTokens(options.identity);
+                if (result.tokens.length === 0) {
+                    console.log(chalk.dim('No tokens found.'));
+                } else {
+                    console.table(result.tokens.map((t: any) => ({
+                        ID: t.id,
+                        Name: t.name,
+                        Type: t.tokenType,
+                        Identity: t.identity,
+                        Scopes: Array.isArray(t.scopes) ? t.scopes.join(', ') : t.scopes,
+                        Expires: t.expiresAt ?? 'never',
+                        Revoked: t.revoked ? 'yes' : 'no',
+                    })));
+                }
+            } catch (err: any) {
+                console.error(chalk.red(`Failed to list tokens: ${err.message}`));
+                process.exit(1);
+            } finally {
+                await client.disconnect();
+            }
+        });
+
+    auth.command('token-revoke')
+        .description('Revoke a persistent token')
+        .requiredOption('-i, --id <id>', 'Token ID to revoke')
+        .action(async (options) => {
+            const client = await getClient();
+            try {
+                await client.auth.revokeToken(options.id);
+                console.log(chalk.green('Token revoked successfully.'));
+            } catch (err: any) {
+                console.error(chalk.red(`Failed to revoke token: ${err.message}`));
+                process.exit(1);
+            } finally {
+                await client.disconnect();
+            }
+        });
 }

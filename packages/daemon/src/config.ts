@@ -101,6 +101,7 @@ const ConfigSchema = z.object({
             "@orch/process",
             "@orch/db-manager",
             "@orch/ai-agent",
+            "@orch/mcp-server",
             "@orch/terminal",
             "@orch/media",
             "@orch/plugin-manager"

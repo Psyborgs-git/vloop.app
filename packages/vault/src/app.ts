@@ -1,11 +1,11 @@
 import type { DependencyContainer } from "tsyringe";
-import type { AppConfig } from "@orch/shared";
+import type { AppComponent, AppComponentContext } from "@orch/shared";
 import { TOKENS, resolveConfig } from "@orch/shared";
 
 import { VaultCrypto } from "./crypto.js";
 import { VaultStore } from "./store.js";
 
-const config: AppConfig = {
+const config: AppComponent = {
     name: "@orch/vault",
     register(container: DependencyContainer) {
         container.registerSingleton(VaultCrypto);
@@ -19,14 +19,20 @@ const config: AppConfig = {
         container.register(VaultStore, { useValue: vaultStore });
         container.register(TOKENS.VaultStore, { useValue: vaultStore });
     },
-    async init(container: DependencyContainer) {
+    async init({ container }: AppComponentContext) {
         const vaultStore = container.resolve(VaultStore);
         const passphrase = container.resolve<string>(TOKENS.VaultPassphrase);
         // Ensure vaultCrypto is instantiated
         container.resolve(VaultCrypto);
         await vaultStore.init(passphrase);
     },
-    cleanup(container: DependencyContainer) {
+    start(_ctx: AppComponentContext) {
+        // No persistent runtime services.
+    },
+    stop(_ctx: AppComponentContext) {
+        // No persistent runtime services.
+    },
+    cleanup({ container }: AppComponentContext) {
         const vaultCrypto = container.resolve(VaultCrypto);
         vaultCrypto.zeroize();
     }

@@ -42,6 +42,9 @@
         },
         {
             "path": "../ai-agent"
+        },
+        {
+            "path": "../mcp-server"
         }
     ]
 }

@@ -28,12 +28,52 @@ import type {
 	MemoryEntry, CreateMemoryInput,
 } from '../types.js';
 
+export type RepoFilterOp =
+	| 'eq'
+	| 'ne'
+	| 'in'
+	| 'notIn'
+	| 'contains'
+	| 'startsWith'
+	| 'endsWith'
+	| 'gt'
+	| 'gte'
+	| 'lt'
+	| 'lte'
+	| 'isNull'
+	| 'isNotNull';
+
+export interface RepoFilter<Field extends string = string> {
+	field: Field;
+	op?: RepoFilterOp;
+	value?: unknown;
+}
+
+export interface RepoSort<Field extends string = string> {
+	field: Field;
+	direction?: 'asc' | 'desc';
+}
+
+export interface RepoPagination {
+	limit?: number;
+	offset?: number;
+	page?: number;
+	pageSize?: number;
+}
+
+export interface RepoListQuery<Field extends string = string> {
+	filters?: RepoFilter<Field>[];
+	sort?: RepoSort<Field>[];
+	pagination?: RepoPagination;
+	relationLoad?: 'eager' | 'lazy';
+}
+
 // ─── Provider Repo ───────────────────────────────────────────────────────────
 
 export interface IProviderRepo {
 	create(input: CreateProviderInput): ProviderConfig;
 	get(id: ProviderId): ProviderConfig | undefined;
-	list(): ProviderConfig[];
+	list(query?: RepoListQuery): ProviderConfig[];
 	update(id: ProviderId, input: Partial<CreateProviderInput>): ProviderConfig;
 	delete(id: ProviderId): void;
 }
@@ -43,7 +83,7 @@ export interface IProviderRepo {
 export interface IModelRepo {
 	create(input: CreateModelInput): ModelConfig;
 	get(id: ModelId): ModelConfig | undefined;
-	list(): ModelConfig[];
+	list(query?: RepoListQuery): ModelConfig[];
 	update(id: ModelId, input: Partial<CreateModelInput>): ModelConfig;
 	delete(id: ModelId): void;
 }
@@ -53,7 +93,7 @@ export interface IModelRepo {
 export interface IToolRepo {
 	create(input: CreateToolInput): ToolConfig;
 	get(id: ToolConfigId): ToolConfig | undefined;
-	list(): ToolConfig[];
+	list(query?: RepoListQuery): ToolConfig[];
 	update(id: ToolConfigId, input: Partial<CreateToolInput>): ToolConfig;
 	delete(id: ToolConfigId): void;
 }
@@ -63,7 +103,7 @@ export interface IToolRepo {
 export interface IMcpServerRepo {
 	create(input: CreateMcpServerInput): McpServerConfig;
 	get(id: McpServerId): McpServerConfig | undefined;
-	list(): McpServerConfig[];
+	list(query?: RepoListQuery): McpServerConfig[];
 	update(id: McpServerId, input: Partial<CreateMcpServerInput>): McpServerConfig;
 	delete(id: McpServerId): void;
 }
@@ -73,7 +113,7 @@ export interface IMcpServerRepo {
 export interface IAgentRepo {
 	create(input: CreateAgentInput): AgentConfig;
 	get(id: AgentConfigId): AgentConfig | undefined;
-	list(): AgentConfig[];
+	list(query?: RepoListQuery): AgentConfig[];
 	update(id: AgentConfigId, input: Partial<CreateAgentInput>): AgentConfig;
 	delete(id: AgentConfigId): void;
 	setTools(agentId: AgentConfigId, toolIds: ToolConfigId[]): void;
@@ -87,12 +127,12 @@ export interface IAgentRepo {
 export interface IWorkflowRepo {
 	create(input: CreateWorkflowInput): WorkflowConfig;
 	get(id: WorkflowId): WorkflowConfig | undefined;
-	list(): WorkflowConfig[];
+	list(query?: RepoListQuery): WorkflowConfig[];
 	update(id: WorkflowId, input: Partial<CreateWorkflowInput>): WorkflowConfig;
 	delete(id: WorkflowId): void;
 	createVersion(workflowId: WorkflowId): WorkflowVersion;
 	getActiveVersion(workflowId: WorkflowId): WorkflowVersion | undefined;
-	listVersions(workflowId: WorkflowId): WorkflowVersion[];
+	listVersions(workflowId: WorkflowId, query?: RepoListQuery): WorkflowVersion[];
 }
 
 // ─── Session Repo ────────────────────────────────────────────────────────────
@@ -100,7 +140,7 @@ export interface IWorkflowRepo {
 export interface ISessionRepo {
 	create(input: CreateSessionInput): Session;
 	get(id: SessionId): Session | undefined;
-	list(): Session[];
+	list(query?: RepoListQuery): Session[];
 	update(id: SessionId, input: Partial<CreateSessionInput>): Session;
 	delete(id: SessionId): void;
 	setHeadMessage(sessionId: SessionId, messageId: MessageId): void;
@@ -116,7 +156,7 @@ export interface IMessageRepo {
 	create(input: CreateMessageInput): Message;
 	get(id: MessageId): Message | undefined;
 	/** List messages in a session, ordered by creation time. */
-	listBySession(sessionId: SessionId): Message[];
+	listBySession(sessionId: SessionId, query?: RepoListQuery): Message[];
 	/** Walk the DAG from a given node up to the root, returning ancestor chain. */
 	getAncestry(messageId: MessageId): Message[];
 	/** Get direct children of a message (branches). */
@@ -132,7 +172,7 @@ export interface IMessageRepo {
 export interface IStateNodeRepo {
 	create(input: CreateStateNodeInput): StateNode;
 	get(id: StateNodeId): StateNode | undefined;
-	listByExecution(executionId: ExecutionId): StateNode[];
+	listByExecution(executionId: ExecutionId, query?: RepoListQuery): StateNode[];
 	updateStatus(id: StateNodeId, status: StateNodeStatus, completedAt?: string): void;
 	updateCheckpoint(id: StateNodeId, checkpoint: Record<string, unknown>): void;
 	getAncestry(nodeId: StateNodeId): StateNode[];
@@ -146,8 +186,8 @@ export interface IStateNodeRepo {
 export interface IExecutionRepo {
 	create(input: CreateExecutionInput): Execution;
 	get(id: ExecutionId): Execution | undefined;
-	listBySession(sessionId: SessionId): Execution[];
-	listByWorkflow(workflowId: WorkflowId): Execution[];
+	listBySession(sessionId: SessionId, query?: RepoListQuery): Execution[];
+	listByWorkflow(workflowId: WorkflowId, query?: RepoListQuery): Execution[];
 	updateStatus(id: ExecutionId, status: ExecutionStatus, finalOutput?: string): void;
 	setLastCheckpoint(id: ExecutionId, stateNodeId: StateNodeId): void;
 	setWorkerRun(id: ExecutionId, workerRunId: WorkerRunId): void;
@@ -174,7 +214,7 @@ export interface IHitlWaitRepo {
 
 export interface IAuditEventRepo {
 	create(input: CreateAuditEventInput): AuditEvent;
-	listByExecution(executionId: ExecutionId): AuditEvent[];
+	listByExecution(executionId: ExecutionId, query?: RepoListQuery): AuditEvent[];
 }
 
 // ─── Memory Repo ─────────────────────────────────────────────────────────────
@@ -182,7 +222,7 @@ export interface IAuditEventRepo {
 export interface IMemoryRepo {
 	create(input: CreateMemoryInput): MemoryEntry;
 	get(id: MemoryId): MemoryEntry | undefined;
-	list(agentId?: AgentConfigId): MemoryEntry[];
-	search(query: string): MemoryEntry[];
+	list(agentId?: AgentConfigId, query?: RepoListQuery): MemoryEntry[];
+	search(query: string, options?: RepoListQuery): MemoryEntry[];
 	delete(id: MemoryId): void;
 }

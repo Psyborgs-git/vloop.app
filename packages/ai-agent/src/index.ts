@@ -91,8 +91,7 @@ export { StateAdapter } from './v2/state-adapter.js';
 export { WorkerDispatcher } from './v2/worker/dispatcher.js';
 export type { StreamEmitter } from './v2/worker/dispatcher.js';
 
-// MCP + canvas infrastructure
-export { createMcpHttpHandler } from './mcp-server.js';
+// Canvas infrastructure
 export { createCanvasServer } from './canvas-server.js';
 export type { CanvasServerHandle, CanvasStore } from './canvas-server.js';
 export { CanvasStateManager } from './canvas-state-manager.js';

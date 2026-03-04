@@ -6,6 +6,7 @@ import { JwtValidator } from "./jwt.js";
 import { JwtProviderManager } from "./jwt-provider.js";
 import { PolicyEngine } from "./rbac.js";
 import { AuditLogger } from "./audit.js";
+import { TokenManager } from "./token-manager.js";
 import type { AppRouterContract, AppMiddlewareHandler, AppTopicHandler } from "@orch/shared";
 
 export function registerRoutes(container: DependencyContainer, router: AppRouterContract) {
@@ -15,10 +16,11 @@ export function registerRoutes(container: DependencyContainer, router: AppRouter
     const jwtProviderManager = container.resolve(JwtProviderManager);
     const policyEngine = container.resolve(PolicyEngine);
     const auditLogger = container.resolve(AuditLogger);
+    const tokenManager = container.resolve(TokenManager);
 
-    // Apply global auth middleware
-    router.use(createAuthMiddleware(sessionManager, policyEngine, auditLogger) as AppMiddlewareHandler);
+    // Apply global auth middleware (with persistent token support)
+    router.use(createAuthMiddleware(sessionManager, policyEngine, auditLogger, tokenManager) as AppMiddlewareHandler);
 
-    // Register handlers
-    router.register("auth", createAuthHandler(sessionManager, userManager, jwtValidator, jwtProviderManager) as AppTopicHandler);
+    // Register handlers (with token management actions)
+    router.register("auth", createAuthHandler(sessionManager, userManager, jwtValidator, jwtProviderManager, tokenManager) as AppTopicHandler);
 }

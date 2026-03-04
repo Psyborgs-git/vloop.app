@@ -68,10 +68,10 @@ export class HitlWaitRepo implements IHitlWaitRepo {
 			executionId: row.execution_id,
 			stateNodeId: row.state_node_id,
 			status: row.status,
-			toolContext: fromJSON(row.tool_context) ?? {},
-			runtimeSnapshot: fromJSON(row.runtime_snapshot) ?? {},
+			toolContext: fromJSON(row.tool_context, {}),
+			runtimeSnapshot: fromJSON(row.runtime_snapshot, {}),
 			operatorInstructions: row.operator_instructions,
-			userResponse: fromJSON(row.user_response),
+			userResponse: fromJSON(row.user_response, undefined),
 			createdAt: row.created_at,
 			resolvedAt: row.resolved_at ?? undefined,
 		};

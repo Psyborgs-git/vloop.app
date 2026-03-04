@@ -5,13 +5,56 @@
 import { eq, desc, and } from 'drizzle-orm';
 import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiWorkflowsTable, aiWorkflowVersionsTable } from '../schema.js';
-import { toJSON, fromJSON, now } from '../repo-helpers.js';
+import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
 import type {
 	WorkflowId, WorkflowVersionId,
 	WorkflowConfig, CreateWorkflowInput, WorkflowVersion,
 } from '../types.js';
-import type { IWorkflowRepo } from './interfaces.js';
+import type { IWorkflowRepo, RepoListQuery } from './interfaces.js';
+import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
+
+const mapWorkflow = createRowMapper<WorkflowConfig>({
+	id: (row) => row.id as WorkflowId,
+	name: (row) => row.name as string,
+	description: (row) => row.description as string,
+	type: (row) => row.type as WorkflowConfig['type'],
+	nodes: (row) => jsonOr<WorkflowConfig['nodes']>(row.nodes, []),
+	edges: (row) => jsonOr<WorkflowConfig['edges']>(row.edges, []),
+	createdAt: (row) => row.created_at as string,
+	updatedAt: (row) => row.updated_at as string,
+});
+
+const mapWorkflowVersion = createRowMapper<WorkflowVersion>({
+	id: (row) => row.id as WorkflowVersionId,
+	workflowId: (row) => row.workflow_id as WorkflowId,
+	version: (row) => row.version as number,
+	nodes: (row) => jsonOr<WorkflowVersion['nodes']>(row.nodes, []),
+	edges: (row) => jsonOr<WorkflowVersion['edges']>(row.edges, []),
+	status: (row) => row.status as WorkflowVersion['status'],
+	activatedAt: (row) => row.activated_at as string,
+	deactivatedAt: (row) => opt(row.deactivated_at as string | null),
+	createdAt: (row) => row.created_at as string,
+});
+
+const workflowColumns = {
+	id: aiWorkflowsTable.id,
+	name: aiWorkflowsTable.name,
+	description: aiWorkflowsTable.description,
+	type: aiWorkflowsTable.type,
+	createdAt: aiWorkflowsTable.created_at,
+	updatedAt: aiWorkflowsTable.updated_at,
+} as const;
+
+const workflowVersionColumns = {
+	id: aiWorkflowVersionsTable.id,
+	workflowId: aiWorkflowVersionsTable.workflow_id,
+	version: aiWorkflowVersionsTable.version,
+	status: aiWorkflowVersionsTable.status,
+	activatedAt: aiWorkflowVersionsTable.activated_at,
+	deactivatedAt: aiWorkflowVersionsTable.deactivated_at,
+	createdAt: aiWorkflowVersionsTable.created_at,
+} as const;
 
 export class WorkflowRepo implements IWorkflowRepo {
 	constructor(private readonly orm: RootDatabaseOrm) {}
@@ -38,8 +81,9 @@ export class WorkflowRepo implements IWorkflowRepo {
 		return row ? this.mapWorkflow(row) : undefined;
 	}
 
-	list(): WorkflowConfig[] {
-		return (this.orm.select().from(aiWorkflowsTable).all() as any[]).map(r => this.mapWorkflow(r));
+	list(query?: RepoListQuery<keyof typeof workflowColumns>): WorkflowConfig[] {
+		const statement = applyListQuery(this.orm.select().from(aiWorkflowsTable), workflowColumns, query);
+		return (statement.all() as Record<string, unknown>[]).map(mapWorkflow);
 	}
 
 	update(id: WorkflowId, input: Partial<CreateWorkflowInput>): WorkflowConfig {
@@ -108,11 +152,12 @@ export class WorkflowRepo implements IWorkflowRepo {
 		return row ? this.mapVersion(row) : undefined;
 	}
 
-	listVersions(workflowId: WorkflowId): WorkflowVersion[] {
-		return (this.orm.select().from(aiWorkflowVersionsTable)
+	listVersions(workflowId: WorkflowId, query?: RepoListQuery<keyof typeof workflowVersionColumns>): WorkflowVersion[] {
+		let statement = this.orm.select().from(aiWorkflowVersionsTable)
 			.where(eq(aiWorkflowVersionsTable.workflow_id, workflowId))
-			.orderBy(desc(aiWorkflowVersionsTable.version))
-			.all() as any[]).map(r => this.mapVersion(r));
+			.orderBy(desc(aiWorkflowVersionsTable.version));
+		statement = applyListQuery(statement, workflowVersionColumns, query);
+		return (statement.all() as Record<string, unknown>[]).map(mapWorkflowVersion);
 	}
 
 	// ── Internal ─────────────────────────────────────────────────────────
@@ -123,30 +168,11 @@ export class WorkflowRepo implements IWorkflowRepo {
 		return row ? this.mapVersion(row) : undefined;
 	}
 
-	private mapWorkflow(row: any): WorkflowConfig {
-		return {
-			id: row.id,
-			name: row.name,
-			description: row.description,
-			type: row.type,
-			nodes: fromJSON(row.nodes) ?? [],
-			edges: fromJSON(row.edges) ?? [],
-			createdAt: row.created_at,
-			updatedAt: row.updated_at,
-		};
+	private mapWorkflow(row: Record<string, unknown>): WorkflowConfig {
+		return mapWorkflow(row);
 	}
 
-	private mapVersion(row: any): WorkflowVersion {
-		return {
-			id: row.id,
-			workflowId: row.workflow_id,
-			version: row.version,
-			nodes: fromJSON(row.nodes) ?? [],
-			edges: fromJSON(row.edges) ?? [],
-			status: row.status,
-			activatedAt: row.activated_at,
-			deactivatedAt: row.deactivated_at ?? undefined,
-			createdAt: row.created_at,
-		};
+	private mapVersion(row: Record<string, unknown>): WorkflowVersion {
+		return mapWorkflowVersion(row);
 	}
 }

@@ -8,6 +8,7 @@ export type {
 	IAgentRepo, IWorkflowRepo, ISessionRepo, IMessageRepo,
 	IStateNodeRepo, IExecutionRepo, IWorkerRunRepo, IHitlWaitRepo,
 	IAuditEventRepo, IMemoryRepo,
+	RepoFilterOp, RepoFilter, RepoSort, RepoPagination, RepoListQuery,
 } from './interfaces.js';
 
 // Implementations

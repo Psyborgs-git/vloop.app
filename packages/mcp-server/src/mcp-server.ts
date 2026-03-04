@@ -1,3 +1,10 @@
+/**
+ * MCP HTTP transport — Express application with StreamableHTTP + SSE transports.
+ *
+ * Authenticates requests via Bearer token validated through SessionManager.
+ * Dynamically exposes all tools registered in the shared ToolRegistry.
+ */
+
 import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -8,18 +15,30 @@ import {
     ListToolsRequestSchema,
     isInitializeRequest,
 } from '@modelcontextprotocol/sdk/types.js';
-import type { Logger, HandlerContext, Request as RouterRequest } from '@orch/daemon';
-import type { ToolRegistry } from './tools.js';
+import type { Logger } from '@orch/daemon';
+import type {
+    AppHandlerContext,
+    AppRouterDispatchRequest,
+    AppToolRegistryContract,
+    AppToolDefinition,
+} from '@orch/shared';
 
-interface SessionManagerLike {
-    validate(token: string): { id: string; identity: string; roles: string[] };
+export interface SessionManagerLike {
+    validate(token: string): { id: string; identity: string; roles: string[]; scopes?: string[] };
+}
+
+export interface TokenManagerLike {
+    validate(token: string): { id: string; identity: string; roles: string[]; scopes: string[] };
 }
 
 type AnyTransport = StreamableHTTPServerTransport | SSEServerTransport;
 const transports = new Map<string, AnyTransport>();
 
-function buildToolContext(session: { id: string; identity: string; roles: string[] }, logger: Logger): HandlerContext {
-    const request: RouterRequest = {
+function buildToolContext(
+    session: { id: string; identity: string; roles: string[]; scopes?: string[] },
+    logger: Logger,
+): AppHandlerContext {
+    const request: AppRouterDispatchRequest = {
         id: `mcp-tool-${Date.now()}`,
         topic: 'mcp',
         action: 'tool.call',
@@ -41,14 +60,18 @@ function buildToolContext(session: { id: string; identity: string; roles: string
     };
 }
 
-function buildMcpServer(toolRegistry: ToolRegistry, logger: Logger, getContext: () => HandlerContext): McpServer {
+function buildMcpServer(
+    toolRegistry: AppToolRegistryContract,
+    logger: Logger,
+    getContext: () => AppHandlerContext,
+): McpServer {
     const server = new McpServer(
         { name: 'vloop-local-mcp', version: '1.0.0' },
-        { capabilities: { tools: {}, logging: {} } }
+        { capabilities: { tools: {}, logging: {} } },
     );
 
     server.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-        tools: toolRegistry.list().map(t => ({
+        tools: (toolRegistry.list?.() ?? []).map((t: AppToolDefinition) => ({
             name: t.name,
             description: t.description ?? '',
             inputSchema: t.parameters ?? { type: 'object', properties: {} },
@@ -56,10 +79,10 @@ function buildMcpServer(toolRegistry: ToolRegistry, logger: Logger, getContext: 
     }));
 
     server.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-        const tool = toolRegistry.get(request.params.name);
+        const tool = toolRegistry.get?.(request.params.name);
         if (!tool) {
             return {
-                content: [{ type: 'text', text: `Unknown tool: ${request.params.name}` }],
+                content: [{ type: 'text' as const, text: `Unknown tool: ${request.params.name}` }],
                 isError: true,
             };
         }
@@ -68,14 +91,15 @@ function buildMcpServer(toolRegistry: ToolRegistry, logger: Logger, getContext: 
             const result = await tool.execute?.(request.params.arguments ?? {}, context);
             return {
                 content: [{
-                    type: 'text',
+                    type: 'text' as const,
                     text: typeof result === 'string' ? result : JSON.stringify(result, null, 2),
                 }],
             };
-        } catch (err: any) {
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
             logger.error({ err, tool: request.params.name }, 'MCP tool execution error');
             return {
-                content: [{ type: 'text', text: `Error: ${err?.message ?? String(err)}` }],
+                content: [{ type: 'text' as const, text: `Error: ${message}` }],
                 isError: true,
             };
         }
@@ -85,15 +109,15 @@ function buildMcpServer(toolRegistry: ToolRegistry, logger: Logger, getContext: 
 }
 
 export function createMcpHttpHandler(
-    toolRegistry: ToolRegistry,
+    toolRegistry: AppToolRegistryContract,
     sessionManager: SessionManagerLike,
-    logger: Logger
+    logger: Logger,
+    tokenManager?: TokenManagerLike,
 ): express.Express {
     const app = express();
     app.use(express.json());
 
     const authMiddleware: express.RequestHandler = (req, res, next) => {
-        // Allow unauthenticated OPTIONS requests for CORS
         if (req.method === 'OPTIONS') {
             return next();
         }
@@ -101,11 +125,11 @@ export function createMcpHttpHandler(
         const authHeader = req.headers.authorization;
         const token = authHeader?.startsWith('Bearer ')
             ? authHeader.substring(7)
-            : (req.query.token as string | undefined);
+            : (req.query['token'] as string | undefined);
 
         // Bypass authentication if a specific environment variable is set for local dev
-        if (!token && process.env.ORCH_MCP_SKIP_AUTH === 'true') {
-            (req as any).mcpSession = { id: 'local-dev', identity: 'local-dev', roles: ['admin'] };
+        if (!token && process.env['ORCH_MCP_SKIP_AUTH'] === 'true') {
+            (req as any).mcpSession = { id: 'local-dev', identity: 'local-dev', roles: ['admin'], scopes: ['*'] };
             return next();
         }
 
@@ -113,7 +137,18 @@ export function createMcpHttpHandler(
             res.status(401).json({ error: 'Unauthorized: Missing token' });
             return;
         }
+
+        // Try persistent token first, then fall back to session token
         try {
+            if (tokenManager) {
+                try {
+                    const validated = tokenManager.validate(token);
+                    (req as any).mcpSession = validated;
+                    return next();
+                } catch {
+                    // Not a persistent token, try session
+                }
+            }
             const session = sessionManager.validate(token);
             (req as any).mcpSession = session;
             next();
@@ -130,13 +165,13 @@ export function createMcpHttpHandler(
             endpoints: {
                 mcp: '/mcp',
                 sse: '/sse',
-                messages: '/messages'
-            }
+                messages: '/messages',
+            },
         });
     });
 
     app.all('/mcp', authMiddleware, async (req, res) => {
-        const session = (req as any).mcpSession as { id: string; identity: string; roles: string[] } | undefined;
+        const session = (req as any).mcpSession as { id: string; identity: string; roles: string[]; scopes?: string[] } | undefined;
         const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
         if (!session) {
@@ -200,7 +235,7 @@ export function createMcpHttpHandler(
     });
 
     app.get('/sse', authMiddleware, async (req, res) => {
-        const session = (req as any).mcpSession as { id: string; identity: string; roles: string[] } | undefined;
+        const session = (req as any).mcpSession as { id: string; identity: string; roles: string[]; scopes?: string[] } | undefined;
         if (!session) {
             res.status(401).json({ error: 'Unauthorized: Invalid or expired token' });
             return;
@@ -224,7 +259,7 @@ export function createMcpHttpHandler(
     });
 
     app.post('/messages', authMiddleware, async (req, res) => {
-        const sessionId = req.query.sessionId as string | undefined;
+        const sessionId = req.query['sessionId'] as string | undefined;
         const transport = sessionId ? transports.get(sessionId) : undefined;
 
         if (!(transport instanceof SSEServerTransport)) {

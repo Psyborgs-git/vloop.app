@@ -18,23 +18,17 @@ import type { Logger, WebSocketServerHandle, HealthServer } from "@orch/daemon";
 import { DatabaseManager } from "@orch/shared/db";
 import { TOKENS } from "@orch/shared";
 import type {
-	AppConfig,
+	AppComponent,
+	AppComponentContext,
 	AppModuleExports,
 	AppRoutesModule,
 	AppHealthModule,
 	AppToolsModule,
 	AppToolRegistryContract,
+	AppRouterContract,
+	OrchestratorConfig,
 } from "@orch/shared";
-import {
-	AgentOrchestratorV2,
-	registerCanvasRuntimeTopic,
-	ToolRegistry,
-	createMcpHttpHandler,
-	createCanvasServer,
-} from "@orch/ai-agent";
-import type { CanvasServerHandle } from "@orch/ai-agent";
-import type { OrchestratorConfig, AppRouterContract } from "@orch/shared";
-import type { Server as HttpServer } from "node:http";
+import { ComponentLifecycleManager } from "./lifecycle-manager.js";
 
 interface SessionManagerLike {
 	refresh(sessionId: string): unknown;
@@ -46,12 +40,11 @@ export class OrchestratorApp {
 	private logger: Logger;
 	private container: DependencyContainer;
 
-	private loadedApps: AppConfig[] = [];
+	private lifecycle!: ComponentLifecycleManager;
+	private componentContext?: AppComponentContext;
 	private dbManager!: DatabaseManager;
 	private wsHandle!: WebSocketServerHandle;
 	private healthServer!: HealthServer;
-	private canvasServer!: CanvasServerHandle;
-	private mcpServer?: HttpServer;
 	private shutdownController!: AbortController;
 	private onReload!: (callback: () => void) => void;
 
@@ -67,21 +60,55 @@ export class OrchestratorApp {
 			this.setupSignalHandlers();
 
 			this.registerCore();
-			await this.loadAndRegisterApps();
-			await this.initializeApps();
 
+			// Load and register components in dependency order
+			const components = await this.loadComponents();
+			this.lifecycle = new ComponentLifecycleManager(this.logger);
+			this.lifecycle.load(components);
+			await this.lifecycle.registerAll(this.container);
+
+			// Create gateway infrastructure
 			const router = new Router(this.logger);
-			const toolRegistry = await this.resolveToolRegistry();
-			await this.buildAutoRoutes(router, toolRegistry);
-			await this.startServers(router, toolRegistry);
+			this.healthServer = createHealthServer(
+				this.config.network.health_port,
+				this.config.network.bind_address,
+				this.logger,
+			);
+			this.healthServer.registerSubsystem("database", () => ({
+				name: "database",
+				status: this.dbManager.isOpen() ? "healthy" : "unhealthy",
+			}));
+
+			// Resolve optional tool registry (registered by ai-agent if installed)
+			const toolRegistry = this.tryResolve<AppToolRegistryContract>(
+				TOKENS.ToolRegistry,
+			);
+
+			// Build injected context for component lifecycle
+			this.componentContext = {
+				container: this.container,
+				healthRegistry: this.healthServer,
+				shutdownSignal: this.shutdownController.signal,
+				router: router as AppRouterContract,
+				toolRegistry,
+			};
+
+			// Lifecycle: init → route discovery → start
+			await this.lifecycle.initAll(this.componentContext);
+			await this.discoverAutoRoutes(router, toolRegistry);
+			await this.lifecycle.startAll(this.componentContext);
+
+			// Gateway-level routes and servers
+			this.registerGatewayRoutes(router);
+			await this.startGateway(router);
 
 			this.setupReloadHandler();
 
 			await this.waitForShutdown();
-			await this.cleanup();
+			await this.shutdown();
 		} catch (err) {
 			this.logger.error({ err }, "Fatal error during startup");
-			await this.cleanup(); // Try to cleanup even on error
+			await this.shutdown();
 			process.exit(1);
 		}
 	}
@@ -164,62 +191,34 @@ export class OrchestratorApp {
 		});
 	}
 
-	private async loadAndRegisterApps(): Promise<void> {
+	private async loadComponents(): Promise<AppComponent[]> {
 		const installedApps: string[] = this.config.applications?.installed ?? [];
-		const discovered: AppConfig[] = [];
+		const components: AppComponent[] = [];
 
 		for (const pkgName of installedApps) {
-			this.logger.debug({ pkgName }, "Loading app module");
+			this.logger.debug({ pkgName }, "Loading component module");
 			const appModule = await import(`${pkgName}/app`);
-			const appConfig = this.extractAppConfig(pkgName, appModule);
-			discovered.push(appConfig);
+			const component = this.extractAppComponent(pkgName, appModule);
+			components.push(component);
 		}
 
-		this.loadedApps = this.orderAppsByDependencies(discovered);
-
-		for (const app of this.loadedApps) {
-			if (app.register) {
-				this.logger.debug({ app: app.name }, "Registering app");
-				app.register(this.container);
-			}
-			this.logger.info({ app: app.name }, "App registered");
-		}
+		return components;
 	}
 
-	private async initializeApps(): Promise<void> {
-		for (const app of this.loadedApps) {
-			if (app.init) {
-				this.logger.debug({ app: app.name }, "Initializing app");
-				await app.init(this.container);
-			}
-		}
-	}
-
-	private async resolveToolRegistry(): Promise<ToolRegistry | null> {
+	private tryResolve<T>(token: symbol): T | undefined {
 		try {
-			return this.container.resolve(ToolRegistry);
+			return this.container.resolve<T>(token);
 		} catch {
-			return null;
+			return undefined;
 		}
 	}
 
-	private async buildAutoRoutes(
+	private async discoverAutoRoutes(
 		router: Router,
-		toolRegistry: ToolRegistry | null,
+		toolRegistry: AppToolRegistryContract | undefined,
 	): Promise<void> {
-		this.healthServer = createHealthServer(
-			this.config.network.health_port,
-			this.config.network.bind_address,
-			this.logger,
-		);
-
-		this.healthServer.registerSubsystem("database", () => ({
-			name: "database",
-			status: this.dbManager.isOpen() ? "healthy" : "unhealthy",
-		}));
-
-		for (const app of this.loadedApps) {
-			const pkgName = app.name;
+		for (const component of this.lifecycle.getComponents()) {
+			const pkgName = component.name;
 
 			const routesModule = await this.importOptional<AppRoutesModule>(
 				`${pkgName}/routes`,
@@ -269,7 +268,9 @@ export class OrchestratorApp {
 				}
 			}
 		}
+	}
 
+	private registerGatewayRoutes(router: Router): void {
 		router.register("session", async (action, _payload, context) => {
 			const authModule = await import("@orch/auth");
 			const sessionManager = this.container.resolve<SessionManagerLike>(
@@ -302,71 +303,37 @@ export class OrchestratorApp {
 			}
 		});
 
-		if (toolRegistry) {
-			registerCanvasRuntimeTopic(router, () => this.canvasServer?.stateManager);
-		}
+		// Secured lifecycle control plane (admin-only)
+		router.register("lifecycle", async (action, payload, context) => {
+			if (!context.roles?.includes("admin")) {
+				throw new Error("Unauthorized: admin role required for lifecycle operations");
+			}
+
+			switch (action) {
+				case "status":
+					return { components: this.lifecycle.getAllStatuses() };
+				case "restart": {
+					const name = (payload as Record<string, unknown>)?.component;
+					if (!name || typeof name !== "string") {
+						throw new Error("component name is required");
+					}
+					if (!this.componentContext) {
+						throw new Error("Component context not available");
+					}
+					await this.lifecycle.restartComponent(name, this.componentContext);
+					return {
+						restarted: name,
+						status: this.lifecycle.getStatus(name),
+					};
+				}
+				default:
+					throw new Error(`Unknown lifecycle action: ${action}`);
+			}
+		});
 	}
 
-	private async startServers(
-		router: Router,
-		toolRegistry: ToolRegistry | null,
-	): Promise<void> {
+	private async startGateway(router: Router): Promise<void> {
 		await this.healthServer.listen();
-
-		let mcpHttpHandler: ReturnType<typeof createMcpHttpHandler> | undefined;
-		if (toolRegistry) {
-			try {
-				const authModule = await import("@orch/auth");
-				const sessionManager = this.container.resolve(
-					authModule.SessionManager,
-				);
-				mcpHttpHandler = createMcpHttpHandler(
-					toolRegistry,
-					sessionManager,
-					this.logger,
-				);
-
-				this.mcpServer = mcpHttpHandler.listen(
-					this.config.network.mcp_port,
-					this.config.network.bind_address,
-					() => {
-						this.logger.info(
-							`MCP HTTP server listening on http://${this.config.network.bind_address}:${this.config.network.mcp_port}`,
-						);
-					},
-				);
-
-				this.healthServer.registerSubsystem("mcp", () => ({
-					name: "mcp",
-					status: "healthy",
-					message: `MCP server running on port ${this.config.network.mcp_port}`,
-				}));
-			} catch (err) {
-				this.logger.warn(
-					{ err },
-					"MCP HTTP handler disabled: auth subsystem unavailable",
-				);
-			}
-		}
-
-		try {
-			const orchestrator = this.container.resolve(AgentOrchestratorV2);
-			this.canvasServer = createCanvasServer(
-				this.config.network.canvas_port,
-				this.config.network.bind_address,
-				this.logger,
-				orchestrator.repos.canvas,
-				this.config.storage.canvas_path,
-			);
-			await this.canvasServer.listen();
-			this.healthServer.registerSubsystem("canvas", () => ({
-				name: "canvas",
-				status: "healthy",
-				message: `Canvas server running on port ${this.config.network.canvas_port}`,
-			}));
-		} catch {
-			// Canvas/AI subsystem optional.
-		}
 
 		this.wsHandle = createWebSocketServer(
 			this.config,
@@ -411,32 +378,20 @@ export class OrchestratorApp {
 		this.logger.info("Shutting down...");
 	}
 
-	private async cleanup() {
+	private async shutdown() {
 		if (this.shutdownController && !this.shutdownController.signal.aborted) {
 			this.shutdownController.abort();
 		}
 
-		for (let i = this.loadedApps.length - 1; i >= 0; i--) {
-			const app = this.loadedApps[i];
-			if (!app?.cleanup) continue;
+		if (this.lifecycle && this.componentContext) {
 			try {
-				this.logger.debug({ app: app.name }, "Cleaning up app");
-				await app.cleanup(this.container);
+				await this.lifecycle.stopAll(this.componentContext);
+				await this.lifecycle.cleanupAll(this.componentContext);
 			} catch (err) {
-				this.logger.error({ err, app: app.name }, "Error during app cleanup");
+				this.logger.error({ err }, "Error during component lifecycle shutdown");
 			}
 		}
 
-		if (this.canvasServer) await this.canvasServer.close();
-		if (this.mcpServer) {
-			const mcpServer = this.mcpServer;
-			await new Promise<void>((resolve, reject) => {
-				mcpServer.close((err: Error | undefined) => {
-					if (err) return reject(err);
-					resolve();
-				});
-			});
-		}
 		if (this.wsHandle) await this.wsHandle.close();
 		if (this.healthServer) await this.healthServer.close();
 		if (this.dbManager) this.dbManager.close();
@@ -448,57 +403,42 @@ export class OrchestratorApp {
 		this.logger.info("Orchestrator daemon stopped. Goodbye.");
 	}
 
-	private extractAppConfig(
+	private extractAppComponent(
 		pkgName: string,
 		appModule: AppModuleExports,
-	): AppConfig {
-		const defaultExport = appModule.default as AppConfig | undefined;
-		if (defaultExport?.name) {
+	): AppComponent {
+		const isValidComponent = (value: unknown): value is AppComponent => {
+			if (!value || typeof value !== "object") return false;
+			const candidate = value as Partial<AppComponent>;
+			return (
+				typeof candidate.name === "string" &&
+				typeof candidate.register === "function" &&
+				typeof candidate.init === "function" &&
+				typeof candidate.start === "function" &&
+				typeof candidate.stop === "function" &&
+				typeof candidate.cleanup === "function"
+			);
+		};
+
+		const defaultExport = appModule.default;
+		if (isValidComponent(defaultExport)) {
 			return defaultExport;
 		}
 
-		const directExport = appModule as unknown as AppConfig;
-		if (directExport?.name) {
-			return directExport;
+		if (isValidComponent(appModule)) {
+			return appModule;
 		}
 
 		for (const key of Object.keys(appModule)) {
-			const candidate = appModule[key] as AppConfig | undefined;
-			if (candidate?.name) {
+			const candidate = appModule[key];
+			if (isValidComponent(candidate)) {
 				return candidate;
 			}
 		}
 
-		throw new Error(`Invalid app config in ${pkgName}/app`);
-	}
-
-	private orderAppsByDependencies(apps: AppConfig[]): AppConfig[] {
-		const byName = new Map(apps.map((app) => [app.name, app]));
-		const visited = new Set<string>();
-		const inStack = new Set<string>();
-		const ordered: AppConfig[] = [];
-
-		const visit = (name: string) => {
-			if (visited.has(name)) return;
-			if (inStack.has(name)) {
-				throw new Error(`Circular app dependency detected at ${name}`);
-			}
-			const app = byName.get(name);
-			if (!app) return;
-
-			inStack.add(name);
-			for (const dep of app.dependencies ?? []) {
-				visit(dep);
-			}
-			inStack.delete(name);
-			visited.add(name);
-			ordered.push(app);
-		};
-
-		for (const app of apps) {
-			visit(app.name);
-		}
-		return ordered;
+		throw new Error(
+			`Invalid app component in ${pkgName}/app: expected AppComponent with register/init/start/stop/cleanup`,
+		);
 	}
 
 	private async importOptional<TModule extends object>(

@@ -5,13 +5,38 @@
 import { eq, like, desc, or } from 'drizzle-orm';
 import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiMemoriesTable } from '../schema.js';
-import { toJSON, fromJSON, now } from '../repo-helpers.js';
+import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
 import type {
 	MemoryId, AgentConfigId,
 	MemoryEntry, CreateMemoryInput,
 } from '../types.js';
-import type { IMemoryRepo } from './interfaces.js';
+import type { IMemoryRepo, RepoListQuery } from './interfaces.js';
+import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
+
+const mapMemory = createRowMapper<MemoryEntry>({
+	id: (row) => row.id as MemoryId,
+	sessionId: (row) => opt(row.session_id as MemoryEntry['sessionId'] | null),
+	agentId: (row) => opt(row.agent_id as MemoryEntry['agentId'] | null),
+	content: (row) => row.content as string,
+	sourceType: (row) => opt(row.source_type as MemoryEntry['sourceType'] | null),
+	importance: (row) => opt(row.importance as number | null),
+	topic: (row) => opt(row.topic as string | null),
+	entities: (row) => jsonOr<string[] | undefined>(row.entities, undefined),
+	metadata: (row) => jsonOr<Record<string, unknown>>(row.metadata, {}),
+	createdAt: (row) => row.created_at as string,
+});
+
+const memoryColumns = {
+	id: aiMemoriesTable.id,
+	sessionId: aiMemoriesTable.session_id,
+	agentId: aiMemoriesTable.agent_id,
+	content: aiMemoriesTable.content,
+	sourceType: aiMemoriesTable.source_type,
+	importance: aiMemoriesTable.importance,
+	topic: aiMemoriesTable.topic,
+	createdAt: aiMemoriesTable.created_at,
+} as const;
 
 export class MemoryRepo implements IMemoryRepo {
 	constructor(private readonly orm: RootDatabaseOrm) {}
@@ -40,45 +65,31 @@ export class MemoryRepo implements IMemoryRepo {
 		return row ? this.map(row) : undefined;
 	}
 
-	list(agentId?: AgentConfigId): MemoryEntry[] {
-		if (agentId) {
-			return (this.orm.select().from(aiMemoriesTable)
-				.where(eq(aiMemoriesTable.agent_id, agentId))
-				.orderBy(desc(aiMemoriesTable.created_at))
-				.all() as any[]).map(r => this.map(r));
-		}
-		return (this.orm.select().from(aiMemoriesTable)
-			.orderBy(desc(aiMemoriesTable.created_at))
-			.all() as any[]).map(r => this.map(r));
+	list(agentId?: AgentConfigId, query?: RepoListQuery<keyof typeof memoryColumns>): MemoryEntry[] {
+		let statement = this.orm.select().from(aiMemoriesTable);
+		if (agentId) statement = statement.where(eq(aiMemoriesTable.agent_id, agentId));
+		statement = statement.orderBy(desc(aiMemoriesTable.created_at));
+		statement = applyListQuery(statement, memoryColumns, query);
+		return (statement.all() as Record<string, unknown>[]).map(mapMemory);
 	}
 
-	search(query: string): MemoryEntry[] {
+	search(query: string, options?: RepoListQuery<keyof typeof memoryColumns>): MemoryEntry[] {
 		const pattern = `%${query}%`;
-		return (this.orm.select().from(aiMemoriesTable)
+		let statement = this.orm.select().from(aiMemoriesTable)
 			.where(or(
 				like(aiMemoriesTable.content, pattern),
 				like(aiMemoriesTable.topic, pattern),
 			))
-			.orderBy(desc(aiMemoriesTable.created_at))
-			.all() as any[]).map(r => this.map(r));
+			.orderBy(desc(aiMemoriesTable.created_at));
+		statement = applyListQuery(statement, memoryColumns, options);
+		return (statement.all() as Record<string, unknown>[]).map(mapMemory);
 	}
 
 	delete(id: MemoryId): void {
 		this.orm.delete(aiMemoriesTable).where(eq(aiMemoriesTable.id, id)).run();
 	}
 
-	private map(row: any): MemoryEntry {
-		return {
-			id: row.id,
-			sessionId: row.session_id ?? undefined,
-			agentId: row.agent_id ?? undefined,
-			content: row.content,
-			sourceType: row.source_type ?? undefined,
-			importance: row.importance ?? undefined,
-			topic: row.topic ?? undefined,
-			entities: fromJSON(row.entities),
-			metadata: fromJSON(row.metadata) ?? {},
-			createdAt: row.created_at,
-		};
+	private map(row: Record<string, unknown>): MemoryEntry {
+		return mapMemory(row);
 	}
 }

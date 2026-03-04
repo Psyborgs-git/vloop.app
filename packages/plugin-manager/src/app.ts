@@ -1,11 +1,11 @@
 import type { DependencyContainer } from "tsyringe";
-import type { AppConfig } from "@orch/shared";
+import type { AppComponent, AppComponentContext } from "@orch/shared";
 import { TOKENS } from "@orch/shared";
 import { DatabaseProvisioner } from "@orch/db-manager";
 
 import { PluginManager } from "./index.js";
 
-const config: AppConfig = {
+const config: AppComponent = {
     name: "@orch/plugin-manager",
     dependencies: ["@orch/db-manager"],
     register(container: DependencyContainer) {
@@ -18,7 +18,10 @@ const config: AppConfig = {
             )
         });
     },
-    async init(container: DependencyContainer) {
+    init(_ctx: AppComponentContext) {
+        // No one-time migrations; runtime start is in start().
+    },
+    async start({ container }: AppComponentContext) {
         const manager = container.resolve(PluginManager);
         const logger = container.resolve<any>(TOKENS.Logger);
         
@@ -28,7 +31,11 @@ const config: AppConfig = {
             logger.error({ err }, "Failed to start plugins");
         }
     },
-    async cleanup(container: DependencyContainer) {
+    async stop({ container }: AppComponentContext) {
+        const manager = container.resolve(PluginManager);
+        await manager.stop();
+    },
+    async cleanup({ container }: AppComponentContext) {
         const manager = container.resolve(PluginManager);
         await manager.stop();
     }

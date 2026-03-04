@@ -1,5 +1,5 @@
 import type { DependencyContainer } from "tsyringe";
-import type { AppConfig } from "@orch/shared";
+import type { AppComponent, AppComponentContext } from "@orch/shared";
 import { TOKENS, resolveConfig } from "@orch/shared";
 
 import { UserManager } from "./user.js";
@@ -8,8 +8,9 @@ import { JwtValidator } from "./jwt.js";
 import { SessionManager } from "./session.js";
 import { PolicyEngine } from "./rbac.js";
 import { AuditLogger } from "./audit.js";
+import { TokenManager } from "./token-manager.js";
 
-const config: AppConfig = {
+const config: AppComponent = {
     name: "@orch/auth",
     register(container: DependencyContainer) {
         // Register Managers using factory to resolve primitive tokens
@@ -33,22 +34,44 @@ const config: AppConfig = {
                 });
             }
         });
+        // Also register under shared token for cross-package resolution
+        container.register(TOKENS.SessionManager, {
+            useFactory: (c) => c.resolve(SessionManager)
+        });
         // PolicyEngine is completely independent initially
         container.registerSingleton(PolicyEngine);
         container.register(AuditLogger, {
             useFactory: (c) => new AuditLogger(c.resolve(TOKENS.Database), c.resolve(TOKENS.DatabaseOrm))
         });
+        container.register(TokenManager, {
+            useFactory: (c) => new TokenManager(c.resolve(TOKENS.DatabaseOrm), {
+                maxTokensPerIdentity: 50,
+            })
+        });
+        container.register(TOKENS.TokenManager, {
+            useFactory: (c) => c.resolve(TokenManager)
+        });
     },
-    async init(container: DependencyContainer) {
+    async init({ container }: AppComponentContext) {
+        // Initialize token schema
+        const tokenManager = container.resolve(TokenManager);
+        tokenManager.initSchema(container.resolve(TOKENS.Database) as { exec(sql: string): unknown });
+
         // Run async initialization
         const userManager = container.resolve(UserManager);
         await userManager.initDefaultUser();
         
         const policyEngine = container.resolve(PolicyEngine);
-        // Load policy right away. We need config or we can just load from default path.
-        // Wait, Orchestrator App uses: `resolve("./config/policies.toml")`
-        // We can just hardcode or read from config if it had one, but let's hardcode for now as app.ts did.
         policyEngine.load("./config/policies.toml");
+    },
+    start(_ctx: AppComponentContext) {
+        // No persistent runtime services.
+    },
+    stop(_ctx: AppComponentContext) {
+        // No persistent runtime services.
+    },
+    cleanup(_ctx: AppComponentContext) {
+        // No teardown needed.
     }
 };
 
