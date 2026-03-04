@@ -106,6 +106,9 @@ export function validateShell(
     return { allowed: true };
 }
 
+// Cache for compiled regular expressions to avoid recompilation on every keystroke
+const regexCache = new Map<string, RegExp | null>();
+
 /**
  * Check if input text contains blocked patterns.
  * This is a best-effort filter — not a security boundary.
@@ -115,16 +118,24 @@ export function validateInput(
     policy: TerminalPolicy = DEFAULT_TERMINAL_POLICY,
 ): AccessCheckResult {
     for (const pattern of policy.inputBlockPatterns) {
-        try {
-            const re = new RegExp(pattern);
-            if (re.test(input)) {
-                return {
-                    allowed: false,
-                    reason: `Input blocked by policy pattern: ${pattern}`,
-                };
+        let re = regexCache.get(pattern);
+
+        if (re === undefined) {
+            try {
+                re = new RegExp(pattern);
+                regexCache.set(pattern, re);
+            } catch {
+                // Invalid regex — skip and cache the failure to avoid retrying
+                regexCache.set(pattern, null);
+                re = null;
             }
-        } catch {
-            // Invalid regex — skip
+        }
+
+        if (re !== null && re.test(input)) {
+            return {
+                allowed: false,
+                reason: `Input blocked by policy pattern: ${pattern}`,
+            };
         }
     }
 
