@@ -1,0 +1,3 @@
+## 2024-05-18 - [Terminal Input Regex Recompilation Bottleneck]
+**Learning:** Compiling regular expressions in a hot loop (like `validateInput` running for every incoming websocket chunk on terminal input) causes significant CPU overhead, especially as the number of policy patterns grows.
+**Action:** Always pre-compile or cache `RegExp` objects on hot execution paths. Use bounded structures (like `LRU` cache or a bounded `Map` size check) if patterns can be dynamically generated, to prevent memory leaks from caching unbounded strings.
