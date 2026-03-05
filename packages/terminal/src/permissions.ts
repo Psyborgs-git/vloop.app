@@ -106,6 +106,10 @@ export function validateShell(
     return { allowed: true };
 }
 
+// Bounded cache for compiled regular expressions to avoid recompiling on every keystroke
+const MAX_REGEX_CACHE_SIZE = 100;
+const regexCache = new Map<string, RegExp>();
+
 /**
  * Check if input text contains blocked patterns.
  * This is a best-effort filter — not a security boundary.
@@ -116,7 +120,17 @@ export function validateInput(
 ): AccessCheckResult {
     for (const pattern of policy.inputBlockPatterns) {
         try {
-            const re = new RegExp(pattern);
+            let re = regexCache.get(pattern);
+            if (!re) {
+                // Prevent memory leak if dynamic policies create unbounded patterns
+                if (regexCache.size >= MAX_REGEX_CACHE_SIZE) {
+                    const firstKey = regexCache.keys().next().value;
+                    if (firstKey !== undefined) regexCache.delete(firstKey);
+                }
+                re = new RegExp(pattern);
+                regexCache.set(pattern, re);
+            }
+
             if (re.test(input)) {
                 return {
                     allowed: false,
