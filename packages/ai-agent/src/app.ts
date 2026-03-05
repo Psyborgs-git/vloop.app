@@ -9,8 +9,9 @@
 import type { DependencyContainer } from 'tsyringe';
 import type { AppComponent, AppComponentContext } from '@orch/shared';
 import { TOKENS, resolveConfig } from '@orch/shared';
-import type { RootDatabaseOrm, DatabaseManager } from '@orch/shared/db';
+import type { DatabaseManager } from '@orch/shared/db';
 import type { Logger } from '@orch/daemon';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
 
 import { AgentSandbox } from './sandbox.js';
 import { ToolRegistry } from './tools.js';
@@ -36,6 +37,7 @@ import { HitlWaitRepo } from './v2/repos/hitl-wait-repo.js';
 import { AuditEventRepo } from './v2/repos/audit-event-repo.js';
 import { MemoryRepo } from './v2/repos/memory-repo.js';
 import { CanvasRepo } from './v2/repos/canvas-repo.js';
+import { aiAgentV2Schema } from './v2/schema.js';
 
 /** DI token for the v2 repos bundle */
 export const V2_REPOS = Symbol('V2_REPOS');
@@ -48,7 +50,9 @@ interface DatabaseExecLike {
 	exec(sql: string): unknown;
 }
 
-function buildRepos(orm: RootDatabaseOrm): OrchestratorRepos {
+type AiAgentOrm = ReturnType<typeof drizzle<typeof aiAgentV2Schema>>;
+
+function buildRepos(orm: AiAgentOrm): OrchestratorRepos {
 	return {
 		provider: new ProviderRepo(orm),
 		model: new ModelRepo(orm),
@@ -87,7 +91,11 @@ function createAiAgentComponent(): AppComponent {
 			});
 
 			container.register(V2_REPOS, {
-				useFactory: (c) => buildRepos(c.resolve<RootDatabaseOrm>(TOKENS.DatabaseOrm)),
+				useFactory: (c) => {
+					const dbManager = c.resolve<DatabaseManager>(TOKENS.DatabaseManager);
+					const orm = drizzle(dbManager.getDb(), { schema: aiAgentV2Schema });
+					return buildRepos(orm as AiAgentOrm);
+				},
 			});
 
 			container.register(AgentOrchestratorV2, {

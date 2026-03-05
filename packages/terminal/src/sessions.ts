@@ -8,26 +8,11 @@
  * the file-system.
  */
 
-import type { DatabaseManager } from '@orch/shared/db';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import type { Logger } from '@orch/daemon';
 import type { PaginationOptions, PaginatedResult } from '@orch/shared';
 import { desc, eq, sql } from 'drizzle-orm';
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-
-const terminalSessionsTable = sqliteTable('terminal_sessions', {
-    id: text('id').primaryKey(),
-    owner: text('owner').notNull(),
-    shell: text('shell').notNull(),
-    cwd: text('cwd').notNull(),
-    cols: integer('cols').notNull(),
-    rows: integer('rows').notNull(),
-    profile_id: text('profile_id'),
-    log_path: text('log_path'),
-    started_at: text('started_at').notNull(),
-    ended_at: text('ended_at'),
-    exit_code: integer('exit_code'),
-});
+import { terminalSessionsTable, initTerminalSchema } from './schema.js';
+import type { RootDatabaseOrm } from '@orch/shared/db';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -48,38 +33,13 @@ export interface TerminalSessionRecord {
 // ─── Implementation ─────────────────────────────────────────────────────────
 
 export class TerminalSessionStore {
-    private readonly db: ReturnType<DatabaseManager['open']>;
     private readonly orm: RootDatabaseOrm;
     private readonly logger: Logger;
 
-    constructor(db: ReturnType<DatabaseManager['open']>, orm: RootDatabaseOrm, logger: Logger) {
-        this.db = db;
+    constructor(db: { exec(sql: string): unknown }, orm: RootDatabaseOrm, logger: Logger) {
+        initTerminalSchema(db);
         this.orm = orm;
         this.logger = logger.child({ component: 'terminal-session-store' });
-        this.migrate();
-    }
-
-    private migrate(): void {
-        this.db.exec(`
-            CREATE TABLE IF NOT EXISTS terminal_sessions (
-                id          TEXT PRIMARY KEY,
-                owner       TEXT NOT NULL,
-                shell       TEXT NOT NULL DEFAULT '',
-                cwd         TEXT NOT NULL DEFAULT '',
-                cols        INTEGER NOT NULL DEFAULT 80,
-                rows        INTEGER NOT NULL DEFAULT 24,
-                profile_id  TEXT,
-                log_path    TEXT,
-                started_at  TEXT NOT NULL,
-                ended_at    TEXT,
-                exit_code   INTEGER
-            );
-            CREATE INDEX IF NOT EXISTS idx_terminal_sessions_owner
-                ON terminal_sessions(owner);
-            CREATE INDEX IF NOT EXISTS idx_terminal_sessions_started
-                ON terminal_sessions(started_at DESC);
-        `);
-        this.logger.debug('Terminal sessions table migrated');
     }
 
     /** Insert a new session record at spawn time. */

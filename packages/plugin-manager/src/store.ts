@@ -1,17 +1,7 @@
-import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { eq } from 'drizzle-orm';
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { pluginsTable, initPluginManagerSchema } from './schema.js';
+import type { RootDatabaseOrm } from '@orch/shared/db';
 import type { PluginManifest } from './manifest.js';
-
-const pluginsTable = sqliteTable('plugins', {
-    id: text('id').primaryKey(),
-    enabled: integer('enabled').notNull().default(1),
-    manifest: text('manifest').notNull(),
-    granted_permissions: text('granted_permissions').notNull(),
-    installed_at: text('installed_at').notNull(),
-    db_id: text('db_id'),
-});
 
 export interface PluginRecord {
     id: string;
@@ -23,26 +13,11 @@ export interface PluginRecord {
 }
 
 export class PluginStore {
-    private db: BetterSqlite3.Database;
     private orm: RootDatabaseOrm;
 
-    constructor(db: BetterSqlite3.Database, orm: RootDatabaseOrm) {
-        this.db = db;
+    constructor(db: { exec(sql: string): unknown }, orm: RootDatabaseOrm) {
+        initPluginManagerSchema(db);
         this.orm = orm;
-        this.initSchema();
-    }
-
-    private initSchema(): void {
-        this.db.exec(`
-            CREATE TABLE IF NOT EXISTS plugins (
-                id TEXT PRIMARY KEY,
-                enabled INTEGER DEFAULT 1,
-                manifest TEXT NOT NULL,
-                granted_permissions TEXT NOT NULL,
-                installed_at TEXT NOT NULL,
-                db_id TEXT
-            );
-        `);
     }
 
     public install(manifest: PluginManifest, grantedPermissions: string[], dbId?: string): void {

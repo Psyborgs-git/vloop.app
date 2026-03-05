@@ -5,6 +5,7 @@
  * All tables use the ai_ prefix for namespace isolation.
  */
 
+import { relations } from 'drizzle-orm';
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -289,3 +290,223 @@ export const canvasCommitsTable = sqliteTable('canvas_commits', {
 	message: text('message').notNull(),
 	created_at: ts(),
 });
+
+// ─── Relations ───────────────────────────────────────────────────────────────
+
+export const aiModelsRelations = relations(aiModelsTable, ({ one }) => ({
+	provider: one(aiProvidersTable, {
+		fields: [aiModelsTable.provider_id],
+		references: [aiProvidersTable.id],
+	}),
+}));
+
+export const aiAgentToolsRelations = relations(aiAgentToolsTable, ({ one }) => ({
+	agent: one(aiAgentsTable, {
+		fields: [aiAgentToolsTable.agent_id],
+		references: [aiAgentsTable.id],
+	}),
+	tool: one(aiToolsTable, {
+		fields: [aiAgentToolsTable.tool_id],
+		references: [aiToolsTable.id],
+	}),
+}));
+
+export const aiAgentMcpServersRelations = relations(aiAgentMcpServersTable, ({ one }) => ({
+	agent: one(aiAgentsTable, {
+		fields: [aiAgentMcpServersTable.agent_id],
+		references: [aiAgentsTable.id],
+	}),
+	server: one(aiMcpServersTable, {
+		fields: [aiAgentMcpServersTable.server_id],
+		references: [aiMcpServersTable.id],
+	}),
+}));
+
+export const aiAgentsRelations = relations(aiAgentsTable, ({ one, many }) => ({
+	model: one(aiModelsTable, {
+		fields: [aiAgentsTable.model_id],
+		references: [aiModelsTable.id],
+	}),
+	agentTools: many(aiAgentToolsTable),
+	agentMcpServers: many(aiAgentMcpServersTable),
+}));
+
+export const aiWorkflowVersionsRelations = relations(aiWorkflowVersionsTable, ({ one }) => ({
+	workflow: one(aiWorkflowsTable, {
+		fields: [aiWorkflowVersionsTable.workflow_id],
+		references: [aiWorkflowsTable.id],
+	}),
+}));
+
+export const aiWorkflowsRelations = relations(aiWorkflowsTable, ({ many }) => ({
+	versions: many(aiWorkflowVersionsTable),
+}));
+
+export const aiSessionToolsRelations = relations(aiSessionToolsTable, ({ one }) => ({
+	session: one(aiSessionsTable, {
+		fields: [aiSessionToolsTable.session_id],
+		references: [aiSessionsTable.id],
+	}),
+	tool: one(aiToolsTable, {
+		fields: [aiSessionToolsTable.tool_id],
+		references: [aiToolsTable.id],
+	}),
+}));
+
+export const aiSessionMcpServersRelations = relations(aiSessionMcpServersTable, ({ one }) => ({
+	session: one(aiSessionsTable, {
+		fields: [aiSessionMcpServersTable.session_id],
+		references: [aiSessionsTable.id],
+	}),
+	server: one(aiMcpServersTable, {
+		fields: [aiSessionMcpServersTable.server_id],
+		references: [aiMcpServersTable.id],
+	}),
+}));
+
+export const aiSessionsRelations = relations(aiSessionsTable, ({ one, many }) => ({
+	agent: one(aiAgentsTable, {
+		fields: [aiSessionsTable.agent_id],
+		references: [aiAgentsTable.id],
+	}),
+	workflow: one(aiWorkflowsTable, {
+		fields: [aiSessionsTable.workflow_id],
+		references: [aiWorkflowsTable.id],
+	}),
+	model: one(aiModelsTable, {
+		fields: [aiSessionsTable.model_id],
+		references: [aiModelsTable.id],
+	}),
+	provider: one(aiProvidersTable, {
+		fields: [aiSessionsTable.provider_id],
+		references: [aiProvidersTable.id],
+	}),
+	sessionTools: many(aiSessionToolsTable),
+	sessionMcpServers: many(aiSessionMcpServersTable),
+	messages: many(aiMessagesTable),
+	executions: many(aiExecutionsTable),
+	memories: many(aiMemoriesTable),
+}));
+
+export const aiMessagesRelations = relations(aiMessagesTable, ({ one }) => ({
+	session: one(aiSessionsTable, {
+		fields: [aiMessagesTable.session_id],
+		references: [aiSessionsTable.id],
+	}),
+}));
+
+export const aiStateNodesRelations = relations(aiStateNodesTable, ({ one }) => ({
+	execution: one(aiExecutionsTable, {
+		fields: [aiStateNodesTable.execution_id],
+		references: [aiExecutionsTable.id],
+	}),
+}));
+
+export const aiExecutionsRelations = relations(aiExecutionsTable, ({ one, many }) => ({
+	session: one(aiSessionsTable, {
+		fields: [aiExecutionsTable.session_id],
+		references: [aiSessionsTable.id],
+	}),
+	workflow: one(aiWorkflowsTable, {
+		fields: [aiExecutionsTable.workflow_id],
+		references: [aiWorkflowsTable.id],
+	}),
+	agent: one(aiAgentsTable, {
+		fields: [aiExecutionsTable.agent_id],
+		references: [aiAgentsTable.id],
+	}),
+	stateNodes: many(aiStateNodesTable),
+	auditEvents: many(aiAuditEventsTable),
+	hitlWaits: many(aiHitlWaitsTable),
+	workerRuns: many(aiWorkerRunsTable),
+}));
+
+export const aiWorkerRunsRelations = relations(aiWorkerRunsTable, ({ one }) => ({
+	execution: one(aiExecutionsTable, {
+		fields: [aiWorkerRunsTable.execution_id],
+		references: [aiExecutionsTable.id],
+	}),
+}));
+
+export const aiHitlWaitsRelations = relations(aiHitlWaitsTable, ({ one }) => ({
+	execution: one(aiExecutionsTable, {
+		fields: [aiHitlWaitsTable.execution_id],
+		references: [aiExecutionsTable.id],
+	}),
+	stateNode: one(aiStateNodesTable, {
+		fields: [aiHitlWaitsTable.state_node_id],
+		references: [aiStateNodesTable.id],
+	}),
+}));
+
+export const aiAuditEventsRelations = relations(aiAuditEventsTable, ({ one }) => ({
+	execution: one(aiExecutionsTable, {
+		fields: [aiAuditEventsTable.execution_id],
+		references: [aiExecutionsTable.id],
+	}),
+}));
+
+export const aiMemoriesRelations = relations(aiMemoriesTable, ({ one }) => ({
+	session: one(aiSessionsTable, {
+		fields: [aiMemoriesTable.session_id],
+		references: [aiSessionsTable.id],
+	}),
+	agent: one(aiAgentsTable, {
+		fields: [aiMemoriesTable.agent_id],
+		references: [aiAgentsTable.id],
+	}),
+}));
+
+export const canvasesRelations = relations(canvasesTable, ({ many }) => ({
+	commits: many(canvasCommitsTable),
+}));
+
+export const canvasCommitsRelations = relations(canvasCommitsTable, ({ one }) => ({
+	canvas: one(canvasesTable, {
+		fields: [canvasCommitsTable.canvas_id],
+		references: [canvasesTable.id],
+	}),
+}));
+
+export const aiAgentV2Schema = {
+	aiProvidersTable,
+	aiModelsTable,
+	aiToolsTable,
+	aiMcpServersTable,
+	aiAgentsTable,
+	aiAgentToolsTable,
+	aiAgentMcpServersTable,
+	aiWorkflowsTable,
+	aiWorkflowVersionsTable,
+	aiSessionsTable,
+	aiSessionToolsTable,
+	aiSessionMcpServersTable,
+	aiMessagesTable,
+	aiStateNodesTable,
+	aiExecutionsTable,
+	aiWorkerRunsTable,
+	aiHitlWaitsTable,
+	aiAuditEventsTable,
+	aiToolCallsTable,
+	aiMemoriesTable,
+	canvasesTable,
+	canvasCommitsTable,
+	aiModelsRelations,
+	aiAgentToolsRelations,
+	aiAgentMcpServersRelations,
+	aiAgentsRelations,
+	aiWorkflowVersionsRelations,
+	aiWorkflowsRelations,
+	aiSessionToolsRelations,
+	aiSessionMcpServersRelations,
+	aiSessionsRelations,
+	aiMessagesRelations,
+	aiStateNodesRelations,
+	aiExecutionsRelations,
+	aiWorkerRunsRelations,
+	aiHitlWaitsRelations,
+	aiAuditEventsRelations,
+	aiMemoriesRelations,
+	canvasesRelations,
+	canvasCommitsRelations,
+} as const;

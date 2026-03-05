@@ -6,7 +6,6 @@
  */
 
 import { eq, and } from 'drizzle-orm';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiHitlWaitsTable } from '../schema.js';
 import { toJSON, fromJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
@@ -14,10 +13,11 @@ import type {
 	HitlWaitId, ExecutionId,
 	HitlWait, CreateHitlWaitInput, HitlWaitStatus,
 } from '../types.js';
+import type { AiAgentOrm } from '../orm-type.js';
 import type { IHitlWaitRepo } from './interfaces.js';
 
 export class HitlWaitRepo implements IHitlWaitRepo {
-	constructor(private readonly orm: RootDatabaseOrm) {}
+	constructor(private readonly orm: AiAgentOrm) {}
 
 	create(input: CreateHitlWaitInput): HitlWait {
 		const id = generateId() as HitlWaitId;

@@ -3,11 +3,11 @@
  */
 
 import { eq } from 'drizzle-orm';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiMcpServersTable } from '../schema.js';
 import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
 import type { McpServerId, McpServerConfig, CreateMcpServerInput } from '../types.js';
+import type { AiAgentOrm } from '../orm-type.js';
 import type { IMcpServerRepo, RepoListQuery } from './interfaces.js';
 import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
 
@@ -32,7 +32,7 @@ const mcpColumns = {
 } as const;
 
 export class McpServerRepo implements IMcpServerRepo {
-	constructor(private readonly orm: RootDatabaseOrm) {}
+	constructor(private readonly orm: AiAgentOrm) {}
 
 	create(input: CreateMcpServerInput): McpServerConfig {
 		const id = generateId() as McpServerId;

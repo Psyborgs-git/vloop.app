@@ -6,7 +6,6 @@
  */
 
 import { eq, desc, asc, and } from 'drizzle-orm';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiStateNodesTable } from '../schema.js';
 import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
@@ -14,6 +13,7 @@ import type {
 	StateNodeId, ExecutionId, StateNode, CreateStateNodeInput,
 	StateNodeStatus,
 } from '../types.js';
+import type { AiAgentOrm } from '../orm-type.js';
 import type { IStateNodeRepo, RepoListQuery } from './interfaces.js';
 import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
 
@@ -41,7 +41,7 @@ const stateNodeColumns = {
 } as const;
 
 export class StateNodeRepo implements IStateNodeRepo {
-	constructor(private readonly orm: RootDatabaseOrm) {}
+	constructor(private readonly orm: AiAgentOrm) {}
 
 	create(input: CreateStateNodeInput): StateNode {
 		const id = generateId() as StateNodeId;

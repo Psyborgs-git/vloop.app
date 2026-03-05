@@ -8,25 +8,12 @@
 
 import { randomUUID } from 'node:crypto';
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { VaultStore } from '@orch/vault';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
 import type { Logger } from '@orch/daemon';
 import { desc, eq } from 'drizzle-orm';
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-
-const externalDatabasesTable = sqliteTable('external_databases', {
-    id: text('id').primaryKey(),
-    owner: text('owner').notNull(),
-    label: text('label').notNull(),
-    db_type: text('db_type').notNull(),
-    host: text('host'),
-    port: integer('port'),
-    database_name: text('database_name'),
-    ssl: integer('ssl').notNull().default(0),
-    credentials_path: text('credentials_path'),
-    created_at: text('created_at').notNull(),
-});
+import { externalDatabasesTable, initDbManagerSchema } from './schema.js';
+import type { RootDatabaseOrm } from '@orch/shared/db';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -74,30 +61,12 @@ interface ExternalDbRow {
 
 export class ExternalDatabaseRegistry {
     constructor(
-        private readonly db: BetterSqlite3.Database,
+        db: BetterSqlite3.Database,
         private readonly orm: RootDatabaseOrm,
         private readonly vault: VaultStore,
         private readonly logger: Logger,
     ) {
-        this.migrate();
-    }
-
-    private migrate(): void {
-        this.db.exec(`
-            CREATE TABLE IF NOT EXISTS external_databases (
-                id              TEXT PRIMARY KEY,
-                owner           TEXT NOT NULL,
-                label           TEXT NOT NULL,
-                db_type         TEXT NOT NULL,
-                host            TEXT,
-                port            INTEGER,
-                database_name   TEXT,
-                ssl             INTEGER DEFAULT 0,
-                credentials_path TEXT,
-                created_at      TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_ext_db_owner ON external_databases(owner);
-        `);
+        initDbManagerSchema(db);
     }
 
     // ── ACL check ───────────────────────────────────────────────────────

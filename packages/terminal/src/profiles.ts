@@ -5,25 +5,10 @@
  * in the orchestrator's SQLite database.
  */
 
-import type { DatabaseManager } from '@orch/shared/db';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import type { Logger } from '@orch/daemon';
 import { asc, eq } from 'drizzle-orm';
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-
-const terminalProfilesTable = sqliteTable('terminal_profiles', {
-    id: text('id').primaryKey(),
-    name: text('name').notNull(),
-    shell: text('shell').notNull(),
-    args: text('args').notNull(),
-    cwd: text('cwd').notNull(),
-    env: text('env').notNull(),
-    startup_commands: text('startup_commands').notNull(),
-    owner: text('owner').notNull(),
-    is_default: integer('is_default').notNull().default(0),
-    created_at: text('created_at').notNull(),
-    updated_at: text('updated_at').notNull(),
-});
+import { terminalProfilesTable, initTerminalSchema } from './schema.js';
+import type { RootDatabaseOrm } from '@orch/shared/db';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -65,38 +50,13 @@ export interface UpdateProfileInput {
 // ─── Implementation ─────────────────────────────────────────────────────────
 
 export class TerminalProfileManager {
-    private readonly db: ReturnType<DatabaseManager['open']>;
     private readonly orm: RootDatabaseOrm;
     private readonly logger: Logger;
 
-    constructor(db: ReturnType<DatabaseManager['open']>, orm: RootDatabaseOrm, logger: Logger) {
-        this.db = db;
+    constructor(db: { exec(sql: string): unknown }, orm: RootDatabaseOrm, logger: Logger) {
+        initTerminalSchema(db);
         this.orm = orm;
         this.logger = logger.child({ component: 'terminal-profiles' });
-        this.migrate();
-    }
-
-    /**
-     * Create profile table if it doesn't exist.
-     */
-    private migrate(): void {
-        this.db.exec(`
-            CREATE TABLE IF NOT EXISTS terminal_profiles (
-                id          TEXT PRIMARY KEY,
-                name        TEXT NOT NULL,
-                shell       TEXT NOT NULL DEFAULT '',
-                args        TEXT NOT NULL DEFAULT '[]',
-                cwd         TEXT NOT NULL DEFAULT '',
-                env         TEXT NOT NULL DEFAULT '{}',
-                startup_commands TEXT NOT NULL DEFAULT '[]',
-                owner       TEXT NOT NULL,
-                is_default  INTEGER NOT NULL DEFAULT 0,
-                created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-                updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
-            );
-            CREATE INDEX IF NOT EXISTS idx_terminal_profiles_owner ON terminal_profiles(owner);
-        `);
-        this.logger.debug('Terminal profiles table migrated');
     }
 
     /**

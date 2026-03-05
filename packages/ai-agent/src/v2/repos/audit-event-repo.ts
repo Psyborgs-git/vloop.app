@@ -3,7 +3,6 @@
  */
 
 import { eq, desc } from 'drizzle-orm';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiAuditEventsTable } from '../schema.js';
 import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
@@ -11,6 +10,7 @@ import type {
 	ExecutionId, AuditEventId,
 	AuditEvent, CreateAuditEventInput,
 } from '../types.js';
+import type { AiAgentOrm } from '../orm-type.js';
 import type { IAuditEventRepo, RepoListQuery } from './interfaces.js';
 import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
 
@@ -30,7 +30,7 @@ const auditColumns = {
 } as const;
 
 export class AuditEventRepo implements IAuditEventRepo {
-	constructor(private readonly orm: RootDatabaseOrm) {}
+	constructor(private readonly orm: AiAgentOrm) {}
 
 	create(input: CreateAuditEventInput): AuditEvent {
 		const id = generateId() as AuditEventId;
@@ -53,7 +53,4 @@ export class AuditEventRepo implements IAuditEventRepo {
 		return (statement.all() as Record<string, unknown>[]).map(mapAuditEvent);
 	}
 
-	private map(row: Record<string, unknown>): AuditEvent {
-		return mapAuditEvent(row);
-	}
 }

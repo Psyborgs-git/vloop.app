@@ -16,7 +16,8 @@
     },
     "scripts": {
         "build": "tsc --build",
-        "clean": "rm -rf dist tsconfig.tsbuildinfo"
+        "clean": "rm -rf dist tsconfig.tsbuildinfo",
+        "prepare": "node ../../scripts/fix-pty-permissions.mjs 2>/dev/null || true"
     },
     "dependencies": {
         "@orch/shared": "workspace:*",

@@ -3,7 +3,6 @@
  */
 
 import { eq, desc, and } from 'drizzle-orm';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiWorkflowsTable, aiWorkflowVersionsTable } from '../schema.js';
 import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
@@ -11,6 +10,7 @@ import type {
 	WorkflowId, WorkflowVersionId,
 	WorkflowConfig, CreateWorkflowInput, WorkflowVersion,
 } from '../types.js';
+import type { AiAgentOrm } from '../orm-type.js';
 import type { IWorkflowRepo, RepoListQuery } from './interfaces.js';
 import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
 
@@ -57,7 +57,7 @@ const workflowVersionColumns = {
 } as const;
 
 export class WorkflowRepo implements IWorkflowRepo {
-	constructor(private readonly orm: RootDatabaseOrm) {}
+	constructor(private readonly orm: AiAgentOrm) {}
 
 	create(input: CreateWorkflowInput): WorkflowConfig {
 		const id = generateId() as WorkflowId;

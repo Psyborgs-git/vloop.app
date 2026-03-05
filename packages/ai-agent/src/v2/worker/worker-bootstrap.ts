@@ -8,6 +8,8 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { aiAgentV2Schema } from '../schema.js';
+import type { AiAgentOrm } from '../orm-type.js';
 import {
 	LlmAgent, InMemoryRunner, FunctionTool,
 } from '@google/adk';
@@ -51,7 +53,7 @@ async function run(): Promise<void> {
 	db.pragma('journal_mode=WAL');
 	db.pragma('busy_timeout=5000');
 	db.pragma('foreign_keys=ON');
-	const orm = drizzle(db);
+	const orm = drizzle(db, { schema: aiAgentV2Schema }) as AiAgentOrm;
 
 	// Instantiate repos
 	const stateNodeRepo = new StateNodeRepo(orm);

@@ -2,11 +2,11 @@
  * Canvas Repository — CRUD for canvases and canvas commits.
  */
 import { eq, desc } from 'drizzle-orm';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { canvasesTable, canvasCommitsTable } from '../schema.js';
 import { generateId } from '../types.js';
 import { toJSON, fromJSON, now } from '../repo-helpers.js';
 import type { CanvasId, CanvasCommitId } from '../types.js';
+import type { AiAgentOrm } from '../orm-type.js';
 
 export interface Canvas {
 	id: string;
@@ -59,7 +59,7 @@ function mapCommit(row: any): CanvasCommit {
 }
 
 export class CanvasRepo {
-	constructor(private readonly orm: RootDatabaseOrm) {}
+	constructor(private readonly orm: AiAgentOrm) {}
 
 	create(input: { name: string; description?: string; content?: string; owner: string; metadata?: Record<string, unknown> }): Canvas {
 		const id = generateId() as unknown as CanvasId;

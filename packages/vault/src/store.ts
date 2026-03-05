@@ -7,34 +7,13 @@
  */
 
 import type BetterSqlite3 from "better-sqlite3-multiple-ciphers";
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { randomUUID } from "node:crypto";
 import { OrchestratorError, ErrorCode } from "@orch/shared";
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
-import { integer, sqliteTable, text, blob } from 'drizzle-orm/sqlite-core';
+import { vaultMetaTable, secretsTable, initVaultSchema } from './schema.js';
+import type { RootDatabaseOrm } from '@orch/shared/db';
 import { VaultCrypto } from "./crypto.js";
 import type { WrappedKey, EncryptedData } from "./crypto.js";
-
-const vaultMetaTable = sqliteTable('vault_meta', {
-	key: text('key').primaryKey(),
-	value: blob('value', { mode: 'buffer' }).notNull(),
-});
-
-const secretsTable = sqliteTable('secrets', {
-	id: text('id').primaryKey(),
-	name: text('name').notNull(),
-	version: integer('version').notNull(),
-	wrapped_dek: blob('wrapped_dek', { mode: 'buffer' }).notNull(),
-	dek_nonce: blob('dek_nonce', { mode: 'buffer' }).notNull(),
-	dek_tag: blob('dek_tag', { mode: 'buffer' }).notNull(),
-	ciphertext: blob('ciphertext', { mode: 'buffer' }).notNull(),
-	nonce: blob('nonce', { mode: 'buffer' }).notNull(),
-	tag: blob('tag', { mode: 'buffer' }).notNull(),
-	metadata: text('metadata'),
-	created_at: text('created_at').notNull(),
-	deleted_at: text('deleted_at'),
-	owner: text('owner').notNull().default('__system__'),
-});
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -64,7 +43,6 @@ export interface SecretMetadata {
 // ─── Implementation ─────────────────────────────────────────────────────────
 
 export class VaultStore {
-	private db: BetterSqlite3.Database;
 	private orm: RootDatabaseOrm;
 	private crypto: VaultCrypto;
 	private maxVersions: number;
@@ -75,52 +53,10 @@ export class VaultStore {
 		crypto: VaultCrypto,
 		maxVersions: number = 5,
 	) {
-		this.db = db;
 		this.orm = orm;
 		this.crypto = crypto;
 		this.maxVersions = maxVersions;
-		this.initSchema();
-	}
-
-	private initSchema(): void {
-		// Step 1: Create tables (without owner — avoids conflict with existing DBs)
-		this.db.exec(`
-            CREATE TABLE IF NOT EXISTS vault_meta (
-                key   TEXT PRIMARY KEY,
-                value BLOB NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS secrets (
-                id          TEXT PRIMARY KEY,
-                name        TEXT NOT NULL,
-                version     INTEGER NOT NULL DEFAULT 1,
-                wrapped_dek BLOB NOT NULL,
-                dek_nonce   BLOB NOT NULL,
-                dek_tag     BLOB NOT NULL,
-                ciphertext  BLOB NOT NULL,
-                nonce       BLOB NOT NULL,
-                tag         BLOB NOT NULL,
-                metadata    TEXT,
-                created_at  TEXT NOT NULL,
-                deleted_at  TEXT,
-                UNIQUE(name, version)
-            );
-            CREATE INDEX IF NOT EXISTS idx_secrets_name ON secrets(name);
-        `);
-
-		// Step 2: Migration — add owner column if missing
-		const secretColumns = this.db.pragma('table_info(secrets)') as Array<{ name: string }>;
-		const hasOwnerColumn = secretColumns.some((c) => c.name === 'owner');
-		if (!hasOwnerColumn) {
-			this.db.exec(
-				"ALTER TABLE secrets ADD COLUMN owner TEXT NOT NULL DEFAULT '__system__'",
-			);
-		}
-
-		// Step 3: Owner index (safe now — column guaranteed to exist)
-		this.db.exec(
-			"CREATE INDEX IF NOT EXISTS idx_secrets_owner ON secrets(owner)",
-		);
+		initVaultSchema(db);
 	}
 
 	/**

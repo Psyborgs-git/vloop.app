@@ -2,6 +2,8 @@
  * @orch/terminal — Cross-platform terminal/shell management via node-pty.
  */
 
+export { terminalSchema, initTerminalSchema } from './schema.js';
+
 export { TerminalManager } from './manager.js';
 export type {
     TerminalSpawnOptions,

@@ -6,7 +6,6 @@
  */
 
 import { eq, asc, inArray } from 'drizzle-orm';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import {
 	aiSessionsTable, aiSessionToolsTable, aiSessionMcpServersTable,
 	aiToolsTable, aiMcpServersTable,
@@ -18,6 +17,7 @@ import type {
 	MessageId, ToolConfigId, ToolConfig,
 	McpServerId, McpServerConfig,
 } from '../types.js';
+import type { AiAgentOrm } from '../orm-type.js';
 import type { ISessionRepo, RepoListQuery } from './interfaces.js';
 import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
 
@@ -72,7 +72,7 @@ const sessionColumns = {
 } as const;
 
 export class SessionRepo implements ISessionRepo {
-	constructor(private readonly orm: RootDatabaseOrm) {}
+	constructor(private readonly orm: AiAgentOrm) {}
 
 	create(input: CreateSessionInput): Session {
 		const id = generateId() as SessionId;
@@ -95,6 +95,29 @@ export class SessionRepo implements ISessionRepo {
 	}
 
 	get(id: SessionId): Session | undefined {
+		const relationalRow = this.orm.query?.aiSessionsTable?.findFirst?.({
+			where: eq(aiSessionsTable.id, id),
+			with: {
+				sessionTools: true,
+				sessionMcpServers: true,
+			},
+		})?.sync() as unknown as
+			| (Record<string, unknown> & {
+					sessionTools?: Array<{ tool_id: ToolConfigId; sort_order: number | null }>;
+					sessionMcpServers?: Array<{ server_id: McpServerId; sort_order: number | null }>;
+			  })
+			| undefined;
+
+		if (relationalRow) {
+			const toolIds = (relationalRow.sessionTools ?? [])
+				.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+				.map((row) => row.tool_id);
+			const mcpServerIds = (relationalRow.sessionMcpServers ?? [])
+				.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+				.map((row) => row.server_id);
+			return this.map(relationalRow, toolIds, mcpServerIds);
+		}
+
 		const row = this.orm.select().from(aiSessionsTable)
 			.where(eq(aiSessionsTable.id, id)).get() as any;
 		if (!row) return undefined;

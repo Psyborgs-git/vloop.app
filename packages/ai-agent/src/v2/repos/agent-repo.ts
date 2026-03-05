@@ -5,7 +5,6 @@
  */
 
 import { eq, asc, inArray } from 'drizzle-orm';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import {
 	aiAgentsTable, aiAgentToolsTable, aiAgentMcpServersTable,
 	aiToolsTable, aiMcpServersTable,
@@ -16,6 +15,7 @@ import type {
 	AgentConfigId, AgentConfig, CreateAgentInput,
 	ToolConfigId, ToolConfig, McpServerId, McpServerConfig,
 } from '../types.js';
+import type { AiAgentOrm } from '../orm-type.js';
 import type { IAgentRepo, RepoListQuery } from './interfaces.js';
 import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
 
@@ -64,7 +64,7 @@ const agentColumns = {
 } as const;
 
 export class AgentRepo implements IAgentRepo {
-	constructor(private readonly orm: RootDatabaseOrm) {}
+	constructor(private readonly orm: AiAgentOrm) {}
 
 	create(input: CreateAgentInput): AgentConfig {
 		const id = generateId() as AgentConfigId;
@@ -86,6 +86,24 @@ export class AgentRepo implements IAgentRepo {
 	}
 
 	get(id: AgentConfigId): AgentConfig | undefined {
+		const relationalRow = this.orm.query?.aiAgentsTable?.findFirst?.({
+			where: eq(aiAgentsTable.id, id),
+			with: {
+				agentMcpServers: true,
+			},
+		})?.sync() as unknown as
+			| (Record<string, unknown> & {
+					agentMcpServers?: Array<{ server_id: McpServerId; sort_order: number | null }>;
+			  })
+			| undefined;
+
+		if (relationalRow) {
+			const mcpServerIds = (relationalRow.agentMcpServers ?? [])
+				.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+				.map((row) => row.server_id);
+			return this.map(relationalRow, mcpServerIds);
+		}
+
 		const row = this.orm.select().from(aiAgentsTable)
 			.where(eq(aiAgentsTable.id, id)).get() as any;
 		if (!row) return undefined;

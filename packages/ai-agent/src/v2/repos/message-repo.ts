@@ -7,13 +7,13 @@
  */
 
 import { eq, asc } from 'drizzle-orm';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiMessagesTable } from '../schema.js';
 import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
 import type {
 	MessageId, SessionId, Message, CreateMessageInput,
 } from '../types.js';
+import type { AiAgentOrm } from '../orm-type.js';
 import type { IMessageRepo, RepoListQuery } from './interfaces.js';
 import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
 
@@ -49,7 +49,7 @@ const messageColumns = {
 } as const;
 
 export class MessageRepo implements IMessageRepo {
-	constructor(private readonly orm: RootDatabaseOrm) {}
+	constructor(private readonly orm: AiAgentOrm) {}
 
 	create(input: CreateMessageInput): Message {
 		const id = generateId() as MessageId;

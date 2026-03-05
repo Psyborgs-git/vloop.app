@@ -15,11 +15,22 @@ interface MockPty extends EventEmitter {
 const createdPtys: MockPty[] = [];
 
 vi.mock('node-pty', () => {
+    // track failures for special test cases
+    const posixCounter: { [key: string]: number } = {};
     return {
         spawn: vi.fn((shell: string, args: string[], options: any) => {
             // simulate failure for certain cwd to exercise error handling
             if (options.env?.['OWNER_FOR_TEST'] === 'throw') {
                 throw new Error('simulated spawn failure');
+            }
+
+            // simulate a posix_spawnp permissions error on first attempt only
+            if (options.env?.['OWNER_FOR_TEST'] === 'posix') {
+                const count = posixCounter['count'] || 0;
+                posixCounter['count'] = count + 1;
+                if (count === 0) {
+                    throw new Error('posix_spawnp failed.');
+                }
             }
 
             const pty = new EventEmitter() as MockPty;
@@ -115,6 +126,19 @@ describe('TerminalManager', () => {
         expect(() =>
             manager.spawn({ sessionId: 's-throw', owner: 'gary', cwd: process.cwd(), env: { OWNER_FOR_TEST: 'throw' } }),
         ).toThrow(/Failed to spawn terminal/);
+    });
+
+    it('attempts to repair node-pty permissions on posix_spawnp failures', () => {
+        const logger = createLoggerStub();
+        const manager = new TerminalManager(logger);
+
+        const info = manager.spawn({ sessionId: 's-posix', owner: 'helen', cwd: process.cwd(), env: { OWNER_FOR_TEST: 'posix' } });
+        // should succeed after a single retry
+        expect(info.sessionId).toBe('s-posix');
+        expect(logger.warn).toHaveBeenCalledWith(
+            expect.objectContaining({ sessionId: 's-posix' }),
+            expect.stringContaining('posix_spawnp failed'),
+        );
     });
 
     it('writes and resizes active sessions', () => {

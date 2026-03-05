@@ -8,17 +8,14 @@
 import Database from 'better-sqlite3';
 import type BetterSqlite3 from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { OrchestratorError, ErrorCode } from './errors.js';
 
 export type RootDatabaseEngine = 'sqlite' | 'mysql' | 'postgres';
-/**
- * Keep ORM type intentionally broad while multiple packages are being migrated.
- * This avoids nominal type conflicts when Drizzle resolves from different
- * node_modules locations in the monorepo.
- */
-export type RootDatabaseOrm = any;
+export type RootDatabaseSchema = Record<string, unknown>;
+export type RootDatabaseOrm<TSchema extends RootDatabaseSchema = RootDatabaseSchema> = BetterSQLite3Database<TSchema>;
 
 export interface DatabaseOptions {
     /** Root DB engine. Defaults to sqlite. */
@@ -33,7 +30,7 @@ export interface DatabaseOptions {
 
 export class DatabaseManager {
     private db: BetterSqlite3.Database | null = null;
-    private orm: RootDatabaseOrm | null = null;
+    private orm: RootDatabaseOrm<RootDatabaseSchema> | null = null;
     private readonly options: Required<DatabaseOptions>;
 
     constructor(options: DatabaseOptions) {
@@ -48,7 +45,7 @@ export class DatabaseManager {
      * Open the encrypted database connection.
      * Creates the database file and parent directories if they don't exist.
      */
-    open(): BetterSqlite3.Database {
+    open<TSchema extends RootDatabaseSchema = RootDatabaseSchema>(schema?: TSchema): BetterSqlite3.Database {
         if (this.db) {
             return this.db;
         }
@@ -84,7 +81,7 @@ export class DatabaseManager {
             // Verify the key worked by running a simple query
             // If the passphrase is wrong, this will throw
             this.db.pragma('schema_version');
-            this.orm = drizzle(this.db);
+            this.orm = (schema ? drizzle(this.db, { schema }) : drizzle(this.db)) as RootDatabaseOrm<RootDatabaseSchema>;
 
             return this.db;
         } catch (err) {
@@ -124,14 +121,14 @@ export class DatabaseManager {
     /**
      * Get Drizzle ORM facade for the root database.
      */
-    getOrm(): RootDatabaseOrm {
+    getOrm<TSchema extends RootDatabaseSchema = RootDatabaseSchema>(): RootDatabaseOrm<TSchema> {
         if (!this.orm) {
             throw new OrchestratorError(
                 ErrorCode.DB_ERROR,
                 'Database ORM is not initialized. Call open() first.',
             );
         }
-        return this.orm;
+        return this.orm as RootDatabaseOrm<TSchema>;  // safe: TSchema is narrowed at call site
     }
 
     getEngine(): RootDatabaseEngine {

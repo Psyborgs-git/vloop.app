@@ -6,25 +6,10 @@
  */
 
 import { createHash } from 'node:crypto';
-import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import type { PaginationOptions, PaginatedResult } from '@orch/shared';
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-
-const auditLogTable = sqliteTable('audit_log', {
-    id: integer('id').primaryKey({ autoIncrement: true }),
-    timestamp: text('timestamp').notNull(),
-    session_id: text('session_id'),
-    identity: text('identity').notNull(),
-    topic: text('topic').notNull(),
-    action: text('action').notNull(),
-    resource: text('resource'),
-    outcome: text('outcome').notNull(),
-    trace_id: text('trace_id'),
-    prev_hash: text('prev_hash').notNull(),
-    entry_hash: text('entry_hash').notNull(),
-});
+import { auditLogTable, initAuthSchema } from './schema.js';
+import type { RootDatabaseOrm } from '@orch/shared/db';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -52,35 +37,13 @@ export interface AuditQueryOptions extends PaginationOptions {
 // ─── Implementation ─────────────────────────────────────────────────────────
 
 export class AuditLogger {
-    private db: BetterSqlite3.Database;
     private orm: RootDatabaseOrm;
     private lastHash: string = '0'.repeat(64); // Genesis hash
 
-    constructor(db: BetterSqlite3.Database, orm: RootDatabaseOrm) {
-        this.db = db;
+    constructor(db: { exec(sql: string): unknown }, orm: RootDatabaseOrm) {
+        initAuthSchema(db);
         this.orm = orm;
-        this.initSchema();
         this.loadLastHash();
-    }
-
-    private initSchema(): void {
-        this.db.exec(`
-      CREATE TABLE IF NOT EXISTS audit_log (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        timestamp   TEXT NOT NULL,
-        session_id  TEXT,
-        identity    TEXT NOT NULL,
-        topic       TEXT NOT NULL,
-        action      TEXT NOT NULL,
-        resource    TEXT,
-        outcome     TEXT NOT NULL,
-        trace_id    TEXT,
-        prev_hash   TEXT NOT NULL,
-        entry_hash  TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
-      CREATE INDEX IF NOT EXISTS idx_audit_identity ON audit_log(identity);
-    `);
     }
 
     private loadLastHash(): void {

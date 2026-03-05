@@ -11,24 +11,11 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
-import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { OrchestratorError, ErrorCode, generateSessionId } from '@orch/shared';
 import type { SessionId } from '@orch/shared';
 import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm';
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-
-const sessionsTable = sqliteTable('sessions', {
-    id: text('id').primaryKey(),
-    token_hash: text('token_hash').notNull(),
-    identity: text('identity').notNull(),
-    roles: text('roles').notNull(),
-    created_at: text('created_at').notNull(),
-    last_active: text('last_active').notNull(),
-    expires_at: text('expires_at').notNull(),
-    conn_meta: text('conn_meta'),
-    revoked: integer('revoked').notNull().default(0),
-});
+import { sessionsTable, initAuthSchema } from './schema.js';
+import type { RootDatabaseOrm } from '@orch/shared/db';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -65,33 +52,13 @@ interface SessionRow {
 // ─── Implementation ─────────────────────────────────────────────────────────
 
 export class SessionManager {
-    private db: BetterSqlite3.Database;
     private orm: RootDatabaseOrm;
     private options: SessionManagerOptions;
 
-    constructor(db: BetterSqlite3.Database, orm: RootDatabaseOrm, options: SessionManagerOptions) {
-        this.db = db;
+    constructor(db: { exec(sql: string): unknown }, orm: RootDatabaseOrm, options: SessionManagerOptions) {
+        initAuthSchema(db);
         this.orm = orm;
         this.options = options;
-        this.initSchema();
-    }
-
-    private initSchema(): void {
-        this.db.exec(`
-      CREATE TABLE IF NOT EXISTS sessions (
-        id          TEXT PRIMARY KEY,
-        token_hash  TEXT NOT NULL UNIQUE,
-        identity    TEXT NOT NULL,
-        roles       TEXT NOT NULL,
-        created_at  TEXT NOT NULL,
-        last_active TEXT NOT NULL,
-        expires_at  TEXT NOT NULL,
-        conn_meta   TEXT,
-        revoked     INTEGER DEFAULT 0
-      );
-      CREATE INDEX IF NOT EXISTS idx_sessions_identity ON sessions(identity);
-      CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
-    `);
     }
 
     /**

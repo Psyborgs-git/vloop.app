@@ -21,6 +21,9 @@
     },
     "packageManager": "pnpm@10.27.0",
     "pnpm": {
+        "overrides": {
+            "drizzle-orm": "$drizzle-orm"
+        },
         "onlyBuiltDependencies": [
             "argon2",
             "better-sqlite3-multiple-ciphers",

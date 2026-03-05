@@ -3,11 +3,11 @@
  */
 
 import { eq } from 'drizzle-orm';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiModelsTable } from '../schema.js';
 import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
 import type { ModelId, ModelConfig, CreateModelInput } from '../types.js';
+import type { AiAgentOrm } from '../orm-type.js';
 import type { IModelRepo, RepoListQuery } from './interfaces.js';
 import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
 
@@ -37,7 +37,7 @@ const modelColumns = {
 } as const;
 
 export class ModelRepo implements IModelRepo {
-	constructor(private readonly orm: RootDatabaseOrm) {}
+	constructor(private readonly orm: AiAgentOrm) {}
 
 	create(input: CreateModelInput): ModelConfig {
 		const id = generateId() as ModelId;

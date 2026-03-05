@@ -3,11 +3,11 @@
  */
 
 import { eq } from 'drizzle-orm';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiProvidersTable } from '../schema.js';
 import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
 import type { ProviderId, ProviderConfig, CreateProviderInput } from '../types.js';
+import type { AiAgentOrm } from '../orm-type.js';
 import type { IProviderRepo, RepoListQuery } from './interfaces.js';
 import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
 
@@ -40,7 +40,7 @@ const providerColumns = {
 } as const;
 
 export class ProviderRepo implements IProviderRepo {
-	constructor(private readonly orm: RootDatabaseOrm) {}
+	constructor(private readonly orm: AiAgentOrm) {}
 
 	create(input: CreateProviderInput): ProviderConfig {
 		const id = generateId() as ProviderId;

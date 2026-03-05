@@ -3,7 +3,6 @@
  */
 
 import { eq, desc } from 'drizzle-orm';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiExecutionsTable } from '../schema.js';
 import { now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
@@ -11,6 +10,7 @@ import type {
 	ExecutionId, SessionId, WorkflowId, StateNodeId, WorkerRunId,
 	Execution, CreateExecutionInput, ExecutionStatus,
 } from '../types.js';
+import type { AiAgentOrm } from '../orm-type.js';
 import type { IExecutionRepo, RepoListQuery } from './interfaces.js';
 import { applyListQuery, createRowMapper, opt } from './query-helpers.js';
 
@@ -41,7 +41,7 @@ const executionColumns = {
 } as const;
 
 export class ExecutionRepo implements IExecutionRepo {
-	constructor(private readonly orm: RootDatabaseOrm) {}
+	constructor(private readonly orm: AiAgentOrm) {}
 
 	create(input: CreateExecutionInput): Execution {
 		const id = generateId() as ExecutionId;

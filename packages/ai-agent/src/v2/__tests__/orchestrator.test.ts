@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type Database from 'better-sqlite3';
-import type { RootDatabaseOrm } from '@orch/shared/db';
+import type { AiAgentOrm } from '../orm-type.js';
 import { createTestDb } from './test-db.js';
 
 import { ProviderRepo } from '../repos/provider-repo.js';
@@ -24,7 +24,7 @@ import { CanvasRepo } from '../repos/canvas-repo.js';
 import type { OrchestratorRepos } from '../orchestrator.js';
 
 let db: InstanceType<typeof Database>;
-let orm: RootDatabaseOrm;
+let orm: AiAgentOrm;
 let repos: OrchestratorRepos;
 
 beforeEach(() => {

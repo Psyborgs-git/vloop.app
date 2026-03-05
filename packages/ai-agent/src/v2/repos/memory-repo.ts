@@ -3,7 +3,6 @@
  */
 
 import { eq, like, desc, or } from 'drizzle-orm';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiMemoriesTable } from '../schema.js';
 import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
@@ -11,6 +10,7 @@ import type {
 	MemoryId, AgentConfigId,
 	MemoryEntry, CreateMemoryInput,
 } from '../types.js';
+import type { AiAgentOrm } from '../orm-type.js';
 import type { IMemoryRepo, RepoListQuery } from './interfaces.js';
 import { applyListQuery, createRowMapper, jsonOr, opt } from './query-helpers.js';
 
@@ -39,7 +39,7 @@ const memoryColumns = {
 } as const;
 
 export class MemoryRepo implements IMemoryRepo {
-	constructor(private readonly orm: RootDatabaseOrm) {}
+	constructor(private readonly orm: AiAgentOrm) {}
 
 	create(input: CreateMemoryInput): MemoryEntry {
 		const id = generateId() as MemoryId;
@@ -66,7 +66,7 @@ export class MemoryRepo implements IMemoryRepo {
 	}
 
 	list(agentId?: AgentConfigId, query?: RepoListQuery<keyof typeof memoryColumns>): MemoryEntry[] {
-		let statement = this.orm.select().from(aiMemoriesTable);
+		let statement = this.orm.select().from(aiMemoriesTable).$dynamic();
 		if (agentId) statement = statement.where(eq(aiMemoriesTable.agent_id, agentId));
 		statement = statement.orderBy(desc(aiMemoriesTable.created_at));
 		statement = applyListQuery(statement, memoryColumns, query);

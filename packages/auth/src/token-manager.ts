@@ -13,26 +13,10 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { OrchestratorError, ErrorCode, generateSessionId } from '@orch/shared';
 import { and, desc, eq, sql } from 'drizzle-orm';
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-
-// ─── Schema ──────────────────────────────────────────────────────────────────
-
-const tokensTable = sqliteTable('persistent_tokens', {
-    id: text('id').primaryKey(),
-    token_hash: text('token_hash').notNull(),
-    name: text('name').notNull(),
-    identity: text('identity').notNull(),
-    token_type: text('token_type').notNull(), // 'user' | 'agent'
-    roles: text('roles').notNull(),           // JSON array
-    scopes: text('scopes').notNull(),         // JSON array
-    created_at: text('created_at').notNull(),
-    expires_at: text('expires_at'),           // null = no expiry
-    last_used_at: text('last_used_at'),
-    revoked: integer('revoked').notNull().default(0),
-});
+import { tokensTable, initAuthSchema } from './schema.js';
+import type { RootDatabaseOrm } from '@orch/shared/db';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -109,23 +93,7 @@ export class TokenManager {
      * Called during component init phase.
      */
     initSchema(db: { exec(sql: string): unknown }): void {
-        db.exec(`
-      CREATE TABLE IF NOT EXISTS persistent_tokens (
-        id            TEXT PRIMARY KEY,
-        token_hash    TEXT NOT NULL UNIQUE,
-        name          TEXT NOT NULL,
-        identity      TEXT NOT NULL,
-        token_type    TEXT NOT NULL,
-        roles         TEXT NOT NULL,
-        scopes        TEXT NOT NULL,
-        created_at    TEXT NOT NULL,
-        expires_at    TEXT,
-        last_used_at  TEXT,
-        revoked       INTEGER DEFAULT 0
-      );
-      CREATE INDEX IF NOT EXISTS idx_pt_identity ON persistent_tokens(identity);
-      CREATE INDEX IF NOT EXISTS idx_pt_token_hash ON persistent_tokens(token_hash);
-    `);
+        initAuthSchema(db);
     }
 
     /**

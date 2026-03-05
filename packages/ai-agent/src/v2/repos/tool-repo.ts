@@ -3,11 +3,11 @@
  */
 
 import { eq } from 'drizzle-orm';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiToolsTable } from '../schema.js';
 import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
 import type { ToolConfigId, ToolConfig, CreateToolInput } from '../types.js';
+import type { AiAgentOrm } from '../orm-type.js';
 import type { IToolRepo, RepoListQuery } from './interfaces.js';
 import { applyListQuery, createRowMapper, jsonOr } from './query-helpers.js';
 
@@ -32,7 +32,7 @@ const toolColumns = {
 } as const;
 
 export class ToolRepo implements IToolRepo {
-	constructor(private readonly orm: RootDatabaseOrm) {}
+	constructor(private readonly orm: AiAgentOrm) {}
 
 	create(input: CreateToolInput): ToolConfig {
 		const id = generateId() as ToolConfigId;

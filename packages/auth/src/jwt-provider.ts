@@ -1,18 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
 import type { PaginationOptions, PaginatedResult } from '@orch/shared';
 import { eq, sql, desc } from 'drizzle-orm';
-import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
-
-const jwtProvidersTable = sqliteTable('jwt_providers', {
-    id: text('id').primaryKey(),
-    issuer: text('issuer').notNull(),
-    jwks_url: text('jwks_url').notNull(),
-    audience: text('audience').notNull(),
-    created_at: text('created_at').notNull(),
-});
+import { jwtProvidersTable, initAuthSchema } from './schema.js';
+import type { RootDatabaseOrm } from '@orch/shared/db';
 
 export interface JwtProvider {
     id: string;
@@ -31,27 +22,11 @@ interface JwtProviderRow {
 }
 
 export class JwtProviderManager {
-    private db: BetterSqlite3.Database;
     private orm: RootDatabaseOrm;
 
-    constructor(db: BetterSqlite3.Database, orm: RootDatabaseOrm) {
-        this.db = db;
+    constructor(db: { exec(sql: string): unknown }, orm: RootDatabaseOrm) {
+        initAuthSchema(db);
         this.orm = orm;
-        this.initSchema();
-    }
-
-    private initSchema(): void {
-        this.db.exec(`
-            CREATE TABLE IF NOT EXISTS jwt_providers (
-                id TEXT PRIMARY KEY,
-                issuer TEXT NOT NULL UNIQUE,
-                jwks_url TEXT NOT NULL,
-                audience TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_jwt_providers_issuer ON jwt_providers(issuer);
-            CREATE INDEX IF NOT EXISTS idx_jwt_providers_created_at ON jwt_providers(created_at DESC);
-        `);
     }
 
     /**

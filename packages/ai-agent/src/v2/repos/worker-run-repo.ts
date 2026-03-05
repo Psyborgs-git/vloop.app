@@ -3,17 +3,17 @@
  */
 
 import { eq } from 'drizzle-orm';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { aiWorkerRunsTable } from '../schema.js';
 import { now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
 import type {
 	WorkerRunId, WorkerRun, CreateWorkerRunInput, WorkerRunStatus,
 } from '../types.js';
+import type { AiAgentOrm } from '../orm-type.js';
 import type { IWorkerRunRepo } from './interfaces.js';
 
 export class WorkerRunRepo implements IWorkerRunRepo {
-	constructor(private readonly orm: RootDatabaseOrm) {}
+	constructor(private readonly orm: AiAgentOrm) {}
 
 	create(input: CreateWorkerRunInput): WorkerRun {
 		const id = generateId() as WorkerRunId;

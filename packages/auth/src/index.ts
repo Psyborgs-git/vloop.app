@@ -2,6 +2,9 @@
  * @orch/auth — Authentication, session management, RBAC, and audit.
  */
 
+export { authSchema, initAuthSchema } from './schema.js';
+export type {} from './schema.js';
+
 export { JwtValidator } from './jwt.js';
 export type { JwtClaims } from './jwt.js';
 

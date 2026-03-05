@@ -1,19 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
-import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
-import type { RootDatabaseOrm } from '@orch/shared/db';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
 import type { PaginationOptions, PaginatedResult } from '@orch/shared';
 import { desc, eq, sql } from 'drizzle-orm';
-import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
-
-const usersTable = sqliteTable('users', {
-    id: text('id').primaryKey(),
-    email: text('email').notNull(),
-    password_hash: text('password_hash'),
-    allowed_roles: text('allowed_roles').notNull(),
-    created_at: text('created_at').notNull(),
-});
+import { usersTable, initAuthSchema } from './schema.js';
+import type { RootDatabaseOrm } from '@orch/shared/db';
 
 export interface User {
     id: string;
@@ -31,27 +22,11 @@ interface UserRow {
 }
 
 export class UserManager {
-    private db: BetterSqlite3.Database;
     private orm: RootDatabaseOrm;
 
-    constructor(db: BetterSqlite3.Database, orm: RootDatabaseOrm) {
-        this.db = db;
+    constructor(db: { exec(sql: string): unknown }, orm: RootDatabaseOrm) {
+        initAuthSchema(db);
         this.orm = orm;
-        this.initSchema();
-    }
-
-    private initSchema(): void {
-        this.db.exec(`
-            CREATE TABLE IF NOT EXISTS users (
-                id TEXT PRIMARY KEY,
-                email TEXT NOT NULL UNIQUE,
-                password_hash TEXT,
-                allowed_roles TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-            CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at DESC);
-        `);
     }
 
     /**
