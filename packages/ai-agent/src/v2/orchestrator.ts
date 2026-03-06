@@ -206,6 +206,10 @@ export class AgentOrchestratorV2 {
 		try {
 			if (dstsxTools.length > 0) {
 				// Use ReAct for tool-enabled agent chats
+				const reactNodeId = stateAdapter.recordStep("react_start", {
+					toolCount: dstsxTools.length,
+					toolNames: dstsxTools.map((t) => t.name),
+				});
 				const react = new ReAct("question -> answer", dstsxTools);
 				const result = await settings.context(
 					{ lm, lmConfig: { temperature: resolved.params.temperature, maxTokens: resolved.params.maxTokens } },
@@ -214,6 +218,18 @@ export class AgentOrchestratorV2 {
 					}),
 				);
 				fullText = String(result.get("answer") ?? "");
+
+				// Extract trajectory from ReAct result for observability
+				const trajectory = result.get("trajectory");
+				if (trajectory) {
+					toolCalls.push({ type: "react_trajectory", trajectory: String(trajectory) });
+				}
+				stateAdapter.completeStep(reactNodeId, { answer: fullText.substring(0, 500) });
+
+				// Emit final answer as a stream event so callers receive the response
+				if (emit) {
+					emit("stream", { text: fullText, author: "assistant" }, 0);
+				}
 			} else {
 				// Use streaming Predict for simple chats
 				const predict = new Predict("question -> answer");
@@ -242,7 +258,8 @@ export class AgentOrchestratorV2 {
 				}
 			}
 		} catch (err: any) {
-			stateAdapter.failStep(stateAdapter.getLastNodeId()!);
+			const lastNodeId = stateAdapter.getLastNodeId();
+			if (lastNodeId) stateAdapter.failStep(lastNodeId);
 			this.repos.execution.updateStatus(execution.id, "failed");
 			this.repos.auditEvent.create({
 				executionId: execution.id,
@@ -364,6 +381,17 @@ export class AgentOrchestratorV2 {
 					() => react.forward({ question: `${systemPrompt}\n\n${enrichedPrompt}` }),
 				);
 				fullText = String(result.get("answer") ?? "");
+
+				// Extract trajectory from ReAct result for observability
+				const trajectory = result.get("trajectory");
+				if (trajectory) {
+					toolCalls.push({ type: "react_trajectory", trajectory: String(trajectory) });
+				}
+
+				// Emit final answer as a stream event so callers receive the response
+				if (emit) {
+					emit("stream", { text: fullText, author: "assistant" }, 0);
+				}
 			} else {
 				const predict = new Predict("question -> answer");
 				predict.instructions = systemPrompt;
@@ -387,6 +415,11 @@ export class AgentOrchestratorV2 {
 			}
 		} catch (err: any) {
 			this.repos.execution.updateStatus(execution.id, "failed");
+			this.repos.auditEvent.create({
+				executionId: execution.id,
+				kind: "execution.fail",
+				payload: { error: (err as Error)?.message },
+			});
 			throw err;
 		}
 

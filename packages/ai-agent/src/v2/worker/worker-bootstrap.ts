@@ -104,21 +104,43 @@ async function run(): Promise<void> {
 		const resolved = await providerManager.resolve(agentConfig.modelId, agentConfig.params);
 		const lm = createLM(resolved);
 
-		// Build tools
+		// Build tools — API handler types are executed via fetch; builtin tools
+		// are not available in the worker context (no ToolRegistry), so they
+		// emit a warning and return a descriptive error string to the LM.
 		const dstsxTools: Tool[] = [];
 		for (const toolId of agentConfig.toolIds) {
 			const toolConfig = toolRepo.get(toolId);
-			if (toolConfig) {
-				dstsxTools.push({
-					name: toolConfig.name,
-					description: toolConfig.description,
-					fn: async (args: string) => {
-						let parsed: Record<string, unknown> = {};
-						try { parsed = JSON.parse(args); } catch { /* tool args not JSON, use empty */ }
-						return JSON.stringify(parsed);
-					},
-				});
-			}
+			if (!toolConfig) continue;
+
+			dstsxTools.push({
+				name: toolConfig.name,
+				description: toolConfig.description,
+				fn: async (args: string) => {
+					let parsed: Record<string, unknown> = {};
+					try { parsed = JSON.parse(args); } catch { /* use empty object */ }
+
+					switch (toolConfig.handlerType) {
+						case 'api': {
+							const url = (toolConfig.handlerConfig as any).url as string;
+							const method = (toolConfig.handlerConfig as any).method as string || 'POST';
+							if (!url) return 'Error: API tool missing URL configuration';
+							const response = await fetch(url, {
+								method,
+								headers: { 'Content-Type': 'application/json' },
+								body: JSON.stringify(parsed),
+							});
+							const body = await response.json();
+							return JSON.stringify(body);
+						}
+						case 'builtin':
+							// Builtin tools require the ToolRegistry which is not available in the worker.
+							// Return a descriptive message so the LM knows it cannot use this tool.
+							return `Error: builtin tool "${toolConfig.name}" is not available in the workflow worker context.`;
+						default:
+							return `Error: unknown tool handler type "${toolConfig.handlerType}"`;
+					}
+				},
+			});
 		}
 
 		// Record workflow start
@@ -141,11 +163,25 @@ async function run(): Promise<void> {
 			{ lm, lmConfig: { temperature: resolved.params.temperature, maxTokens: resolved.params.maxTokens } },
 			async () => {
 				if (dstsxTools.length > 0) {
+					const reactNodeId = stateAdapter.recordStep('react_start', {
+						toolCount: dstsxTools.length,
+						toolNames: dstsxTools.map((t) => t.name),
+					});
 					const react = new ReAct('question -> answer', dstsxTools);
 					const result = await react.forward({
 						question: `${systemPrompt}\n\n${startMsg.prompt}`,
 					});
 					fullText = String(result.get('answer') ?? '');
+
+					// Extract trajectory for observability
+					const trajectory = result.get('trajectory');
+					stateAdapter.completeStep(reactNodeId, {
+						answer: fullText.substring(0, 500),
+						...(trajectory ? { trajectory: String(trajectory) } : {}),
+					});
+
+					// Emit final answer so dispatcher can forward it to the caller
+					send({ type: 'stream', event: { text: fullText, author: 'assistant' }, seq: 0 });
 				} else {
 					const predict = new Predict('question -> answer');
 					predict.instructions = systemPrompt;

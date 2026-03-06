@@ -111,7 +111,10 @@ export class MCPManager {
 				const result = await client.callTool({ name: tool.name, arguments: parsedArgs });
 				if (result.isError) throw new Error(`MCP tool error: ${JSON.stringify(result.content)}`);
 				const content = result.content as Array<{ type: string; text?: string }>;
-				return content.filter(c => c.type === 'text' && c.text).map(c => c.text).join('\n');
+				return content
+					.filter((c): c is { type: string; text: string } => c.type === 'text' && typeof c.text === 'string')
+					.map(c => c.text)
+					.join('\n');
 			},
 		}));
 	}
