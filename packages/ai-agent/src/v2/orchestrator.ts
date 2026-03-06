@@ -68,6 +68,9 @@ export interface AgentChatOptions {
 	historyMessages?: Message[];
 }
 
+/** Max chars to store in state node checkpoints for answer previews. */
+const MAX_ANSWER_LOG_LENGTH = 500;
+
 export interface OrchestratorRepos {
 	provider: IProviderRepo;
 	model: IModelRepo;
@@ -201,7 +204,7 @@ export class AgentOrchestratorV2 {
 		const startedAt = Date.now();
 		let fullText = "";
 		const toolCalls: any[] = [];
-		const toolResults: any[] = [];
+		let reactTrajectory: string | undefined;
 
 		try {
 			if (dstsxTools.length > 0) {
@@ -219,12 +222,14 @@ export class AgentOrchestratorV2 {
 				);
 				fullText = String(result.get("answer") ?? "");
 
-				// Extract trajectory from ReAct result for observability
-				const trajectory = result.get("trajectory");
-				if (trajectory) {
-					toolCalls.push({ type: "react_trajectory", trajectory: String(trajectory) });
-				}
-				stateAdapter.completeStep(reactNodeId, { answer: fullText.substring(0, 500) });
+				// Capture trajectory for observability (stored in message metadata, not toolCalls)
+				const rawTrajectory = result.get("trajectory");
+				if (rawTrajectory) reactTrajectory = String(rawTrajectory);
+
+				stateAdapter.completeStep(reactNodeId, {
+					answer: fullText.substring(0, MAX_ANSWER_LOG_LENGTH),
+					...(reactTrajectory ? { trajectory: reactTrajectory } : {}),
+				});
 
 				// Emit final answer as a stream event so callers receive the response
 				if (emit) {
@@ -281,13 +286,16 @@ export class AgentOrchestratorV2 {
 			providerType: resolved.provider.type,
 			modelId: resolved.model.modelId,
 			latencyMs: Date.now() - startedAt,
-			metadata: { adapter: resolved.adapter },
+			metadata: {
+				adapter: resolved.adapter,
+				...(reactTrajectory ? { trajectory: reactTrajectory } : {}),
+			},
 		};
 		stateAdapter.persistMessage(assistantMsgInput);
 
 		// Complete execution
 		const endNodeId = stateAdapter.recordStep("agent_end", {
-			output: fullText.substring(0, 500),
+			output: fullText.substring(0, MAX_ANSWER_LOG_LENGTH),
 		});
 		stateAdapter.completeStep(endNodeId);
 		this.repos.execution.updateStatus(execution.id, "completed", fullText);
@@ -372,6 +380,7 @@ export class AgentOrchestratorV2 {
 		let fullText = "";
 		const toolCalls: any[] = [];
 		const toolResults: any[] = [];
+		let reactTrajectory: string | undefined;
 
 		try {
 			if (dstsxTools.length > 0) {
@@ -382,11 +391,9 @@ export class AgentOrchestratorV2 {
 				);
 				fullText = String(result.get("answer") ?? "");
 
-				// Extract trajectory from ReAct result for observability
-				const trajectory = result.get("trajectory");
-				if (trajectory) {
-					toolCalls.push({ type: "react_trajectory", trajectory: String(trajectory) });
-				}
+				// Capture trajectory for observability (stored in message metadata, not toolCalls)
+				const rawTrajectory = result.get("trajectory");
+				if (rawTrajectory) reactTrajectory = String(rawTrajectory);
 
 				// Emit final answer as a stream event so callers receive the response
 				if (emit) {
@@ -436,7 +443,10 @@ export class AgentOrchestratorV2 {
 				providerType: resolved.provider.type,
 				modelId: resolved.model.modelId,
 				latencyMs: Date.now() - startedAt,
-				metadata: { adapter: resolved.adapter },
+				metadata: {
+					adapter: resolved.adapter,
+					...(reactTrajectory ? { trajectory: reactTrajectory } : {}),
+				},
 			};
 			const msg = this.repos.message.create(assistantMsg);
 			this.repos.session.setHeadMessage(opts.sessionId, msg.id);

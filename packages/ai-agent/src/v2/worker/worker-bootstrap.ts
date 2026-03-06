@@ -121,14 +121,17 @@ async function run(): Promise<void> {
 
 					switch (toolConfig.handlerType) {
 						case 'api': {
-							const url = (toolConfig.handlerConfig as any).url as string;
-							const method = (toolConfig.handlerConfig as any).method as string || 'POST';
+							const url = (toolConfig.handlerConfig as Record<string, unknown>).url as string;
+							const method = (toolConfig.handlerConfig as Record<string, unknown>).method as string || 'POST';
 							if (!url) return 'Error: API tool missing URL configuration';
 							const response = await fetch(url, {
 								method,
 								headers: { 'Content-Type': 'application/json' },
 								body: JSON.stringify(parsed),
 							});
+							if (!response.ok) {
+								return `Error: API tool "${toolConfig.name}" returned HTTP ${response.status}`;
+							}
 							const body = await response.json();
 							return JSON.stringify(body);
 						}
