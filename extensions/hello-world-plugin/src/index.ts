@@ -1,18 +1,35 @@
-// AssemblyScript entrypoint for a simple plugin that logs "Hello World".
+// AssemblyScript entrypoint for a minimal "Hello World" plugin.
+//
+// All host functions are imported from the `extism:host/user` namespace,
+// which is the namespace registered by PluginSandbox in @orch/plugin-manager.
+// The pointer type used here is `usize` (u32 on wasm32).
 
-// Import host functions exposed by the orchestrator. The namespace must match
-// what PluginSandbox registers (`extism:host/user`).
+// ── Host function imports ──────────────────────────────────────────────────
+
+/** Log a message at INFO level via the orchestrator's structured logger. */
 @external("extism:host/user", "log_info")
-declare function log_info(offset: number): void;
+declare function log_info(ptr: usize): void;
 
-// The runtime helper used by AssemblyScript to allocate a string in WASM memory.
-// We declare it explicitly so that the compiler knows about it. Using `number`
-// keeps TypeScript happy in the editor, asc will still treat it as a u32.
-declare function __newString(str: string): number;
+/** Log a message at ERROR level via the orchestrator's structured logger. */
+@external("extism:host/user", "log_error")
+declare function log_error(ptr: usize): void;
 
-// Standard entrypoint called by the plugin manager on startup.
+// ── AssemblyScript runtime helper ─────────────────────────────────────────
+
+/**
+ * Allocates `str` in Wasm linear memory and returns its address.
+ * Provided by the AssemblyScript runtime; declared here so the compiler
+ * knows about it. The `usize` return keeps the types consistent.
+ */
+declare function __newString(str: string): usize;
+
+// ── Exported lifecycle functions ──────────────────────────────────────────
+
+/**
+ * Called once by PluginManager immediately after the plugin is loaded.
+ * Use this function for one-time initialization work.
+ */
 export function on_start(): void {
-  const msg = "Hello from TypeScript plugin!";
-  const ptr = __newString(msg);
-  log_info(ptr);
+  const msg = __newString("Hello from AssemblyScript plugin!");
+  log_info(msg);
 }

@@ -88,7 +88,7 @@ export class PluginManager {
         // EventsHostFunctions — late-bind the WASM callback so we can reference the sandbox
         // after it is created, avoiding a circular construction dependency.
         // The no-op placeholder is replaced with the real handler after sandbox creation (line ~114).
-        let eventsCallback: (topic: string, payload: string) => void = (_topic, _payload) => {};
+        let eventsCallback: (topic: string, payload: string) => void = () => {};
         const eventsHost = this.eventBus
             ? new EventsHostFunctions(
                 this.eventBus,

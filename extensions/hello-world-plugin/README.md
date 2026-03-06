@@ -1,31 +1,67 @@
-# Hello World Plugin (TypeScript)
+# Hello World Plugin (AssemblyScript)
 
-This is a minimal test plugin written in AssemblyScript (a TypeScript-like language) that compiles to WebAssembly. It logs a message when the orchestrator calls its `on_start` function.
+A minimal example plugin written in [AssemblyScript](https://www.assemblyscript.org/) — a TypeScript-like language that compiles directly to WebAssembly. It logs a message when the orchestrator calls its `on_start` function.
+
+This demonstrates:
+- Importing host functions from the `extism:host/user` namespace.
+- The `on_start` lifecycle hook.
+- AssemblyScript memory management for string arguments.
 
 ## Building
 
 ```bash
 cd extensions/hello-world-plugin
-pnpm install  # or npm install
-pnpm run build
+pnpm install
+pnpm run build        # outputs build/plugin.wasm
 ```
 
-The resulting `build/plugin.wasm` file is referenced by the `plugin.json` manifest.
+## Packaging and installing
 
-## Installing for testing
+```bash
+# Create the zip archive that the plugin manager expects
+cd extensions/hello-world-plugin
+zip hello-world.zip plugin.json build/plugin.wasm
 
-1. Zip the manifest and the Wasm file:
-   ```bash
-   cd extensions/hello-world-plugin
-   zip ../hello-world.zip plugin.json build/plugin.wasm
-   ```
-2. Use the orchestrator CLI:
-   ```bash
-   orch plugin install ../hello-world.zip
-   orch plugin list
-   ```
-3. When the plugin loads, you should see a log entry containing the hello message.
+# Stage the plugin (inspect manifest + permissions before activating)
+orch plugin install ./hello-world.zip
 
-> This example lives under `extensions/` purely for convenience; the plugin system ultimately loads whatever
-> archive you provide at runtime. The `extensions/` folder is not special in the codebase but keeps local
-> test helpers together.
+# Grant permissions (none required here) and activate
+orch plugin grant hello-world-plugin
+
+# Confirm it is listed
+orch plugin list
+```
+
+When the plugin loads you should see a log line similar to:
+
+```
+{"level":"info","plugin":"hello-world-plugin","msg":"Hello from AssemblyScript plugin!"}
+```
+
+## How it works
+
+The plugin imports two symbols from the `extism:host/user` namespace that the orchestrator exposes via `@extism/extism`:
+
+| Import | Purpose |
+|--------|---------|
+| `log_info(ptr)` | Log a UTF-16 string at `ptr` at INFO level |
+| `__newString(str)` | AssemblyScript runtime helper — allocates `str` and returns its address |
+
+The exported `on_start()` function is called automatically by `PluginManager` when the plugin finishes loading.
+
+## Project layout
+
+```
+hello-world-plugin/
+├── asconfig.json      # AssemblyScript compiler config
+├── package.json       # devDependency: assemblyscript
+├── plugin.json        # Orchestrator plugin manifest
+└── src/
+    └── index.ts       # Plugin source (AssemblyScript)
+```
+
+## Next steps
+
+- Add `vault:read:*` to `permissions` in `plugin.json` and call `vault_read` to fetch a secret.
+- Subscribe to system events by calling `events_subscribe` with a topic string.
+- See the [full plugin guide](../../docs/getting-started/plugin.md) for more.
