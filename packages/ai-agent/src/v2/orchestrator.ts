@@ -1,5 +1,5 @@
 /**
- * Agent Orchestrator v2 — core execution engine built on Google ADK.
+ * Agent Orchestrator v2 — core execution engine built on @jaex/dstsx.
  *
  * Uses:
  * - Drizzle repos for all persistence (no AIConfigStore dependency)
@@ -12,19 +12,15 @@
 
 import type { Logger, HandlerContext } from "@orch/daemon";
 import {
-	LlmAgent,
-	InMemoryRunner,
-	LLMRegistry,
-	FunctionTool,
-	// Runner
-} from "@google/adk";
+	Predict,
+	ReAct,
+	settings,
+	type Tool,
+} from "@jaex/dstsx";
 
 import { ToolRegistry } from "../tools.js";
 import { AgentSandbox } from "../sandbox.js";
-import { AnthropicLlm } from "../config/anthropic-llm.js";
-import { OllamaLlm } from "../config/ollama-llm.js";
-import { GoogleLlm } from "../config/google-llm.js";
-import { OpenAILlm } from "../config/openai-llm.js";
+import { createLM } from "../config/lm-factory.js";
 
 import { ProviderManager } from "./provider-manager.js";
 import { MCPManager } from "./mcp-manager.js";
@@ -63,10 +59,6 @@ import type {
 	Message,
 } from "./types.js";
 
-function sanitizeName(s: string): string {
-	return s.replace(/[^a-zA-Z0-9_]/g, "_");
-}
-
 export interface AgentChatOptions {
 	agentId: AgentConfigId;
 	sessionId: SessionId;
@@ -99,15 +91,6 @@ export class AgentOrchestratorV2 {
 	public readonly mcpManager: MCPManager;
 	public readonly workerDispatcher: WorkerDispatcher;
 	public readonly repos: OrchestratorRepos;
-
-	// Run once at class-load time — prevents ADK "Updating LLM class" spam
-	// that occurs when the constructor is called multiple times.
-	static {
-		LLMRegistry.register(AnthropicLlm);
-		LLMRegistry.register(OllamaLlm);
-		LLMRegistry.register(GoogleLlm);
-		LLMRegistry.register(OpenAILlm);
-	}
 
 	constructor(
 		public readonly tools: ToolRegistry,
@@ -198,7 +181,7 @@ export class AgentOrchestratorV2 {
 		const sessionMcpServers = this.repos.session.getMcpServers(opts.sessionId);
 		const mcpServerIds = sessionMcpServers.map((s) => s.id);
 
-		const functionTools = await this.buildFunctionTools(
+		const dstsxTools = await this.buildDstsxTools(
 			effectiveToolIds,
 			mcpServerIds,
 			context,
@@ -213,113 +196,60 @@ export class AgentOrchestratorV2 {
 			historyMessages,
 		);
 
-		// Build ADK agent
-		const agent = new LlmAgent({
-			name: sanitizeName(agentConfig.name),
-			model:
-				resolved.modelString ??
-				`vloop://${resolved.provider.type}/${resolved.model.id}`,
-			instruction: agentConfig.systemPrompt || "You are a helpful assistant.",
-			tools: functionTools,
-		});
-
-		const appName = sanitizeName(`chat_${opts.agentId}`);
-		const runner = new InMemoryRunner({ agent, appName });
-		const adkSession = await runner.sessionService.createSession({
-			appName,
-			userId: "chat_user",
-		});
-
+		const lm = createLM(resolved);
+		const systemPrompt = agentConfig.systemPrompt || "You are a helpful assistant.";
 		const startedAt = Date.now();
-		let seq = 0;
 		let fullText = "";
 		const toolCalls: any[] = [];
 		const toolResults: any[] = [];
 
-		const events = runner.runAsync({
-			userId: "chat_user",
-			sessionId: adkSession.id,
-			newMessage: { role: "user", parts: [{ text: enrichedPrompt }] },
-		});
-
 		try {
-			for await (const rawEvent of events) {
-				const event = this.normalizeEventToolCalls(
-					rawEvent,
-					resolved.provider.type,
+			if (dstsxTools.length > 0) {
+				// Use ReAct for tool-enabled agent chats
+				const react = new ReAct("question -> answer", dstsxTools);
+				const result = await settings.context(
+					{ lm, lmConfig: { temperature: resolved.params.temperature, maxTokens: resolved.params.maxTokens } },
+					() => react.forward({
+						question: `${systemPrompt}\n\n${enrichedPrompt}`,
+					}),
 				);
-				const modelError = (event as any)?.errorMessage as string | undefined;
-				const modelCode = (event as any)?.errorCode as string | undefined;
-				if (modelError || modelCode) {
-					stateAdapter.failStep(stateAdapter.getLastNodeId()!);
-					this.repos.execution.updateStatus(execution.id, "failed");
-					this.repos.auditEvent.create({
-						executionId: execution.id,
-						kind: "execution.fail",
-						payload: { error: modelError },
-					});
-					throw new Error(
-						modelError ||
-							`Model execution failed${modelCode ? ` (${modelCode})` : ""}`,
-					);
-				}
-
-				const chunkToolCalls: any[] = [];
-				const chunkToolResults: any[] = [];
-				let chunkText = "";
-
-				if (event.content?.parts) {
-					for (const part of event.content.parts) {
-						if ("text" in part && part.text) {
-							chunkText += part.text;
-							fullText += part.text;
-						}
-						if ("functionCall" in part) {
-							chunkToolCalls.push(part.functionCall);
-							toolCalls.push(part.functionCall);
-						}
-						if ("functionResponse" in part) {
-							chunkToolResults.push(part.functionResponse);
-							toolResults.push(part.functionResponse);
-						}
-					}
-				}
-
-				// Record as state node
-				const nodeId = stateAdapter.recordStep("llm_call", {
-					author: event.author,
-					hasText: Boolean(chunkText),
-				});
-				stateAdapter.completeStep(nodeId, { seq });
+				fullText = String(result.get("answer") ?? "");
+			} else {
+				// Use streaming Predict for simple chats
+				const predict = new Predict("question -> answer");
+				predict.instructions = systemPrompt;
 
 				if (emit) {
-					const mappedEvent: any = { ...event };
-					if (chunkText) mappedEvent.text = chunkText;
-					if (chunkToolCalls.length > 0) mappedEvent.toolCalls = chunkToolCalls;
-					if (chunkToolResults.length > 0)
-						mappedEvent.toolResult = chunkToolResults[0];
-					if (
-						event.actions?.requestedToolConfirmations &&
-						Object.keys(event.actions.requestedToolConfirmations).length > 0
-					) {
-						mappedEvent.requestedToolConfirmations =
-							event.actions.requestedToolConfirmations;
-					}
-					if (event.longRunningToolIds && event.longRunningToolIds.length > 0) {
-						mappedEvent.longRunningToolIds = event.longRunningToolIds;
-					}
-					emit("stream", mappedEvent, seq++);
+					let seq = 0;
+					await settings.context({ lm, lmConfig: { temperature: resolved.params.temperature, maxTokens: resolved.params.maxTokens } }, async () => {
+						const chunks = predict.stream({ question: enrichedPrompt });
+						for await (const chunk of chunks) {
+							fullText += chunk.delta;
+							const nodeId = stateAdapter.recordStep("llm_call", {
+								hasText: Boolean(chunk.delta),
+							});
+							stateAdapter.completeStep(nodeId, { seq });
+
+							emit("stream", { text: chunk.delta, author: "assistant" }, seq++);
+						}
+					});
+				} else {
+					const result = await settings.context(
+						{ lm, lmConfig: { temperature: resolved.params.temperature, maxTokens: resolved.params.maxTokens } },
+						() => predict.forward({ question: enrichedPrompt }),
+					);
+					fullText = String(result.get("answer") ?? "");
 				}
 			}
 		} catch (err: any) {
-			if (this.isMissingThoughtSignatureError(err)) {
-				this.logger.warn(
-					{ err: err?.message },
-					"Recovered from missing thought_signature tool-call runtime error",
-				);
-			} else {
-				throw err;
-			}
+			stateAdapter.failStep(stateAdapter.getLastNodeId()!);
+			this.repos.execution.updateStatus(execution.id, "failed");
+			this.repos.auditEvent.create({
+				executionId: execution.id,
+				kind: "execution.fail",
+				payload: { error: err?.message },
+			});
+			throw err;
 		}
 
 		// Persist assistant message in DAG
@@ -408,7 +338,7 @@ export class AgentOrchestratorV2 {
 			? this.repos.session.getMcpServers(opts.sessionId).map((s) => s.id)
 			: [];
 		const effectiveToolIds = opts.toolIds ?? sessionToolIds;
-		const functionTools = await this.buildFunctionTools(
+		const dstsxTools = await this.buildDstsxTools(
 			effectiveToolIds,
 			sessionMcpServerIds,
 		);
@@ -416,96 +346,48 @@ export class AgentOrchestratorV2 {
 		const historyMessages =
 			opts.historyMessages ??
 			this.getSessionHistory(opts.sessionId, opts.prompt);
+		const enrichedPrompt = this.composePromptWithHistory(opts.prompt, historyMessages);
 
-		const agent = new LlmAgent({
-			name: "chat_completion",
-			model: resolved.modelString!,
-			description: "Simple chat assistant.",
-			instruction:
-				opts.systemPrompt ||
-				"You are a helpful AI assistant. Respond clearly and concisely.",
-			tools: functionTools,
-			generateContentConfig: {
-				temperature: resolved.params.temperature,
-				maxOutputTokens:
-					typeof resolved.params.maxTokens === "number"
-						? resolved.params.maxTokens
-						: undefined,
-				topP:
-					typeof resolved.params.topP === "number"
-						? resolved.params.topP
-						: undefined,
-				stopSequences: Array.isArray(resolved.params.stop)
-					? resolved.params.stop
-					: undefined,
-			},
-		});
-
-		const runner = new InMemoryRunner({ agent, appName: "chat_completion" });
-		const adkSession = await runner.sessionService.createSession({
-			appName: "chat_completion",
-			userId: "chat_user",
-		});
+		const lm = createLM(resolved);
+		const systemPrompt = opts.systemPrompt || "You are a helpful AI assistant. Respond clearly and concisely.";
 
 		const startedAt = Date.now();
-		let seq = 0;
 		let fullText = "";
 		const toolCalls: any[] = [];
 		const toolResults: any[] = [];
 
-		const events = runner.runAsync({
-			userId: "chat_user",
-			sessionId: adkSession.id,
-			newMessage: {
-				role: "user",
-				parts: [
-					{ text: this.composePromptWithHistory(opts.prompt, historyMessages) },
-				],
-			},
-		});
-
 		try {
-			for await (const rawEvent of events) {
-				const event = this.normalizeEventToolCalls(
-					rawEvent,
-					resolved.provider.type,
+			if (dstsxTools.length > 0) {
+				const react = new ReAct("question -> answer", dstsxTools);
+				const result = await settings.context(
+					{ lm, lmConfig: { temperature: resolved.params.temperature, maxTokens: resolved.params.maxTokens } },
+					() => react.forward({ question: `${systemPrompt}\n\n${enrichedPrompt}` }),
 				);
-				const modelError = (event as any)?.errorMessage as string | undefined;
-				const modelCode = (event as any)?.errorCode as string | undefined;
-				if (modelError || modelCode) {
-					throw new Error(
-						modelError ||
-							`Model execution failed${modelCode ? ` (${modelCode})` : ""}`,
-					);
-				}
+				fullText = String(result.get("answer") ?? "");
+			} else {
+				const predict = new Predict("question -> answer");
+				predict.instructions = systemPrompt;
 
-				let chunkText = "";
-				if (event.content?.parts) {
-					for (const part of event.content.parts) {
-						if ("text" in part && part.text) {
-							chunkText += part.text;
-							fullText += part.text;
-						}
-						if ("functionCall" in part) toolCalls.push(part.functionCall);
-						if ("functionResponse" in part)
-							toolResults.push(part.functionResponse);
-					}
-				}
 				if (emit) {
-					const mappedEvent: any = { ...event };
-					if (chunkText) mappedEvent.text = chunkText;
-					emit("stream", mappedEvent, seq++);
+					let seq = 0;
+					await settings.context({ lm, lmConfig: { temperature: resolved.params.temperature, maxTokens: resolved.params.maxTokens } }, async () => {
+						const chunks = predict.stream({ question: enrichedPrompt });
+						for await (const chunk of chunks) {
+							fullText += chunk.delta;
+							emit("stream", { text: chunk.delta, author: "assistant" }, seq++);
+						}
+					});
+				} else {
+					const result = await settings.context(
+						{ lm, lmConfig: { temperature: resolved.params.temperature, maxTokens: resolved.params.maxTokens } },
+						() => predict.forward({ question: enrichedPrompt }),
+					);
+					fullText = String(result.get("answer") ?? "");
 				}
 			}
 		} catch (err: any) {
-			if (this.isMissingThoughtSignatureError(err)) {
-				this.logger.warn(
-					{ err: err?.message },
-					"Recovered from missing thought_signature tool-call runtime error",
-				);
-			} else {
-				throw err;
-			}
+			this.repos.execution.updateStatus(execution.id, "failed");
+			throw err;
 		}
 
 		// Persist assistant message
@@ -553,19 +435,16 @@ export class AgentOrchestratorV2 {
 		const anchor = allMessages.find((m) => m.id === opts.messageId);
 		if (!anchor) throw new Error(`Chat message not found: ${opts.messageId}`);
 
-		// Find the user message to rerun
 		let rerunUserMsg: Message | undefined;
 		if (anchor.role === "user") {
 			rerunUserMsg = anchor;
 		} else {
-			// Walk ancestry to find nearest user message
 			const ancestry = this.repos.message.getAncestry(anchor.id);
 			rerunUserMsg = [...ancestry].reverse().find((m) => m.role === "user");
 		}
 		if (!rerunUserMsg)
 			throw new Error("No user prompt found before selected message");
 
-		// DAG branch: the new response attaches as a child of the rerun user message's parent
 		const historyChain = rerunUserMsg.parentId
 			? this.repos.message.getAncestry(rerunUserMsg.parentId)
 			: [];
@@ -610,7 +489,6 @@ export class AgentOrchestratorV2 {
 		const srcSession = this.repos.session.get(opts.sessionId);
 		if (!srcSession) throw new Error(`Session not found: ${opts.sessionId}`);
 
-		// Create new session
 		const newSession = this.repos.session.create({
 			agentId: srcSession.agentId,
 			workflowId: srcSession.workflowId,
@@ -622,7 +500,6 @@ export class AgentOrchestratorV2 {
 			mcpServerIds: srcSession.mcpServerIds,
 		});
 
-		// Copy message ancestry into new session
 		const ancestry = this.repos.message.getAncestry(
 			opts.messageId as MessageId,
 		);
@@ -713,7 +590,6 @@ export class AgentOrchestratorV2 {
 			};
 		}
 
-		// Insert a summary system message before the recent messages
 		const firstRecent = compacted.recentMessages[0];
 		this.repos.message.create({
 			sessionId: opts.sessionId,
@@ -737,64 +613,63 @@ export class AgentOrchestratorV2 {
 
 	// ── Private helpers ──────────────────────────────────────────────────
 
-	private async buildFunctionTools(
+	private async buildDstsxTools(
 		toolIds: string[],
 		mcpServerIds: string[],
 		context?: HandlerContext,
-	): Promise<FunctionTool[]> {
-		const result: FunctionTool[] = [];
+	): Promise<Tool[]> {
+		const result: Tool[] = [];
 
 		for (const toolId of toolIds) {
-			// Check builtin tools
 			const builtin = this.tools.get(toolId);
 			if (builtin) {
-				result.push(
-					new FunctionTool({
-						name: builtin.name,
-						description: builtin.description,
-						parameters: builtin.parameters,
-						execute: async (args: any) => await builtin.execute!(args, context),
-					}),
-				);
+				result.push({
+					name: builtin.name,
+					description: builtin.description,
+					fn: async (args: string) => {
+						const parsed = tryParseJson(args) ?? {};
+						const out = await builtin.execute!(parsed, context);
+						return typeof out === "string" ? out : JSON.stringify(out);
+					},
+				});
 				continue;
 			}
 
-			// Check stored tool configs
 			const toolConfig = this.repos.tool.get(toolId as any);
 			if (toolConfig) {
-				result.push(
-					new FunctionTool({
-						name: toolConfig.name,
-						description: toolConfig.description,
-						parameters: toolConfig.parametersSchema as any,
-						execute: async (args: any) => {
-							switch (toolConfig.handlerType) {
-								case "builtin": {
-									const builtinName = (toolConfig.handlerConfig as any).name;
-									const b = this.tools.get(builtinName);
-									if (!b?.execute)
-										throw new Error(`Builtin tool not found: ${builtinName}`);
-									return await b.execute(args, context);
-								}
-								case "api": {
-									const url = (toolConfig.handlerConfig as any).url;
-									const method =
-										(toolConfig.handlerConfig as any).method || "POST";
-									const response = await fetch(url, {
-										method,
-										headers: { "Content-Type": "application/json" },
-										body: JSON.stringify(args),
-									});
-									return await response.json();
-								}
-								default:
-									throw new Error(
-										`Unknown tool handler type: ${toolConfig.handlerType}`,
-									);
+				result.push({
+					name: toolConfig.name,
+					description: toolConfig.description,
+					fn: async (args: string) => {
+						const parsed = tryParseJson(args) ?? {};
+						switch (toolConfig.handlerType) {
+							case "builtin": {
+								const builtinName = (toolConfig.handlerConfig as any).name;
+								const b = this.tools.get(builtinName);
+								if (!b?.execute)
+									throw new Error(`Builtin tool not found: ${builtinName}`);
+								const out = await b.execute(parsed, context);
+								return typeof out === "string" ? out : JSON.stringify(out);
 							}
-						},
-					}),
-				);
+							case "api": {
+								const url = (toolConfig.handlerConfig as any).url;
+								const method =
+									(toolConfig.handlerConfig as any).method || "POST";
+								const response = await fetch(url, {
+									method,
+									headers: { "Content-Type": "application/json" },
+									body: JSON.stringify(parsed),
+								});
+								const body = await response.json();
+								return JSON.stringify(body);
+							}
+							default:
+								throw new Error(
+									`Unknown tool handler type: ${toolConfig.handlerType}`,
+								);
+						}
+					},
+				});
 				continue;
 			}
 
@@ -803,7 +678,7 @@ export class AgentOrchestratorV2 {
 
 		// MCP tools
 		if (mcpServerIds.length > 0) {
-			const mcpTools = await this.mcpManager.resolveFunctionTools(
+			const mcpTools = await this.mcpManager.resolveDstsxTools(
 				mcpServerIds as any,
 			);
 			result.push(...mcpTools);
@@ -957,7 +832,6 @@ export class AgentOrchestratorV2 {
 			if (byString) return this.providerManager.resolve(byString.id);
 		}
 
-		// Fallback for ad-hoc model strings
 		const fallbackModel = (opts.model || "gemini-2.5-flash").trim();
 		const model: ModelConfig = {
 			id: "adhoc-model" as ModelId,
@@ -975,7 +849,6 @@ export class AgentOrchestratorV2 {
 			id: "adhoc-provider" as any,
 			name: "Adhoc Google",
 			type: "google",
-			adapter: "adk-native",
 			createdAt: new Date(0).toISOString(),
 			updatedAt: new Date(0).toISOString(),
 		};
@@ -989,62 +862,12 @@ export class AgentOrchestratorV2 {
 			timeoutMs: 60_000,
 		};
 	}
+}
 
-	private normalizeEventToolCalls(event: any, providerType: string): any {
-		if (!event?.content?.parts || !Array.isArray(event.content.parts))
-			return event;
-
-		const normalizedParts = event.content.parts.map((part: any) => {
-			if (
-				!part ||
-				typeof part !== "object" ||
-				!("functionCall" in part) ||
-				!part.functionCall
-			) {
-				return part;
-			}
-
-			const fc = this.normalizeFunctionCall(part.functionCall, providerType);
-			return {
-				...part,
-				functionCall: fc,
-				thoughtSignature: fc.thoughtSignature,
-				thought_signature: fc.thought_signature,
-			};
-		});
-
-		return {
-			...event,
-			content: {
-				...event.content,
-				parts: normalizedParts,
-			},
-		};
-	}
-
-	private normalizeFunctionCall(functionCall: any, providerType: string): any {
-		if (!functionCall || typeof functionCall !== "object") return functionCall;
-
-		const rawSnake = functionCall.thought_signature;
-		const rawCamel = functionCall.thoughtSignature;
-		const sig =
-			typeof rawSnake === "string" && rawSnake.trim().length > 0
-				? rawSnake
-				: typeof rawCamel === "string" && rawCamel.trim().length > 0
-					? rawCamel
-					: providerType;
-
-		return {
-			...functionCall,
-			thoughtSignature: sig,
-			thought_signature: sig,
-		};
-	}
-
-	private isMissingThoughtSignatureError(err: unknown): boolean {
-		const msg = (err as any)?.message;
-		return (
-			typeof msg === "string" && msg.includes("missing a thought_signature")
-		);
+function tryParseJson(value: string): any | null {
+	try {
+		return JSON.parse(value);
+	} catch {
+		return null;
 	}
 }

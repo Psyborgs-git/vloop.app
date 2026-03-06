@@ -9,7 +9,6 @@
         "clean": "tsc --build --clean"
     },
     "dependencies": {
-        "@google/adk": "^0.2.0",
         "@modelcontextprotocol/sdk": "^1.27.1",
         "@types/diff": "^8.0.0",
         "drizzle-orm": "^0.44.7",
@@ -19,7 +18,8 @@
         "ollama": "^0.6.3",
         "playwright": "^1.58.2",
         "ws": "^8.19.0",
-        "zod": "~4.3.6"
+        "zod": "~4.3.6",
+        "@jaex/dstsx": "^0.1.21"
     },
     "devDependencies": {
         "@orch/container": "workspace:*",

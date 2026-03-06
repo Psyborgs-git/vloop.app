@@ -1,7 +1,7 @@
 /**
  * Worker Bootstrap — Runs inside a worker_thread.
  *
- * Opens its own encrypted SQLite connection, instantiates repos + ADK runner,
+ * Opens its own encrypted SQLite connection, instantiates repos + dstsx Predict,
  * and communicates with the dispatcher via the typed message protocol.
  */
 
@@ -11,8 +11,12 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { aiAgentV2Schema } from '../schema.js';
 import type { AiAgentOrm } from '../orm-type.js';
 import {
-	LlmAgent, InMemoryRunner, FunctionTool,
-} from '@google/adk';
+	Predict,
+	ReAct,
+	settings,
+	type Tool,
+} from '@jaex/dstsx';
+import { createLM } from '../../config/lm-factory.js';
 import { StateAdapter } from '../state-adapter.js';
 import { StateNodeRepo } from '../repos/state-node-repo.js';
 import { MessageRepo } from '../repos/message-repo.js';
@@ -26,9 +30,6 @@ import { HitlWaitRepo } from '../repos/hitl-wait-repo.js';
 import { ProviderManager } from '../provider-manager.js';
 import type { WorkerStartMsg, WorkerToMainMsg, MainToWorkerMsg } from './protocol.js';
 import type { CreateMessageInput, ExecutionId } from '../types.js';
-
-// Custom LLM adapters need to be registered in the worker thread too
-// They will be imported dynamically if needed
 
 const port = parentPort!;
 const initial = (workerData as { initialMsg: MainToWorkerMsg }).initialMsg;
@@ -101,34 +102,24 @@ async function run(): Promise<void> {
 
 		// Resolve model
 		const resolved = await providerManager.resolve(agentConfig.modelId, agentConfig.params);
+		const lm = createLM(resolved);
 
 		// Build tools
-		const tools: FunctionTool[] = [];
+		const dstsxTools: Tool[] = [];
 		for (const toolId of agentConfig.toolIds) {
 			const toolConfig = toolRepo.get(toolId);
 			if (toolConfig) {
-				tools.push(new FunctionTool({
+				dstsxTools.push({
 					name: toolConfig.name,
 					description: toolConfig.description,
-					parameters: toolConfig.parametersSchema as any,
-					execute: async (args: any) => {
-						return JSON.stringify(args);
+					fn: async (args: string) => {
+						let parsed: Record<string, unknown> = {};
+						try { parsed = JSON.parse(args); } catch { /* use empty */ }
+						return JSON.stringify(parsed);
 					},
-				}));
+				});
 			}
 		}
-
-		// Build ADK agent
-		const agent = new LlmAgent({
-			name: agentConfig.name.replace(/[^a-zA-Z0-9_]/g, '_'),
-			model: resolved.modelString ?? `vloop://${resolved.provider.type}/${resolved.model.id}`,
-			instruction: agentConfig.systemPrompt || 'You are a helpful assistant.',
-			tools,
-		});
-
-		const appName = `worker_${startMsg.executionId}`.replace(/[^a-zA-Z0-9_]/g, '_');
-		const runner = new InMemoryRunner({ agent, appName });
-		const session = await runner.sessionService.createSession({ appName, userId: 'worker_user' });
 
 		// Record workflow start
 		stateAdapter.recordStep('workflow_start', { prompt: startMsg.prompt });
@@ -142,34 +133,37 @@ async function run(): Promise<void> {
 		};
 		stateAdapter.persistMessage(userMsgInput);
 
-		// Run ADK
-		let seq = 0;
+		// Run dstsx module
+		const systemPrompt = agentConfig.systemPrompt || 'You are a helpful assistant.';
 		let fullText = '';
-		const events = runner.runAsync({
-			userId: 'worker_user',
-			sessionId: session.id,
-			newMessage: { role: 'user', parts: [{ text: startMsg.prompt }] },
-		});
 
-		for await (const event of events) {
-			if (cancelled) break;
+		await settings.context(
+			{ lm, lmConfig: { temperature: resolved.params.temperature, maxTokens: resolved.params.maxTokens } },
+			async () => {
+				if (dstsxTools.length > 0) {
+					const react = new ReAct('question -> answer', dstsxTools);
+					const result = await react.forward({
+						question: `${systemPrompt}\n\n${startMsg.prompt}`,
+					});
+					fullText = String(result.get('answer') ?? '');
+				} else {
+					const predict = new Predict('question -> answer');
+					predict.instructions = systemPrompt;
 
-			let chunkText = '';
-			if (event.content?.parts) {
-				for (const part of event.content.parts) {
-					if ('text' in part && part.text) {
-						chunkText += part.text;
-						fullText += part.text;
+					let seq = 0;
+					const chunks = predict.stream({ question: startMsg.prompt });
+					for await (const chunk of chunks) {
+						if (cancelled) break;
+						fullText += chunk.delta;
+
+						const nodeId = stateAdapter.recordStep('llm_call', { event: { author: 'assistant' } });
+						stateAdapter.completeStep(nodeId, { seq });
+
+						send({ type: 'stream', event: { text: chunk.delta, author: 'assistant' }, seq: seq++ });
 					}
 				}
-			}
-
-			// Record as state node
-			const nodeId = stateAdapter.recordStep('llm_call', { event: { author: event.author } });
-			stateAdapter.completeStep(nodeId, { seq });
-
-			send({ type: 'stream', event: { text: chunkText, author: event.author }, seq: seq++ });
-		}
+			},
+		);
 
 		// Persist assistant message
 		const session2 = sessionRepo.get(startMsg.sessionId);

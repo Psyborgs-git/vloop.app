@@ -3,13 +3,13 @@
  *
  * - Connects to MCP servers lazily (on first tool fetch).
  * - Resolves agent/session MCP server IDs via repos → config → connect → tools.
- * - Returns ADK FunctionTool[] ready to inject into LlmAgent.
+ * - Returns @jaex/dstsx Tool[] ready to inject into ReAct modules.
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { FunctionTool } from '@google/adk';
+import type { Tool } from '@jaex/dstsx';
 import type { Logger } from '@orch/daemon';
 import type { IMcpServerRepo } from './repos/interfaces.js';
 import type { McpServerId, McpServerConfig } from './types.js';
@@ -24,10 +24,10 @@ export class MCPManager {
 	) {}
 
 	/**
-	 * Resolve a list of MCP server IDs into ADK FunctionTool[].
+	 * Resolve a list of MCP server IDs into dstsx Tool[].
 	 * Connects lazily. Tool names are prefixed: mcp_{serverName}_{toolName}.
 	 */
-	async resolveFunctionTools(serverIds: McpServerId[]): Promise<FunctionTool[]> {
+	async resolveDstsxTools(serverIds: McpServerId[]): Promise<Tool[]> {
 		const nested = await Promise.all(serverIds.map(async (serverId) => {
 			const config = this.mcpServerRepo.get(serverId);
 			if (!config) {
@@ -98,16 +98,17 @@ export class MCPManager {
 		return client;
 	}
 
-	private async getToolsForServer(config: McpServerConfig): Promise<FunctionTool[]> {
+	private async getToolsForServer(config: McpServerConfig): Promise<Tool[]> {
 		const client = await this.connect(config);
 		const response = await client.listTools();
-		return response.tools.map(tool => new FunctionTool({
+		return response.tools.map(tool => ({
 			name: `mcp_${config.name}_${tool.name}`,
 			description: tool.description || '',
-			parameters: tool.inputSchema as any,
-			execute: async (args: any) => {
+			fn: async (args: string) => {
 				this.logger.debug({ serverId: config.id, tool: tool.name }, 'MCPManager: executing tool');
-				const result = await client.callTool({ name: tool.name, arguments: args });
+				let parsedArgs: Record<string, unknown> = {};
+				try { parsedArgs = JSON.parse(args); } catch { /* use empty */ }
+				const result = await client.callTool({ name: tool.name, arguments: parsedArgs });
 				if (result.isError) throw new Error(`MCP tool error: ${JSON.stringify(result.content)}`);
 				const content = result.content as Array<{ type: string; text?: string }>;
 				return content.filter(c => c.type === 'text' && c.text).map(c => c.text).join('\n');
