@@ -17,4 +17,5 @@ coverage/
 data/terminal-logs/*
 data/media/*
 **/terminal-logs/*
-**/media/*
+**/media/**.crt
+certs/

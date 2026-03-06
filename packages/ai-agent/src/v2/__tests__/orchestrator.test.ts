@@ -51,32 +51,48 @@ beforeEach(() => {
 });
 afterEach(() => db.close());
 
-// Mock the ADK to avoid real LLM calls
-vi.mock('@google/adk', async (importOriginal) => {
-	const actual = await importOriginal<typeof import('@google/adk')>();
+// Mock @jaex/dstsx to avoid real LLM calls
+vi.mock('@jaex/dstsx', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('@jaex/dstsx')>();
 	return {
 		...actual,
-		LlmAgent: vi.fn().mockImplementation(function () { return {}; }),
-		InMemoryRunner: vi.fn().mockImplementation(function () { return {
-			sessionService: {
-				createSession: vi.fn().mockResolvedValue({ id: 'adk-session' }),
-			},
-			runAsync: vi.fn().mockReturnValue((async function* () {
-				yield {
-					author: 'assistant',
-					content: { parts: [{ text: 'Mock response' }] },
-				};
-			})()),
-		}; }),
-		LLMRegistry: { register: vi.fn() },
-		FunctionTool: vi.fn(),
+		Predict: vi.fn().mockImplementation(function () {
+			return {
+				instructions: undefined,
+				forward: vi.fn().mockResolvedValue({
+					get: (key: string) => key === 'answer' ? 'Mock response' : undefined,
+				}),
+				stream: vi.fn().mockReturnValue((async function* () {
+					yield { delta: 'Mock response', done: true, raw: null };
+				})()),
+			};
+		}),
+		ReAct: vi.fn().mockImplementation(function () {
+			return {
+				forward: vi.fn().mockResolvedValue({
+					get: (key: string) => key === 'answer' ? 'Mock response' : undefined,
+				}),
+			};
+		}),
+		settings: {
+			configure: vi.fn(),
+			context: vi.fn().mockImplementation(async (_opts: any, fn: () => Promise<any>) => fn()),
+		},
 	};
 });
+
+// Mock the LM factory
+vi.mock('../../config/lm-factory.js', () => ({
+	createLM: vi.fn().mockReturnValue({
+		model: 'mock-model',
+		call: vi.fn(),
+		stream: vi.fn(),
+	}),
+}));
 
 // Import after mocks are established
 const { AgentOrchestratorV2 } = await import('../orchestrator.js');
 const { ToolRegistry } = await import('../../tools.js');
-const adk = await import('@google/adk');
 
 describe('AgentOrchestratorV2', () => {
 	function createOrchestrator() {
@@ -127,28 +143,7 @@ describe('AgentOrchestratorV2', () => {
 		expect(result.totalMessages).toBe(1);
 	});
 
-	it('recovers from missing thought_signature runtime error and keeps normalized toolCalls', async () => {
-		(adk.InMemoryRunner as any).mockImplementationOnce(function () { return {
-			sessionService: {
-				createSession: vi.fn().mockResolvedValue({ id: 'adk-session' }),
-			},
-			runAsync: vi.fn().mockReturnValue((async function* () {
-				yield {
-					author: 'assistant',
-					content: {
-						parts: [{
-							functionCall: {
-								name: 'canvas_create',
-								args: { name: 'demo' },
-								thoughtSignature: 'ollama',
-							},
-						}],
-					},
-				};
-				throw new Error('Function call is missing a thought_signature in functionCall parts.');
-			})()),
-		}; });
-
+	it('runChatCompletion uses dstsx Predict and returns result', async () => {
 		const provider = repos.provider.create({
 			name: 'Local Ollama',
 			type: 'ollama',
@@ -165,12 +160,10 @@ describe('AgentOrchestratorV2', () => {
 		const orchestrator = createOrchestrator();
 		const result = await orchestrator.runChatCompletion({
 			modelId: model.id,
-			prompt: 'create a canvas',
+			prompt: 'Hello world',
 		});
 
 		expect(result.status).toBe('completed');
-		expect(result.toolCalls).toHaveLength(1);
-		expect(result.toolCalls[0]?.thoughtSignature).toBe('ollama');
-		expect(result.toolCalls[0]?.thought_signature).toBe('ollama');
+		expect(result.result).toBe('Mock response');
 	});
 });

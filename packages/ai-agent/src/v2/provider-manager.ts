@@ -14,7 +14,6 @@ import type {
 	ProviderId, ModelId, ModelParams,
 	ProviderConfig, ModelConfig, ProviderAdapter, ResolvedModel,
 } from './types.js';
-import { activeRuntimes } from '../config/provider-registry.js';
 
 export type VaultGetFn = (ref: string) => Promise<string | undefined>;
 
@@ -29,7 +28,7 @@ export class ProviderManager {
 	) {}
 
 	/**
-	 * Resolve a ModelId into everything needed for ADK execution.
+	 * Resolve a ModelId into everything needed for dstsx execution.
 	 * Cached by `${providerId}::${modelId}`.
 	 */
 	async resolve(modelId: ModelId, runtimeParams?: ModelParams): Promise<ResolvedModel> {
@@ -70,21 +69,14 @@ export class ProviderManager {
 		};
 
 		this.cache.set(cacheKey, resolved);
-		// Populate the module-level activeRuntimes map so custom LLM adapters
-		// (OllamaLlm, OpenAILlm, AnthropicLlm, GoogleLlm) can look up their
-		// runtime config in their constructors via activeRuntimes.get(modelString).
-		if (resolved.modelString) {
-			activeRuntimes.set(resolved.modelString, resolved);
-		}
 		this.logger.debug({ provider: provider.type, adapter, model: model.modelId }, 'ProviderManager: resolved & cached');
 		return resolved;
 	}
 
-	/** Invalidate all cache entries for a specific provider, including activeRuntimes. */
+	/** Invalidate all cache entries for a specific provider. */
 	invalidate(providerId: ProviderId): void {
-		for (const [key, val] of this.cache) {
+		for (const [key] of this.cache) {
 			if (key.startsWith(`${providerId}::`)) {
-				if (val.modelString) activeRuntimes.delete(val.modelString);
 				this.cache.delete(key);
 			}
 		}

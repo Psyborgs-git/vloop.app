@@ -11,28 +11,28 @@ Providing native autonomous capabilities within an orchestrator is a distinct co
 ## 3. File Manifest & Architecture Impact (The "Where")
 * **Files (v2 architecture):**
   * `packages/ai-agent/src/v2/handler.ts`: Action-string router — maps incoming `agent.*` actions to the correct repo or orchestrator method.
-  * `packages/ai-agent/src/v2/orchestrator.ts`: `AgentOrchestratorV2` — builds ADK `LlmAgent`, runs chat/workflow sessions, fork/rerun/compact operations, DAG message tracking.
+  * `packages/ai-agent/src/v2/orchestrator.ts`: `AgentOrchestratorV2` — uses `@jaex/dstsx` `Predict`/`ReAct` modules, runs chat/workflow sessions, fork/rerun/compact operations, DAG message tracking.
   * `packages/ai-agent/src/v2/repos/*.ts`: Drizzle-backed repos for every domain entity (ProviderRepo, ModelRepo, ToolRepo, McpServerRepo, AgentRepo, WorkflowRepo, SessionRepo, MessageRepo, ExecutionRepo, StateNodeRepo, WorkerRunRepo, HitlWaitRepo, AuditEventRepo, MemoryRepo, CanvasRepo).
   * `packages/ai-agent/src/v2/canvas-handlers.ts`: Registers `canvas.*` CRUD actions backed by `CanvasRepo`.
   * `packages/ai-agent/src/v2/schema.ts`: Drizzle table definitions for all 15+ tables.
   * `packages/ai-agent/src/v2/migration.ts`: SQL DDL migration for the full v2 schema.
   * `packages/ai-agent/src/v2/types.ts`: Shared type definitions (ResolvedModel, etc.).
-  * `packages/ai-agent/src/config/anthropic-llm.ts`, `openai-llm.ts`, `ollama-llm.ts`, `google-llm.ts`: Custom `BaseLlm` adapters registered in the ADK `LLMRegistry`.
-* **Dependencies:** `@google/adk`, `@modelcontextprotocol/sdk`, `ollama`, `better-sqlite3-multiple-ciphers`, `drizzle-orm`, `vitest`.
+  * `packages/ai-agent/src/config/lm-factory.ts`: LM adapter factory — maps provider types to `@jaex/dstsx` adapters (`OpenAI`, `Anthropic`, `GoogleAI`, `Ollama`).
+* **Dependencies:** `@jaex/dstsx`, `@modelcontextprotocol/sdk`, `ollama`, `better-sqlite3-multiple-ciphers`, `drizzle-orm`, `vitest`.
 
 ## 4. Design by Feature (The "How")
 * **Domain Object Model Impact:** Introduces Drizzle schemas for providers, models, tools, MCP servers, agent configs, workflows, sessions, messages (DAG with `parentId`/`branch`), executions, state nodes, worker runs, HITL waits, audit events, memory entries, canvases, and canvas commits.
 * **Sequence of Operations:**
   1. User/System triggers a run context (`chat.send`, `run.chat`, or `run.workflow`).
-  2. `AgentOrchestratorV2` resolves the agent config from `AgentRepo`, builds an ADK `LlmAgent` with resolved tools and optional MCP servers.
-  3. MCP servers are attached via the ADK's `McpToolset` with parallel stdio/SSE connection setup.
-  4. The chosen LLM adapter (registered in `LLMRegistry`) synthesizes the request.
-  5. The ADK `InMemoryRunner` streams events. Each tool call, partial response, and final turn is persisted as a message in the DAG (with `parentId` tracking).
+  2. `AgentOrchestratorV2` resolves the agent config from `AgentRepo`, creates a `@jaex/dstsx` LM adapter via `createLM()` with resolved tools and optional MCP servers.
+  3. MCP servers are resolved via `MCPManager` with parallel stdio/SSE connection setup, returning `dstsx.Tool[]`.
+  4. The `createLM()` factory maps the provider type to the correct `@jaex/dstsx` adapter (`OpenAI`, `Anthropic`, `GoogleAI`, `Ollama`).
+  5. `Predict.stream()` or `ReAct.forward()` runs the completion within a `settings.context()` scope. Each chunk or tool call is persisted as a message in the DAG (with `parentId` tracking).
   6. Audit events are written to `AuditEventRepo` for every execution step, enabling full replay and observability.
   7. For workflow execution, `StateNodeRepo` tracks DAG state transitions and `WorkerRunRepo` records individual worker execution windows.
 * **Edge Cases & Error Handling:**
   * LLM Hallucinations: Invalid tool calls result in an error event persisted in audit logs with the full call context.
-  * MCP Server Timeouts: Handled within ADK McpToolset with configurable timeout; failures are surfaced as tool-error events.
+  * MCP Server Timeouts: Handled within MCPManager with configurable timeout; failures are surfaced as tool-error events.
   * HITL (Human-in-the-Loop): `HitlWaitRepo` pauses execution until a human resolves the wait with an approval/rejection + optional response.
   * Message DAG Integrity: Fork and rerun operations copy ancestry chains atomically, preserving immutable history.
 
