@@ -107,7 +107,7 @@ export class MCPManager {
 			fn: async (args: string) => {
 				this.logger.debug({ serverId: config.id, tool: tool.name }, 'MCPManager: executing tool');
 				let parsedArgs: Record<string, unknown> = {};
-				try { parsedArgs = JSON.parse(args); } catch { /* use empty */ }
+				try { parsedArgs = JSON.parse(args); } catch { this.logger.debug({ args }, 'MCPManager: failed to parse tool args, using empty object'); }
 				const result = await client.callTool({ name: tool.name, arguments: parsedArgs });
 				if (result.isError) throw new Error(`MCP tool error: ${JSON.stringify(result.content)}`);
 				const content = result.content as Array<{ type: string; text?: string }>;

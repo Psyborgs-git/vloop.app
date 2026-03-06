@@ -114,7 +114,7 @@ async function run(): Promise<void> {
 					description: toolConfig.description,
 					fn: async (args: string) => {
 						let parsed: Record<string, unknown> = {};
-						try { parsed = JSON.parse(args); } catch { /* use empty */ }
+						try { parsed = JSON.parse(args); } catch { /* tool args not JSON, use empty */ }
 						return JSON.stringify(parsed);
 					},
 				});
