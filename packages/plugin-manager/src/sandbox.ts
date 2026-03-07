@@ -8,6 +8,7 @@ import { OrchestratorError, ErrorCode } from '@orch/shared';
 import type { DbHostFunctions } from './host/db.js';
 import type { VaultHostFunctions } from './host/vault.js';
 import type { EventsHostFunctions } from './host/events.js';
+import type { TaskHostFunctions } from './host/task.js';
 
 export interface HostFunctionContext {
     logger: Logger;
@@ -27,7 +28,8 @@ export class PluginSandbox {
         logger: Logger,
         dbHost?: DbHostFunctions,
         vaultHost?: VaultHostFunctions,
-        eventsHost?: EventsHostFunctions
+        eventsHost?: EventsHostFunctions,
+        taskHost?: TaskHostFunctions
     ) {
         this.logger = logger.child({ plugin: manifest.id });
         this.eventsHost = eventsHost;
@@ -50,6 +52,20 @@ export class PluginSandbox {
                             log_error: (callContext: CallContext, offset: bigint) => {
                                 const msg = callContext.read(offset)?.string() ?? '';
                                 pluginLogger.error(msg);
+                            },
+                            host_get_contract: (callContext: CallContext) => {
+                                if (!taskHost) {
+                                    callContext.setError('No task host contract available');
+                                    return callContext.store('{"error":"No task host contract available"}');
+                                }
+
+                                try {
+                                    return callContext.store(JSON.stringify(taskHost.getContract()));
+                                } catch (err: any) {
+                                    const msg = err instanceof Error ? err.message : String(err);
+                                    callContext.setError(msg);
+                                    return callContext.store(`{"error":${JSON.stringify(msg)}}`);
+                                }
                             },
                             db_query: (callContext: CallContext, sqlOffset: bigint, _paramsOffset: bigint) => {
                                 if (!dbHost) {
@@ -82,6 +98,66 @@ export class PluginSandbox {
                                 pluginLogger.warn('vault_write called; async host functions require runInWorker+JSPI');
                                 callContext.setError('Async vault_write requires JSPI support');
                                 return callContext.store('{"error":"Async vault_write requires JSPI support"}');
+                            },
+                            contacts_manage: (callContext: CallContext, requestOffset: bigint) => {
+                                if (!taskHost) {
+                                    callContext.setError('No task host functions available');
+                                    return callContext.store('{"error":"No task host functions available"}');
+                                }
+
+                                const request = callContext.read(requestOffset)?.string() ?? '';
+                                try {
+                                    return callContext.store(taskHost.manageContacts(request));
+                                } catch (err: any) {
+                                    const msg = err instanceof Error ? err.message : String(err);
+                                    callContext.setError(msg);
+                                    return callContext.store(`{"error":${JSON.stringify(msg)}}`);
+                                }
+                            },
+                            chat_manage: (callContext: CallContext, requestOffset: bigint) => {
+                                if (!taskHost) {
+                                    callContext.setError('No task host functions available');
+                                    return callContext.store('{"error":"No task host functions available"}');
+                                }
+
+                                const request = callContext.read(requestOffset)?.string() ?? '';
+                                try {
+                                    return callContext.store(taskHost.manageChat(request));
+                                } catch (err: any) {
+                                    const msg = err instanceof Error ? err.message : String(err);
+                                    callContext.setError(msg);
+                                    return callContext.store(`{"error":${JSON.stringify(msg)}}`);
+                                }
+                            },
+                            agent_infer: (callContext: CallContext, requestOffset: bigint) => {
+                                if (!taskHost) {
+                                    callContext.setError('No task host functions available');
+                                    return callContext.store('{"error":"No task host functions available"}');
+                                }
+
+                                const request = callContext.read(requestOffset)?.string() ?? '';
+                                try {
+                                    return callContext.store(taskHost.infer(request));
+                                } catch (err: any) {
+                                    const msg = err instanceof Error ? err.message : String(err);
+                                    callContext.setError(msg);
+                                    return callContext.store(`{"error":${JSON.stringify(msg)}}`);
+                                }
+                            },
+                            notifications_notify: (callContext: CallContext, requestOffset: bigint) => {
+                                if (!taskHost) {
+                                    callContext.setError('No task host functions available');
+                                    return callContext.store('{"error":"No task host functions available"}');
+                                }
+
+                                const request = callContext.read(requestOffset)?.string() ?? '';
+                                try {
+                                    return callContext.store(taskHost.notify(request));
+                                } catch (err: any) {
+                                    const msg = err instanceof Error ? err.message : String(err);
+                                    callContext.setError(msg);
+                                    return callContext.store(`{"error":${JSON.stringify(msg)}}`);
+                                }
                             },
                             events_subscribe: (callContext: CallContext, topicOffset: bigint) => {
                                 if (!eventsHost) {

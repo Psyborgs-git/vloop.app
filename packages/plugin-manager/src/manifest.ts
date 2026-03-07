@@ -1,10 +1,17 @@
 import { z } from 'zod';
+import { PluginHostFeatureFlagsSchema, PluginTaskSchema } from './contracts.js';
 
 export const PluginPermissionSchema = z.enum([
     'db:read',
     'db:write',
     'vault:read',
     'vault:write',
+    'contacts:read',
+    'contacts:write',
+    'chat:read',
+    'chat:write',
+    'agent:run',
+    'notifications:publish',
     'events:subscribe',
     'events:publish',
     'network:outbound', // For future use
@@ -19,6 +26,8 @@ export const PluginManifestSchema = z.object({
     description: z.string().optional(),
     author: z.string().optional(),
     entrypoint: z.string().default('plugin.wasm'),
+    task: PluginTaskSchema.optional(),
+    host_features: PluginHostFeatureFlagsSchema.optional(),
     permissions: z.array(z.string()).default([]),
 });
 

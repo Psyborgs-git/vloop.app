@@ -46,13 +46,23 @@ User/CLI                     Orchestrator
   "name": "My Plugin",
   "version": "1.0.0",
   "description": "Does cool stuff",
+  "task": "chat",
+  "host_features": {
+    "vault": true,
+    "contacts": true,
+    "chat": true,
+    "ai_inference": true,
+    "notifications": true
+  },
   "entrypoint": "plugin.wasm",
   "permissions": [
     "db:read",
     "db:write",
     "vault:read:my-secret",
-    "events:subscribe:container.started",
-    "events:publish"
+    "contacts:write",
+    "chat:write",
+    "agent:run",
+    "notifications:publish"
   ]
 }
 ```
@@ -64,6 +74,8 @@ User/CLI                     Orchestrator
 | `version` | ✅ | Semver string (`x.y.z`). |
 | `description` | ✗ | Optional short description. |
 | `author` | ✗ | Optional author string. |
+| `task` | ✗ | Declares a fixed host contract for a specific plugin task. Currently supported: `chat`. |
+| `host_features` | ✗ | Declares which fixed host features the plugin expects for its task contract. |
 | `entrypoint` | ✗ | Wasm file inside the zip (default: `plugin.wasm`). |
 | `permissions` | ✗ | Array of requested permissions (default: `[]`). |
 
@@ -79,6 +91,12 @@ The system enforces a **default deny** policy. Plugins must explicitly request p
 | `vault:read:*` | Read any secret from the Vault. |
 | `vault:write:<key>` | Write a specific secret to the Vault. |
 | `vault:write:*` | Write any secret to the Vault. |
+| `contacts:read` / `contacts:*` | Read plugin-scoped contacts through the fixed chat-task host contract. |
+| `contacts:write` / `contacts:*` | Queue plugin-scoped contact upserts/removals through the notifications event bus. |
+| `chat:read` / `chat:*` | Read plugin-scoped chat lists/history through the fixed chat-task host contract. |
+| `chat:write` / `chat:*` | Queue plugin-scoped chat sends/archive requests through the notifications event bus. |
+| `agent:run` / `agent:*` | Queue AI inference or agentic workflow requests for the plugin. |
+| `notifications:publish` / `notifications:*` | Publish plugin-scoped notification requests via the notifications event bus. |
 | `events:subscribe:<topic>` | Listen to a specific event topic on the system bus. |
 | `events:subscribe:*` | Listen to all event topics. |
 | `events:publish` | Publish events to the `plugin.<id>.*` namespace. |
@@ -97,6 +115,23 @@ log_error(msg_offset: i64)
 ```
 
 Write a string message to the orchestrator's structured logger (pino). Severity is `info` or `error`.
+
+### Task contract discovery
+
+```
+host_get_contract() -> i64
+```
+
+Returns a JSON document describing the fixed host interface available to the plugin for its declared task. For `task: "chat"`, the contract advertises the canonical host function names for:
+
+- structured logging
+- vault access
+- plugin-scoped contacts management
+- plugin-scoped chat management
+- AI inference handoff
+- notifications routed over `HooksEventBus`
+
+Tasked plugins should fetch this contract at startup and branch on the advertised features rather than hard-coding environment assumptions.
 
 ### Database
 
@@ -130,6 +165,46 @@ Subscribe to or publish on the system event bus (`HooksEventBus`). When a subscr
 
 - `events_subscribe` requires `events:subscribe:<topic>` or `events:subscribe:*` permission.
 - `events_publish` requires `events:publish` permission and restricts the topic to the `plugin.<id>.*` namespace.
+
+### Chat task host features
+
+The `chat` task contract adds fixed host function names for plugin-scoped messaging integrations such as Telegram and Discord:
+
+```
+contacts_manage(request_offset: i64) -> i64
+chat_manage(request_offset: i64) -> i64
+agent_infer(request_offset: i64) -> i64
+notifications_notify(request_offset: i64) -> i64
+```
+
+Each function accepts a JSON request envelope and returns a queued response:
+
+```json
+{
+  "ok": true,
+  "queued": true,
+  "topic": "notifications.plugin.telegram-chat-plugin.chat.send"
+}
+```
+
+The host validates the plugin's declared task features and granted permissions, then publishes a canonical request envelope onto the notifications event bus:
+
+```json
+{
+  "pluginId": "telegram-chat-plugin",
+  "task": "chat",
+  "domain": "chat",
+  "operation": "send",
+  "request": {
+    "operation": "send",
+    "conversationId": "conv-123",
+    "message": "hello"
+  },
+  "requestedAt": "2026-03-07T14:00:00.000Z"
+}
+```
+
+This keeps non-core bridge work outside the plugin manager while giving plugins a fixed Extism host ABI.
 
 ## Exported Functions
 
@@ -175,5 +250,7 @@ See the `extensions/` directory for working plugin examples:
 
 - [`extensions/hello-world-plugin/`](../../extensions/hello-world-plugin/) — AssemblyScript (TypeScript-like) plugin.
 - [`extensions/rust-example-plugin/`](../../extensions/rust-example-plugin/) — Rust plugin demonstrating vault and events host functions.
+- [`extensions/telegram-chat-plugin/`](../../extensions/telegram-chat-plugin/) — Rust Extism plugin that uses the fixed chat-task contract for Telegram bridging.
+- [`extensions/discord-chat-plugin/`](../../extensions/discord-chat-plugin/) — Rust Extism plugin that uses the fixed chat-task contract for Discord bridging.
 
 For a step-by-step guide to building your first plugin, see [Getting Started: Plugin Development](../getting-started/plugin.md).
