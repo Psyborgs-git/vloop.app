@@ -4,6 +4,8 @@ import path from 'path';
 export default defineConfig({
     resolve: {
         alias: {
+            '@orch/shared/hooks-bus': path.resolve(__dirname, 'packages/shared/src/hooks-bus.ts'),
+            '@orch/shared/db': path.resolve(__dirname, 'packages/shared/src/db.ts'),
             '@orch/shared': path.resolve(__dirname, 'packages/shared/src/index.ts'),
             '@orch/daemon': path.resolve(__dirname, 'packages/daemon/src/index.ts'),
             '@orch/container': path.resolve(__dirname, 'packages/container/src/index.ts'),

@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
 import type { DbHostFunctions } from './host/db.js';
+import type { VaultHostFunctions } from './host/vault.js';
+import type { EventsHostFunctions } from './host/events.js';
 
 export interface HostFunctionContext {
     logger: Logger;
@@ -16,15 +18,19 @@ export interface HostFunctionContext {
 export class PluginSandbox {
     private pluginPromise: Promise<ExtismPlugin>;
     private logger: Logger;
+    private eventsHost?: EventsHostFunctions;
 
     constructor(
         manifest: PluginManifest,
         pluginDir: string,
         _permissions: string[],
         logger: Logger,
-        dbHost?: DbHostFunctions
+        dbHost?: DbHostFunctions,
+        vaultHost?: VaultHostFunctions,
+        eventsHost?: EventsHostFunctions
     ) {
         this.logger = logger.child({ plugin: manifest.id });
+        this.eventsHost = eventsHost;
         const wasmPath = join(pluginDir, manifest.entrypoint);
 
         try {
@@ -56,6 +62,59 @@ export class PluginSandbox {
                                 pluginLogger.warn({ sql }, 'db_query called; async host functions require runInWorker+JSPI');
                                 callContext.setError('Async db_query requires JSPI support');
                                 return callContext.store('{"error":"Async db_query requires JSPI support"}');
+                            },
+                            vault_read: (callContext: CallContext, _keyOffset: bigint) => {
+                                // Key and value are not logged to avoid leaking sensitive metadata or secrets.
+                                if (!vaultHost) {
+                                    callContext.setError('No vault host functions available');
+                                    return callContext.store('{"error":"No vault host functions available"}');
+                                }
+                                pluginLogger.warn('vault_read called; async host functions require runInWorker+JSPI');
+                                callContext.setError('Async vault_read requires JSPI support');
+                                return callContext.store('{"error":"Async vault_read requires JSPI support"}');
+                            },
+                            vault_write: (callContext: CallContext, _keyOffset: bigint, _valueOffset: bigint) => {
+                                // Key and value are not logged to avoid leaking sensitive metadata or secrets.
+                                if (!vaultHost) {
+                                    callContext.setError('No vault host functions available');
+                                    return callContext.store('{"error":"No vault host functions available"}');
+                                }
+                                pluginLogger.warn('vault_write called; async host functions require runInWorker+JSPI');
+                                callContext.setError('Async vault_write requires JSPI support');
+                                return callContext.store('{"error":"Async vault_write requires JSPI support"}');
+                            },
+                            events_subscribe: (callContext: CallContext, topicOffset: bigint) => {
+                                if (!eventsHost) {
+                                    callContext.setError('No events host functions available');
+                                    return callContext.store('{"error":"No events host functions available"}');
+                                }
+                                const topic = callContext.read(topicOffset)?.string() ?? '';
+                                try {
+                                    eventsHost.subscribe(topic);
+                                    return callContext.store('{"ok":true}');
+                                } catch (err: any) {
+                                    const msg = err instanceof Error ? err.message : String(err);
+                                    pluginLogger.warn({ topic }, 'events_subscribe failed');
+                                    callContext.setError(msg);
+                                    return callContext.store(`{"error":${JSON.stringify(msg)}}`);
+                                }
+                            },
+                            events_publish: (callContext: CallContext, topicOffset: bigint, payloadOffset: bigint) => {
+                                if (!eventsHost) {
+                                    callContext.setError('No events host functions available');
+                                    return callContext.store('{"error":"No events host functions available"}');
+                                }
+                                const topic = callContext.read(topicOffset)?.string() ?? '';
+                                const payload = callContext.read(payloadOffset)?.string() ?? '';
+                                try {
+                                    eventsHost.publish(topic, payload);
+                                    return callContext.store('{"ok":true}');
+                                } catch (err: any) {
+                                    const msg = err instanceof Error ? err.message : String(err);
+                                    pluginLogger.warn({ topic }, 'events_publish failed');
+                                    callContext.setError(msg);
+                                    return callContext.store(`{"error":${JSON.stringify(msg)}}`);
+                                }
                             }
                         }
                     }
@@ -78,6 +137,9 @@ export class PluginSandbox {
     }
 
     public async close() {
+        if (this.eventsHost) {
+            this.eventsHost.cleanup();
+        }
         const plugin = await this.pluginPromise;
         await plugin.close();
     }

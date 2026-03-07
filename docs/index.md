@@ -10,7 +10,7 @@ Built on a robust, multi-tenant architecture, vloop provides a unified interface
 *   **Privacy-First Architecture**: Your data stays local. All secrets are encrypted at rest using AES-256-GCM, and the system is designed to run entirely on your own infrastructure.
 *   **Unified Control Plane**: Manage long-running processes (LRPs), cron jobs, Docker containers, and database connections from a single CLI or API.
 *   **Granular Access Control**: Role-Based Access Control (RBAC) and strict policy enforcement ensure that agents only have access to the resources they need.
-*   **Developer-Friendly**: Extensible via plugins (Node.js/Python) and fully compatible with the Model Context Protocol (MCP).
+*   **Developer-Friendly**: Extensible via secure WebAssembly plugins (any language that compiles to Wasm) and fully compatible with the Model Context Protocol (MCP).
 
 ## Target Audience
 

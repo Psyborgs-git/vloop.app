@@ -1,0 +1,11 @@
+{
+  "id": "rust-example-plugin",
+  "name": "Rust Example Plugin",
+  "version": "0.1.0",
+  "description": "Demonstrates event subscriptions and publishing from a Rust Wasm plugin.",
+  "entrypoint": "rust_example_plugin.wasm",
+  "permissions": [
+    "events:subscribe:container.started",
+    "events:publish"
+  ]
+}

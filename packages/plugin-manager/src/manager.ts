@@ -13,6 +13,10 @@ import { PluginSandbox } from './sandbox.js';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
 import { DatabaseProvisioner } from '@orch/db-manager';
 import { DbHostFunctions } from './host/db.js';
+import { VaultHostFunctions } from './host/vault.js';
+import { EventsHostFunctions } from './host/events.js';
+import type { VaultStore } from '@orch/vault';
+import type { HooksEventBus } from '@orch/shared/hooks-bus';
 
 export class PluginManager {
     private store: PluginStore;
@@ -25,7 +29,9 @@ export class PluginManager {
         orm: RootDatabaseOrm,
         private readonly dbProvisioner: DatabaseProvisioner,
         private readonly logger: Logger,
-        dataDir: string = './data/plugins'
+        dataDir: string = './data/plugins',
+        private readonly vaultStore?: VaultStore,
+        private readonly eventBus?: HooksEventBus
     ) {
         this.pluginsDir = resolvePath(dataDir);
         this.store = new PluginStore(db, orm);
@@ -73,14 +79,45 @@ export class PluginManager {
             this.logger,
             record.db_id
         );
+
+        // VaultHostFunctions — wired when a vault store is available
+        const vaultHost = this.vaultStore
+            ? new VaultHostFunctions(this.vaultStore, record.id, record.granted_permissions, this.logger)
+            : undefined;
+
+        // EventsHostFunctions — late-bind the WASM callback so we can reference the sandbox
+        // after it is created, avoiding a circular construction dependency.
+        // The no-op placeholder is replaced with the real handler after sandbox creation (line ~114).
+        let eventsCallback: (topic: string, payload: string) => void = () => {};
+        const eventsHost = this.eventBus
+            ? new EventsHostFunctions(
+                this.eventBus,
+                record.id,
+                record.granted_permissions,
+                this.logger,
+                (topic, payload) => eventsCallback(topic, payload)
+            )
+            : undefined;
+
         const sandbox = new PluginSandbox(
             record.manifest,
             pluginDir,
             record.granted_permissions,
             this.logger,
-            dbHost
+            dbHost,
+            vaultHost,
+            eventsHost
         );
         this.sandboxes.set(record.id, sandbox);
+
+        // Wire the late-bound callback: deliver incoming events to the plugin's on_event handler
+        if (eventsHost) {
+            eventsCallback = (topic: string, payload: string) => {
+                sandbox.call('on_event', JSON.stringify({ topic, payload })).catch((err) => {
+                    this.logger.error({ err, pluginId: record.id }, 'Failed to deliver event to plugin');
+                });
+            };
+        }
 
         // Optional: Call an 'on_start' function if it exists?
         // For now, we just load it.

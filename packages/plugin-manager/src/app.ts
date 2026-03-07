@@ -2,6 +2,8 @@ import type { DependencyContainer } from "tsyringe";
 import type { AppComponent, AppComponentContext } from "@orch/shared";
 import { TOKENS } from "@orch/shared";
 import { DatabaseProvisioner } from "@orch/db-manager";
+import type { VaultStore } from "@orch/vault";
+import { HooksEventBus } from "@orch/shared/hooks-bus";
 
 import { PluginManager } from "./index.js";
 
@@ -10,12 +12,32 @@ const config: AppComponent = {
     dependencies: ["@orch/db-manager"],
     register(container: DependencyContainer) {
         container.register(PluginManager, {
-            useFactory: (c) => new PluginManager(
-                c.resolve(TOKENS.Database),
-                c.resolve(TOKENS.DatabaseOrm),
-                c.resolve(DatabaseProvisioner),
-                c.resolve(TOKENS.Logger)
-            )
+            useFactory: (c) => {
+                // Optionally resolve VaultStore and HooksEventBus — they may not always be registered
+                let vaultStore: VaultStore | undefined;
+                try {
+                    vaultStore = c.resolve<VaultStore>(TOKENS.VaultStore);
+                } catch {
+                    // VaultStore not registered in this context; vault host functions will be disabled
+                }
+
+                let eventBus: HooksEventBus | undefined;
+                try {
+                    eventBus = c.resolve(HooksEventBus);
+                } catch {
+                    // HooksEventBus not registered in this context; events host functions will be disabled
+                }
+
+                return new PluginManager(
+                    c.resolve(TOKENS.Database),
+                    c.resolve(TOKENS.DatabaseOrm),
+                    c.resolve(DatabaseProvisioner),
+                    c.resolve(TOKENS.Logger),
+                    undefined, // dataDir — use the PluginManager default: './data/plugins'
+                    vaultStore,
+                    eventBus
+                );
+            }
         });
     },
     init(_ctx: AppComponentContext) {
