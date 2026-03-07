@@ -1,7 +1,7 @@
 import { Box, Avatar, Typography, Accordion, AccordionSummary, AccordionDetails, Chip, ListItem, CircularProgress, Tooltip, IconButton, Stack, alpha } from '@mui/material';
 import { User as UserIcon, Command, Bot, ChevronDown, Wrench, Brain, RotateCcw, GitFork } from 'lucide-react';
 import { ChatMessage } from './types.js';
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ChatMessageRenderer } from './ChatMessageRenderer.js';
 
 interface ChatMessageItemProps {
@@ -12,7 +12,7 @@ interface ChatMessageItemProps {
     isGrouped: boolean;
 }
 
-export function ChatMessageItem({ msg, onRerun, onFork, disabledActions = false, isGrouped = false }: ChatMessageItemProps) {
+export const ChatMessageItem = React.memo(function ChatMessageItem({ msg, onRerun, onFork, disabledActions = false, isGrouped = false }: ChatMessageItemProps) {
     const [isThinkingExpanded, setIsThinkingExpanded] = useState(true);
     const [isHovered, setIsHovered] = useState(false);
 
@@ -248,4 +248,4 @@ export function ChatMessageItem({ msg, onRerun, onFork, disabledActions = false,
             </Box>
         </ListItem>
     );
-}
+});
