@@ -7,6 +7,13 @@ describe('Plugin Manifest Schema', () => {
             id: 'my-plugin',
             name: 'My Plugin',
             version: '1.0.0',
+            task: 'chat',
+            host_features: {
+                contacts: true,
+                chat: true,
+                ai_inference: true,
+                notifications: true,
+            },
             permissions: ['db:read', 'vault:read:foo'],
             entrypoint: 'plugin.wasm'
         };
@@ -34,5 +41,12 @@ describe('Plugin Manifest Schema', () => {
         };
         const result = PluginManifestSchema.safeParse(invalid);
         expect(result.success).toBe(false);
+    });
+
+    it('should export typed task permissions', () => {
+        expect(PluginPermissionSchema.options).toContain('contacts:read');
+        expect(PluginPermissionSchema.options).toContain('chat:write');
+        expect(PluginPermissionSchema.options).toContain('agent:run');
+        expect(PluginPermissionSchema.options).toContain('notifications:publish');
     });
 });

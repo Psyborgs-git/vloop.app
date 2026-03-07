@@ -15,6 +15,7 @@ import { DatabaseProvisioner } from '@orch/db-manager';
 import { DbHostFunctions } from './host/db.js';
 import { VaultHostFunctions } from './host/vault.js';
 import { EventsHostFunctions } from './host/events.js';
+import { TaskHostFunctions } from './host/task.js';
 import type { VaultStore } from '@orch/vault';
 import type { HooksEventBus } from '@orch/shared/hooks-bus';
 
@@ -84,6 +85,16 @@ export class PluginManager {
         const vaultHost = this.vaultStore
             ? new VaultHostFunctions(this.vaultStore, record.id, record.granted_permissions, this.logger)
             : undefined;
+        const taskHost = record.manifest.task
+            ? new TaskHostFunctions(
+                this.eventBus,
+                record.manifest,
+                record.id,
+                record.granted_permissions,
+                this.logger,
+                Boolean(vaultHost)
+            )
+            : undefined;
 
         // EventsHostFunctions — late-bind the WASM callback so we can reference the sandbox
         // after it is created, avoiding a circular construction dependency.
@@ -106,7 +117,8 @@ export class PluginManager {
             this.logger,
             dbHost,
             vaultHost,
-            eventsHost
+            eventsHost,
+            taskHost
         );
         this.sandboxes.set(record.id, sandbox);
 
