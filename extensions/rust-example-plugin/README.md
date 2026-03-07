@@ -34,8 +34,7 @@ orch plugin install ./rust-example-plugin.zip
 
 # Grant the requested permissions and activate
 orch plugin grant rust-example-plugin \
-  --permissions vault:read:example-api-key \
-                events:subscribe:container.started \
+  --permissions events:subscribe:container.started \
                 events:publish
 
 # Verify

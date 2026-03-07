@@ -16,12 +16,11 @@
 // Install:
 //   orch plugin install ./rust-example-plugin.zip
 //   orch plugin grant rust-example-plugin \
-//     --permissions vault:read:example-api-key \
-//                   events:subscribe:container.started \
+//     --permissions events:subscribe:container.started \
 //                   events:publish
 
 use extism_pdk::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 // ── Host function imports ─────────────────────────────────────────────────
 //

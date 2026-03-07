@@ -2,10 +2,9 @@
   "id": "rust-example-plugin",
   "name": "Rust Example Plugin",
   "version": "0.1.0",
-  "description": "Demonstrates vault reads and event subscriptions from a Rust Wasm plugin.",
+  "description": "Demonstrates event subscriptions and publishing from a Rust Wasm plugin.",
   "entrypoint": "rust_example_plugin.wasm",
   "permissions": [
-    "vault:read:example-api-key",
     "events:subscribe:container.started",
     "events:publish"
   ]

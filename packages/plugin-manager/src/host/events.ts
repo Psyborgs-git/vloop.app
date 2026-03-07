@@ -38,12 +38,15 @@ export class EventsHostFunctions {
     }
 
     public publish(topic: string, payloadJson: string): void {
+        // Enforce permission: events:publish
+        if (!this.permissions.includes('events:publish')) {
+            throw new OrchestratorError(ErrorCode.PERMISSION_DENIED, `Plugin lacks events:publish permission`);
+        }
+
         // Enforce namespace: plugin.<id>.*
         if (!topic.startsWith(`plugin.${this.pluginId}.`)) {
              throw new OrchestratorError(ErrorCode.PERMISSION_DENIED, `Plugins can only publish to their own namespace (plugin.${this.pluginId}.*)`);
         }
-
-        // Check permission if needed? Usually publishing to own namespace is implicit.
 
         let payload: any;
         try {

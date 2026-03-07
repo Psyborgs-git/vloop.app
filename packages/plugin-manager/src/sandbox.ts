@@ -63,25 +63,23 @@ export class PluginSandbox {
                                 callContext.setError('Async db_query requires JSPI support');
                                 return callContext.store('{"error":"Async db_query requires JSPI support"}');
                             },
-                            vault_read: (callContext: CallContext, keyOffset: bigint) => {
+                            vault_read: (callContext: CallContext, _keyOffset: bigint) => {
+                                // Key and value are not logged to avoid leaking sensitive metadata or secrets.
                                 if (!vaultHost) {
                                     callContext.setError('No vault host functions available');
                                     return callContext.store('{"error":"No vault host functions available"}');
                                 }
-                                const key = callContext.read(keyOffset)?.string() ?? '';
-                                pluginLogger.warn({ key }, 'vault_read called; async host functions require runInWorker+JSPI');
+                                pluginLogger.warn('vault_read called; async host functions require runInWorker+JSPI');
                                 callContext.setError('Async vault_read requires JSPI support');
                                 return callContext.store('{"error":"Async vault_read requires JSPI support"}');
                             },
-                            vault_write: (callContext: CallContext, keyOffset: bigint, _valueOffset: bigint) => {
-                                // _valueOffset intentionally unused: async vault writes require JSPI support.
-                                // The key is logged for diagnostics; value is not read to avoid leaking secrets.
+                            vault_write: (callContext: CallContext, _keyOffset: bigint, _valueOffset: bigint) => {
+                                // Key and value are not logged to avoid leaking sensitive metadata or secrets.
                                 if (!vaultHost) {
                                     callContext.setError('No vault host functions available');
                                     return callContext.store('{"error":"No vault host functions available"}');
                                 }
-                                const key = callContext.read(keyOffset)?.string() ?? '';
-                                pluginLogger.warn({ key }, 'vault_write called; async host functions require runInWorker+JSPI');
+                                pluginLogger.warn('vault_write called; async host functions require runInWorker+JSPI');
                                 callContext.setError('Async vault_write requires JSPI support');
                                 return callContext.store('{"error":"Async vault_write requires JSPI support"}');
                             },
@@ -95,9 +93,10 @@ export class PluginSandbox {
                                     eventsHost.subscribe(topic);
                                     return callContext.store('{"ok":true}');
                                 } catch (err: any) {
-                                    pluginLogger.warn({ err, topic }, 'events_subscribe failed');
-                                    callContext.setError(err.message);
-                                    return callContext.store(`{"error":${JSON.stringify(err.message)}}`);
+                                    const msg = err instanceof Error ? err.message : String(err);
+                                    pluginLogger.warn({ topic }, 'events_subscribe failed');
+                                    callContext.setError(msg);
+                                    return callContext.store(`{"error":${JSON.stringify(msg)}}`);
                                 }
                             },
                             events_publish: (callContext: CallContext, topicOffset: bigint, payloadOffset: bigint) => {
@@ -111,9 +110,10 @@ export class PluginSandbox {
                                     eventsHost.publish(topic, payload);
                                     return callContext.store('{"ok":true}');
                                 } catch (err: any) {
-                                    pluginLogger.warn({ err, topic }, 'events_publish failed');
-                                    callContext.setError(err.message);
-                                    return callContext.store(`{"error":${JSON.stringify(err.message)}}`);
+                                    const msg = err instanceof Error ? err.message : String(err);
+                                    pluginLogger.warn({ topic }, 'events_publish failed');
+                                    callContext.setError(msg);
+                                    return callContext.store(`{"error":${JSON.stringify(msg)}}`);
                                 }
                             }
                         }

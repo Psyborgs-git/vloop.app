@@ -7,6 +7,7 @@
     "clean": "rm -rf build"
   },
   "devDependencies": {
+    "@extism/as-pdk": "^1.0.0",
     "assemblyscript": "^0.28.9"
   }
 }

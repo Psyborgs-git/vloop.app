@@ -69,6 +69,9 @@ importers:
 
   extensions/hello-world-plugin:
     devDependencies:
+      '@extism/as-pdk':
+        specifier: ^1.0.0
+        version: 1.0.0
       assemblyscript:
         specifier: ^0.28.9
         version: 0.28.9
@@ -278,7 +281,7 @@ importers:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.27.1
-        version: 1.27.1(zod@3.25.76)
+        version: 1.27.1(zod@4.3.6)
       '@orch/daemon':
         specifier: workspace:*
         version: link:../daemon
@@ -319,7 +322,7 @@ importers:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.27.1
-        version: 1.27.1(zod@3.25.76)
+        version: 1.27.1(zod@4.3.6)
       '@orch/ai-agent':
         specifier: workspace:*
         version: link:../ai-agent
@@ -1065,6 +1068,9 @@ packages:
   '@eslint/plugin-kit@0.6.0':
     resolution: {integrity: sha512-bIZEUzOI1jkhviX2cp5vNyXQc6olzb2ohewQubuYlMXZ2Q/XjBO0x0XhGPvc9fjSIiUN0vw+0hq53BJ4eQSJKQ==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=24}
+
+  '@extism/as-pdk@1.0.0':
+    resolution: {integrity: sha512-sD5xQskoOWoSeH73HltP7rJXR/E5nk1BTne8bmHdCxqMLUR0n/L1KdmRsPdl7XqNnJj2Anvs9QN0sJ+b+6K05g==}
 
   '@extism/extism@2.0.0-rc13':
     resolution: {integrity: sha512-iQ3mrPKOC0WMZ94fuJrKbJmMyz4LQ9Abf8gd4F5ShxKWa+cRKcVzk0EqRQsp5xXsQ2dO3zJTiA6eTc4Ihf7k+A==}
@@ -5029,6 +5035,8 @@ snapshots:
     dependencies:
       '@eslint/core': 1.1.0
       levn: 0.4.1
+
+  '@extism/as-pdk@1.0.0': {}
 
   '@extism/extism@2.0.0-rc13': {}
 

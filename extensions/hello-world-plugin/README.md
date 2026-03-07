@@ -40,12 +40,16 @@ When the plugin loads you should see a log line similar to:
 
 ## How it works
 
+The plugin uses the [`@extism/as-pdk`](https://github.com/extism/as-pdk) to allocate strings in Extism-format memory blocks before passing them to host functions. Raw AssemblyScript runtime strings (`__newString`) are **not** compatible with Extism's host-side memory API and would produce garbled output.
+
 The plugin imports two symbols from the `extism:host/user` namespace that the orchestrator exposes via `@extism/extism`:
 
 | Import | Purpose |
 |--------|---------|
-| `log_info(ptr)` | Log a UTF-16 string at `ptr` at INFO level |
-| `__newString(str)` | AssemblyScript runtime helper — allocates `str` and returns its address |
+| `log_info(ptr)` | Log an INFO-level message. `ptr` must be an Extism memory offset pointing to a UTF-8 string — use `Memory.fromString(str).offset` from `@extism/as-pdk`. |
+| `log_error(ptr)` | Log an ERROR-level message. Same encoding requirements as `log_info`. |
+
+`Memory.fromString(str)` from `@extism/as-pdk` allocates the string as a UTF-8 Extism memory block and returns a `Memory` object whose `.offset` is the value the host reads with `callContext.read(offset)?.string()`.
 
 The exported `on_start()` function is called automatically by `PluginManager` when the plugin finishes loading.
 

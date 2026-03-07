@@ -129,7 +129,7 @@ events_publish(topic_offset: i64, payload_offset: i64) -> i64
 Subscribe to or publish on the system event bus (`HooksEventBus`). When a subscribed event fires, the host will call your plugin's exported `on_event(payload: i64) -> i64` function with a JSON payload `{"topic":"...","payload":...}`.
 
 - `events_subscribe` requires `events:subscribe:<topic>` or `events:subscribe:*` permission.
-- `events_publish` requires `events:publish` permission and can only publish to the `plugin.<id>.*` namespace.
+- `events_publish` requires `events:publish` permission and restricts the topic to the `plugin.<id>.*` namespace.
 
 ## Exported Functions
 
@@ -167,7 +167,7 @@ The two-step `install` → `grant` flow ensures administrators explicitly review
 - Host functions validate permissions on every call.
 - Plugins cannot access the host filesystem, network, or other processes unless those capabilities are explicitly provided as host functions (currently none are).
 - The `events:publish` permission is restricted to the `plugin.<id>.*` namespace so plugins cannot impersonate system events.
-- Vault keys are never logged by the host, even in debug mode.
+- Vault secret **values** are never logged by the host. Vault key identifiers may appear in permission-denied log messages for diagnostic purposes.
 
 ## Examples
 

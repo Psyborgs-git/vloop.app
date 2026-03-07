@@ -130,38 +130,45 @@ See the complete working example at [`extensions/hello-world-plugin/`](../../ext
 ```bash
 mkdir my-as-plugin && cd my-as-plugin
 pnpm init
-pnpm add -D assemblyscript
+pnpm add -D assemblyscript @extism/as-pdk
 npx asinit .
 ```
+
+> **Important**: Always use [`@extism/as-pdk`](https://github.com/extism/as-pdk) to allocate strings and pass them to host functions. Raw AssemblyScript runtime strings (`__newString`) use AS-managed heap memory which is **not** compatible with Extism's host-side `callContext.read(offset)` API. Use `Memory.fromString(str).offset` instead.
 
 ### Step 2: Write `assembly/index.ts`
 
 ```typescript
+import { Memory } from "@extism/as-pdk";
+
 // Import host functions from the orchestrator.
 // The namespace MUST be "extism:host/user".
+// Pointer args (i64) must be Extism memory offsets — use Memory.fromString().offset.
 @external("extism:host/user", "log_info")
-declare function log_info(ptr: usize): void;
+declare function log_info(ptr: i64): void;
 
 @external("extism:host/user", "events_subscribe")
-declare function events_subscribe(topicPtr: usize): usize;
-
-// AssemblyScript memory helper — allocates a UTF-16 string
-// and returns its linear-memory address as a u32.
-declare function __newString(str: string): usize;
+declare function events_subscribe(topicPtr: i64): i64;
 
 /** Called once when the plugin is loaded. */
 export function on_start(): void {
-  const msg = __newString("my-as-plugin started!");
-  log_info(msg);
+  const msg = Memory.fromString("my-as-plugin started!");
+  log_info(msg.offset);
 
-  // Subscribe to a system event
-  const topic = __newString("container.started");
-  events_subscribe(topic);
+  // Subscribe to a system event — requires events:subscribe:container.started permission
+  const topic = Memory.fromString("container.started");
+  events_subscribe(topic.offset);
 }
 
-/** Called whenever a subscribed event fires. */
-export function on_event(payloadPtr: usize): void {
-  log_info(payloadPtr); // payload is already a string pointer
+/** Called whenever a subscribed event fires.
+ *  The host invokes this via plugin.call("on_event", payload) where payload
+ *  is a UTF-8 JSON string: {"topic":"...","payload":...}.
+ *  Use the extism input() helper to read it from the Extism input buffer.
+ */
+export function on_event(): void {
+  const payload = String.UTF8.decode(input());
+  const msg = Memory.fromString(`Received event: ${payload}`);
+  log_info(msg.offset);
 }
 ```
 
