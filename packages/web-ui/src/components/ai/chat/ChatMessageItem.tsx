@@ -1,7 +1,7 @@
 import { Box, Avatar, Typography, Accordion, AccordionSummary, AccordionDetails, Chip, ListItem, CircularProgress, Tooltip, IconButton, Stack, alpha } from '@mui/material';
 import { User as UserIcon, Command, Bot, ChevronDown, Wrench, Brain, RotateCcw, GitFork } from 'lucide-react';
 import { ChatMessage } from './types.js';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { ChatMessageRenderer } from './ChatMessageRenderer.js';
 
 interface ChatMessageItemProps {
@@ -12,7 +12,7 @@ interface ChatMessageItemProps {
     isGrouped: boolean;
 }
 
-export function ChatMessageItem({ msg, onRerun, onFork, disabledActions = false, isGrouped = false }: ChatMessageItemProps) {
+function ChatMessageItemComponent({ msg, onRerun, onFork, disabledActions = false, isGrouped = false }: ChatMessageItemProps) {
     const [isThinkingExpanded, setIsThinkingExpanded] = useState(true);
     const [isHovered, setIsHovered] = useState(false);
 
@@ -249,3 +249,16 @@ export function ChatMessageItem({ msg, onRerun, onFork, disabledActions = false,
         </ListItem>
     );
 }
+
+export const ChatMessageItem = memo(ChatMessageItemComponent, (prevProps, nextProps) => {
+    return (
+        prevProps.msg.id === nextProps.msg.id &&
+        prevProps.msg.content === nextProps.msg.content &&
+        prevProps.msg.toolCalls === nextProps.msg.toolCalls &&
+        prevProps.msg.toolResults === nextProps.msg.toolResults &&
+        prevProps.disabledActions === nextProps.disabledActions &&
+        prevProps.isGrouped === nextProps.isGrouped &&
+        prevProps.onRerun === nextProps.onRerun &&
+        prevProps.onFork === nextProps.onFork
+    );
+});
