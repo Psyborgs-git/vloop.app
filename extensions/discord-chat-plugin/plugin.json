@@ -1,0 +1,23 @@
+{
+  "id": "discord-chat-plugin",
+  "name": "Discord Chat Plugin",
+  "version": "0.1.0",
+  "description": "Discord bridge plugin using the fixed chat task host contract.",
+  "task": "chat",
+  "host_features": {
+    "logging": true,
+    "vault": true,
+    "contacts": true,
+    "chat": true,
+    "ai_inference": true,
+    "notifications": true
+  },
+  "entrypoint": "discord_chat_plugin.wasm",
+  "permissions": [
+    "vault:read:discord-bot-token",
+    "contacts:write",
+    "chat:write",
+    "agent:run",
+    "notifications:publish"
+  ]
+}
