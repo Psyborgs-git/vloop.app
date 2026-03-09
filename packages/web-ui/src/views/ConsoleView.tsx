@@ -97,7 +97,7 @@ export default function ConsoleView() {
             setIsStream(first.isStream ?? false);
             resetFields(first);
         }
-    }, [selectedTopic]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [selectedTopic, actions]);
 
     // Update stream and reset fields when action changes
     useEffect(() => {
@@ -105,7 +105,7 @@ export default function ConsoleView() {
             setIsStream(actionDef.isStream ?? false);
             resetFields(actionDef);
         }
-    }, [selectedAction]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [selectedAction, actions]);
 
     useEffect(() => {
         logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });

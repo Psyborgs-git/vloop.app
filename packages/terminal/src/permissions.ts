@@ -106,9 +106,32 @@ export function validateShell(
     return { allowed: true };
 }
 
+// Cache for bounded pre-compiled regular expressions to prevent O(N*M) recompilation overhead
+const REGEX_CACHE_MAX_SIZE = 100;
+const regexCache = new Map<string, RegExp>();
+
+function getCachedRegex(pattern: string): RegExp {
+    let re = regexCache.get(pattern);
+    if (!re) {
+        if (regexCache.size >= REGEX_CACHE_MAX_SIZE) {
+            // naive LRU: delete first element to prevent unbounded growth
+            const firstKey = regexCache.keys().next().value;
+            if (firstKey) {
+                regexCache.delete(firstKey);
+            }
+        }
+        re = new RegExp(pattern);
+        regexCache.set(pattern, re);
+    }
+    return re;
+}
+
 /**
  * Check if input text contains blocked patterns.
  * This is a best-effort filter — not a security boundary.
+ *
+ * ⚡ Bolt: Uses a bounded cache to prevent recompilation overhead during fast terminal input streaming.
+ * Replaced stateful .test() with .match() to avoid lastIndex bugs if global flags are supplied.
  */
 export function validateInput(
     input: string,
@@ -116,8 +139,8 @@ export function validateInput(
 ): AccessCheckResult {
     for (const pattern of policy.inputBlockPatterns) {
         try {
-            const re = new RegExp(pattern);
-            if (re.test(input)) {
+            const re = getCachedRegex(pattern);
+            if (input.match(re)) {
                 return {
                     allowed: false,
                     reason: `Input blocked by policy pattern: ${pattern}`,
