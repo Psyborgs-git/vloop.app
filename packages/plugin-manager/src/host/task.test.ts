@@ -57,6 +57,7 @@ describe('TaskHostFunctions', () => {
                 vault: {
                     read: 'vault_read',
                     write: 'vault_write',
+                    requiresJspi: true,
                 },
                 contacts: {
                     request: 'contacts_manage',
@@ -162,5 +163,43 @@ describe('TaskHostFunctions', () => {
             conversationId: 'conv-1',
             message: 'hello',
         }))).toThrow('Plugin lacks one of the required permissions');
+    });
+
+    it('normalizes custom notification topics into the plugin namespace', () => {
+        const host = new TaskHostFunctions(
+            bus,
+            {
+                id: 'discord-plugin',
+                name: 'Discord Plugin',
+                version: '1.0.0',
+                entrypoint: 'plugin.wasm',
+                task: 'chat',
+                host_features: {
+                    notifications: true,
+                },
+                permissions: [],
+            },
+            'discord-plugin',
+            ['notifications:publish'],
+            logger,
+            false
+        );
+
+        let received: any;
+        bus.subscribe('notifications.plugin.discord-plugin.alerts.critical', (event) => {
+            received = event;
+        });
+
+        const response = JSON.parse(host.notify(JSON.stringify({
+            topic: 'alerts.critical',
+            message: 'bridge alert',
+        })));
+
+        expect(response).toEqual({
+            ok: true,
+            queued: true,
+            topic: 'notifications.plugin.discord-plugin.alerts.critical',
+        });
+        expect(received.topic).toBe('notifications.plugin.discord-plugin.alerts.critical');
     });
 });

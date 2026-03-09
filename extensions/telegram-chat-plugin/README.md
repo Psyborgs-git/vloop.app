@@ -5,7 +5,7 @@ A Rust + Extism example plugin that targets the fixed `task: "chat"` host contra
 It demonstrates how a Telegram bridge can:
 
 - inspect the host contract with `host_get_contract`
-- read its API token from Vault with `vault_read`
+- conditionally use `vault_read` when the advertised contract says Vault access does not require JSPI (current hosts still mark it as `requiresJspi`, so the sample logs and skips the call)
 - queue plugin-scoped contacts and chat requests
 - hand off AI inference work to the host
 - publish non-core notifications onto the notifications event bus
@@ -40,3 +40,5 @@ At runtime the plugin queues requests under topics such as:
 - `notifications.plugin.telegram-chat-plugin.notifications.event`
 
 An external bridge worker can subscribe to those topics and perform the actual Telegram API work with secrets fetched securely from Vault.
+
+The sample plugin first parses the host contract JSON and only invokes advertised features. It also logs `{ "error": ... }` host responses instead of assuming every host call succeeds.

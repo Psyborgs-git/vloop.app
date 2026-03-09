@@ -1,5 +1,5 @@
 use extism_pdk::*;
-use serde_json::json;
+use serde_json::{json, Value};
 
 #[link(wasm_import_module = "extism:host/user")]
 extern "C" {
@@ -14,12 +14,12 @@ extern "C" {
 }
 
 fn to_memory(value: &str) -> Memory {
-    Memory::from_bytes(value.as_bytes())
+    Memory::from_bytes(value.as_bytes()).expect("failed to allocate Extism memory")
 }
 
 fn read_memory(offset: u64) -> String {
     Memory::find(offset)
-        .and_then(|mem| mem.to_string())
+        .and_then(|mem| mem.to_string().ok())
         .unwrap_or_default()
 }
 
@@ -33,14 +33,52 @@ fn error(message: &str) {
     unsafe { log_error(mem.offset()) };
 }
 
+fn parse_json(label: &str, payload: &str) -> Option<Value> {
+    match serde_json::from_str::<Value>(payload) {
+        Ok(value) => Some(value),
+        Err(err) => {
+            error(&format!("telegram-chat-plugin failed to parse {}: {}", label, err));
+            None
+        }
+    }
+}
+
+fn feature<'a>(contract: &'a Value, name: &str) -> Option<&'a Value> {
+    contract.get("features").and_then(|features| features.get(name))
+}
+
+fn log_host_response(label: &str, response: &str) {
+    match parse_json(label, response) {
+        Some(value) => {
+            if let Some(message) = value.get("error").and_then(|error| error.as_str()) {
+                error(&format!("telegram-chat-plugin {} error: {}", label, message));
+            } else {
+                info(&format!("telegram-chat-plugin {} result: {}", label, response));
+            }
+        }
+        None => info(&format!("telegram-chat-plugin {} result: {}", label, response)),
+    }
+}
+
 #[plugin_fn]
 pub fn on_start(_: ()) -> FnResult<()> {
     let contract = read_memory(unsafe { host_get_contract() });
     info(&format!("telegram-chat-plugin contract: {}", contract));
+    let Some(contract_value) = parse_json("contract", &contract) else {
+        return Ok(());
+    };
 
-    let secret_key = to_memory("telegram-bot-token");
-    let vault_response = read_memory(unsafe { vault_read(secret_key.offset()) });
-    info(&format!("telegram-chat-plugin vault response: {}", vault_response));
+    if let Some(vault) = feature(&contract_value, "vault") {
+        if vault.get("requiresJspi").and_then(|value| value.as_bool()).unwrap_or(false) {
+            info("telegram-chat-plugin skipping vault_read because the contract marks vault access as requiresJspi");
+        } else {
+            let secret_key = to_memory("telegram-bot-token");
+            let vault_response = read_memory(unsafe { vault_read(secret_key.offset()) });
+            log_host_response("vault_read", &vault_response);
+        }
+    } else {
+        info("telegram-chat-plugin skipping vault_read because the host does not advertise vault access");
+    }
 
     let contact_request = json!({
         "operation": "upsert",
@@ -65,22 +103,33 @@ pub fn on_start(_: ()) -> FnResult<()> {
         "message": "Telegram bridge bootstrap queued"
     });
 
-    info(&format!(
-        "telegram-chat-plugin contacts result: {}",
-        read_memory(unsafe { contacts_manage(to_memory(&contact_request.to_string()).offset()) })
-    ));
-    info(&format!(
-        "telegram-chat-plugin chat result: {}",
-        read_memory(unsafe { chat_manage(to_memory(&chat_request.to_string()).offset()) })
-    ));
-    info(&format!(
-        "telegram-chat-plugin ai result: {}",
-        read_memory(unsafe { agent_infer(to_memory(&ai_request.to_string()).offset()) })
-    ));
-    info(&format!(
-        "telegram-chat-plugin notify result: {}",
-        read_memory(unsafe { notifications_notify(to_memory(&notification_request.to_string()).offset()) })
-    ));
+    if feature(&contract_value, "contacts").is_some() {
+        let response = read_memory(unsafe { contacts_manage(to_memory(&contact_request.to_string()).offset()) });
+        log_host_response("contacts_manage", &response);
+    } else {
+        info("telegram-chat-plugin skipping contacts_manage because the host does not advertise contacts");
+    }
+
+    if feature(&contract_value, "chat").is_some() {
+        let response = read_memory(unsafe { chat_manage(to_memory(&chat_request.to_string()).offset()) });
+        log_host_response("chat_manage", &response);
+    } else {
+        info("telegram-chat-plugin skipping chat_manage because the host does not advertise chat");
+    }
+
+    if feature(&contract_value, "ai_inference").is_some() {
+        let response = read_memory(unsafe { agent_infer(to_memory(&ai_request.to_string()).offset()) });
+        log_host_response("agent_infer", &response);
+    } else {
+        info("telegram-chat-plugin skipping agent_infer because the host does not advertise ai_inference");
+    }
+
+    if feature(&contract_value, "notifications").is_some() {
+        let response = read_memory(unsafe { notifications_notify(to_memory(&notification_request.to_string()).offset()) });
+        log_host_response("notifications_notify", &response);
+    } else {
+        info("telegram-chat-plugin skipping notifications_notify because the host does not advertise notifications");
+    }
 
     Ok(())
 }

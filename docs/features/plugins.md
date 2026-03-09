@@ -125,13 +125,23 @@ host_get_contract() -> i64
 Returns a JSON document describing the fixed host interface available to the plugin for its declared task. For `task: "chat"`, the contract advertises the canonical host function names for:
 
 - structured logging
-- vault access
+- vault access metadata, including whether the current host requires JSPI before Vault calls can succeed
 - plugin-scoped contacts management
 - plugin-scoped chat management
 - AI inference handoff
 - notifications routed over `HooksEventBus`
 
 Tasked plugins should fetch this contract at startup and branch on the advertised features rather than hard-coding environment assumptions.
+
+Example vault contract snippet:
+
+```json
+{
+  "read": "vault_read",
+  "write": "vault_write",
+  "requiresJspi": true
+}
+```
 
 ### Database
 
@@ -205,6 +215,8 @@ The host validates the plugin's declared task features and granted permissions, 
 ```
 
 This keeps non-core bridge work outside the plugin manager while giving plugins a fixed Extism host ABI.
+
+When `notifications_notify` includes a custom `topic`, the host normalizes it into the plugin's own `notifications.plugin.<pluginId>.*` namespace so plugins cannot publish onto arbitrary bus topics.
 
 ## Exported Functions
 

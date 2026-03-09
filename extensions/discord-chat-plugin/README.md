@@ -9,6 +9,8 @@ This example is intentionally host-driven: the plugin does not talk to Discord d
 - AI planning/inference requests
 - notification events
 
+The sample first parses the advertised host contract and only calls features that are present. Current hosts still advertise Vault access as `requiresJspi`, so the plugin logs and skips `vault_read` until synchronous support exists.
+
 ## Build
 
 ```bash

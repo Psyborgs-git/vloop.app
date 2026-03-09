@@ -117,6 +117,7 @@ export const PluginTaskHostContractSchema = z.object({
         vault: z.object({
             read: z.literal('vault_read'),
             write: z.literal('vault_write'),
+            requiresJspi: z.boolean(),
         }).optional(),
         contacts: z.object({
             request: z.literal('contacts_manage'),

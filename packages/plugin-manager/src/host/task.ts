@@ -39,6 +39,7 @@ export class TaskHostFunctions {
             features.vault = {
                 read: 'vault_read',
                 write: 'vault_write',
+                requiresJspi: true,
             };
         }
 
@@ -114,9 +115,21 @@ export class TaskHostFunctions {
         this.assertFeatureEnabled('notifications');
         const request = NotificationRequestSchema.parse(this.parseJson(requestJson, 'notification request'));
         const operation = request.topic ? 'custom' : request.channel;
+        const topicPrefix = `notifications.plugin.${this.pluginId}.`;
+        const overrideTopic = request.topic
+            ? request.topic.startsWith(topicPrefix)
+                ? request.topic
+                : `${topicPrefix}${request.topic.replace(/^\.+/, '')}`
+            : undefined;
 
         return this.stringifyResponse(
-            this.publishRequest('notifications', operation, request, ['notifications:publish', 'notifications:*'], request.topic)
+            this.publishRequest(
+                'notifications',
+                operation,
+                request,
+                ['notifications:publish', 'notifications:*'],
+                overrideTopic
+            )
         );
     }
 
