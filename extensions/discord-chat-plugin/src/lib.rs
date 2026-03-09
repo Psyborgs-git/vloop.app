@@ -13,7 +13,8 @@ extern "C" {
 }
 
 fn to_memory(value: &str) -> Memory {
-    Memory::from_bytes(value.as_bytes()).expect("failed to allocate Extism memory")
+    Memory::from_bytes(value.as_bytes())
+        .unwrap_or_else(|_| panic!("failed to allocate Extism memory for {} bytes", value.len()))
 }
 
 fn read_memory(offset: u64) -> String {

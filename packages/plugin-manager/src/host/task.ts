@@ -115,11 +115,8 @@ export class TaskHostFunctions {
         this.assertFeatureEnabled('notifications');
         const request = NotificationRequestSchema.parse(this.parseJson(requestJson, 'notification request'));
         const operation = request.topic ? 'custom' : request.channel;
-        const topicPrefix = `notifications.plugin.${this.pluginId}.`;
         const overrideTopic = request.topic
-            ? request.topic.startsWith(topicPrefix)
-                ? request.topic
-                : `${topicPrefix}${request.topic.replace(/^\.+/, '')}`
+            ? this.normalizeNotificationTopic(request.topic)
             : undefined;
 
         return this.stringifyResponse(
@@ -131,6 +128,23 @@ export class TaskHostFunctions {
                 overrideTopic
             )
         );
+    }
+
+    private normalizeNotificationTopic(topic: string): string {
+        const topicPrefix = `notifications.plugin.${this.pluginId}.`;
+        if (topic.startsWith(topicPrefix)) {
+            return topic;
+        }
+
+        const normalizedTopic = topic.replace(/^\.+/, '');
+        if (!normalizedTopic) {
+            throw new OrchestratorError(
+                ErrorCode.VALIDATION_ERROR,
+                'Notification topic must contain a non-empty suffix'
+            );
+        }
+
+        return `${topicPrefix}${normalizedTopic}`;
     }
 
     private publishRequest(

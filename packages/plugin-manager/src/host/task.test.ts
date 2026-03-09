@@ -202,4 +202,30 @@ describe('TaskHostFunctions', () => {
         });
         expect(received.topic).toBe('notifications.plugin.discord-plugin.alerts.critical');
     });
+
+    it('rejects empty notification topics after normalization', () => {
+        const host = new TaskHostFunctions(
+            bus,
+            {
+                id: 'discord-plugin',
+                name: 'Discord Plugin',
+                version: '1.0.0',
+                entrypoint: 'plugin.wasm',
+                task: 'chat',
+                host_features: {
+                    notifications: true,
+                },
+                permissions: [],
+            },
+            'discord-plugin',
+            ['notifications:publish'],
+            logger,
+            false
+        );
+
+        expect(() => host.notify(JSON.stringify({
+            topic: '...',
+            message: 'bridge alert',
+        }))).toThrow('Notification topic must contain a non-empty suffix');
+    });
 });
