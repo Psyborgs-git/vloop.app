@@ -1,5 +1,5 @@
-import { eq } from 'drizzle-orm';
-import { pluginsTable, initPluginManagerSchema } from './schema.js';
+import { eq, and } from 'drizzle-orm';
+import { pluginsTable, pluginSettingsTable, initPluginManagerSchema } from './schema.js';
 import type { RootDatabaseOrm } from '@orch/shared/db';
 import type { PluginManifest } from './manifest.js';
 
@@ -12,7 +12,6 @@ export interface PluginRecord {
     manifest: PluginManifest;
     granted_permissions: string[];
     installed_at: string;
-    db_id?: string;
 }
 
 export class PluginStore {
@@ -23,7 +22,7 @@ export class PluginStore {
         this.orm = orm;
     }
 
-    public install(manifest: PluginManifest, grantedPermissions: string[], dbId?: string): void {
+    public install(manifest: PluginManifest, grantedPermissions: string[]): void {
         const now = new Date().toISOString();
         this.orm
             .insert(pluginsTable)
@@ -33,7 +32,6 @@ export class PluginStore {
                 manifest: JSON.stringify(manifest),
                 granted_permissions: JSON.stringify(grantedPermissions),
                 installed_at: now,
-                db_id: dbId ?? null,
             })
             .onConflictDoUpdate({
                 target: pluginsTable.id,
@@ -42,7 +40,6 @@ export class PluginStore {
                     manifest: JSON.stringify(manifest),
                     granted_permissions: JSON.stringify(grantedPermissions),
                     installed_at: now,
-                    db_id: dbId ?? null,
                 },
             })
             .run();
@@ -71,6 +68,30 @@ export class PluginStore {
             .run();
     }
 
+    public getSetting(pluginId: string, key: string): string | undefined {
+        const row = this.orm.select({ value: pluginSettingsTable.value })
+            .from(pluginSettingsTable)
+            .where(and(eq(pluginSettingsTable.plugin_id, pluginId), eq(pluginSettingsTable.key, key)))
+            .get();
+        return row?.value;
+    }
+
+    public setSetting(pluginId: string, key: string, value: string): void {
+        this.orm.insert(pluginSettingsTable)
+            .values({ plugin_id: pluginId, key, value })
+            .onConflictDoUpdate({
+                target: [pluginSettingsTable.plugin_id, pluginSettingsTable.key],
+                set: { value }
+            })
+            .run();
+    }
+
+    public deleteSetting(pluginId: string, key: string): void {
+        this.orm.delete(pluginSettingsTable)
+            .where(and(eq(pluginSettingsTable.plugin_id, pluginId), eq(pluginSettingsTable.key, key)))
+            .run();
+    }
+
     private mapRow(row: PluginRow): PluginRecord {
         return {
             id: row.id,
@@ -78,7 +99,6 @@ export class PluginStore {
             manifest: JSON.parse(row.manifest),
             granted_permissions: JSON.parse(row.granted_permissions),
             installed_at: row.installed_at,
-            db_id: row.db_id ?? undefined,
         };
     }
 }

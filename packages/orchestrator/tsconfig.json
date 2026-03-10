@@ -35,9 +35,6 @@
             "path": "../process"
         },
         {
-            "path": "../db-manager"
-        },
-        {
             "path": "../terminal"
         },
         {

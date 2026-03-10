@@ -12,13 +12,19 @@ export const pluginsTable = sqliteTable('plugins', {
 	manifest: text('manifest').notNull(),
 	granted_permissions: text('granted_permissions').notNull(),
 	installed_at: text('installed_at').notNull(),
-	db_id: text('db_id'),
+});
+
+export const pluginSettingsTable = sqliteTable('plugin_settings', {
+	plugin_id: text('plugin_id').notNull().references(() => pluginsTable.id, { onDelete: 'cascade' }),
+	key: text('key').notNull(),
+	value: text('value').notNull(),
 });
 
 // ─── Unified Schema ─────────────────────────────────────────────────────────
 
 export const pluginManagerSchema = {
 	pluginsTable,
+	pluginSettingsTable,
 } as const;
 
 // ─── Schema Init ─────────────────────────────────────────────────────────────
@@ -30,8 +36,14 @@ export function initPluginManagerSchema(db: { exec(sql: string): unknown }): voi
 			enabled             INTEGER DEFAULT 1,
 			manifest            TEXT NOT NULL,
 			granted_permissions TEXT NOT NULL,
-			installed_at        TEXT NOT NULL,
-			db_id               TEXT
+			installed_at        TEXT NOT NULL
+		);
+		CREATE TABLE IF NOT EXISTS plugin_settings (
+			plugin_id TEXT NOT NULL,
+			key       TEXT NOT NULL,
+			value     TEXT NOT NULL,
+			PRIMARY KEY (plugin_id, key),
+			FOREIGN KEY (plugin_id) REFERENCES plugins(id) ON DELETE CASCADE
 		);
 	`);
 }

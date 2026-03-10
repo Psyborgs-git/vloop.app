@@ -2,8 +2,10 @@ import { z } from 'zod';
 import { PluginHostFeatureFlagsSchema, PluginTaskSchema } from './contracts.js';
 
 export const PluginPermissionSchema = z.enum([
-    'db:read',
-    'db:write',
+    'settings:read',
+    'settings:write',
+    'fs:read',
+    'fs:write',
     'vault:read',
     'vault:write',
     'contacts:read',

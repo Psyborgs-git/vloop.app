@@ -17,7 +17,7 @@ Runtime lifecycle manager for WASM-based plugins in the vloop.app orchestrator.
 ```ts
 import { PluginManager } from '@orch/plugin-manager';
 
-const manager = new PluginManager(db, orm, dbProvisioner, logger);
+const manager = new PluginManager(db, orm, logger);
 await manager.start();
 
 // Install from a local ZIP or directory
@@ -40,7 +40,7 @@ src/
   handler.ts        Router topic handler (action dispatcher)
   routes.ts         AppRouterContract integration helper
   host/
-    db.ts           DbHostFunctions — sandboxed SQLite access
+    settings.ts     SettingsHostFunctions — K/V settings access
     vault.ts        VaultHostFunctions — secret store bridge
     events.ts       EventsHostFunctions — HooksEventBus pub/sub bridge
     task.ts         TaskHostFunctions — contacts / chat / AI / notifications

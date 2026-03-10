@@ -11,8 +11,7 @@ import { PluginManifestSchema } from './manifest.js';
 import type { PluginManifest } from './manifest.js';
 import { PluginSandbox } from './sandbox.js';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
-import { DatabaseProvisioner } from '@orch/db-manager';
-import { DbHostFunctions } from './host/db.js';
+import { SettingsHostFunctions } from './host/settings.js';
 import { VaultHostFunctions } from './host/vault.js';
 import { EventsHostFunctions } from './host/events.js';
 import { TaskHostFunctions } from './host/task.js';
@@ -28,7 +27,6 @@ export class PluginManager {
     constructor(
         db: BetterSqlite3.Database,
         orm: RootDatabaseOrm,
-        private readonly dbProvisioner: DatabaseProvisioner,
         private readonly logger: Logger,
         dataDir: string = './data/plugins',
         private readonly vaultStore?: VaultStore,
@@ -73,12 +71,11 @@ export class PluginManager {
         if (this.sandboxes.has(record.id)) return;
 
         const pluginDir = join(this.pluginsDir, record.id);
-        const dbHost = new DbHostFunctions(
-            this.dbProvisioner,
+        const settingsHost = new SettingsHostFunctions(
+            this.store,
             record.id,
             record.granted_permissions,
-            this.logger,
-            record.db_id
+            this.logger
         );
 
         // VaultHostFunctions — wired when a vault store is available
@@ -115,7 +112,7 @@ export class PluginManager {
             pluginDir,
             record.granted_permissions,
             this.logger,
-            dbHost,
+            settingsHost,
             vaultHost,
             eventsHost,
             taskHost
@@ -162,18 +159,7 @@ export class PluginManager {
         const manifestJson = readFileSync(manifestPath, 'utf-8');
         const manifest = PluginManifestSchema.parse(JSON.parse(manifestJson));
 
-        // Provision isolated DB if requested
-        let dbId: string | undefined;
-        if (grantedPermissions.includes('db:read') || grantedPermissions.includes('db:write')) {
-            const result = await this.dbProvisioner.provision({
-                workspaceId: 'plugin-' + id,
-                description: `Private DB for plugin ${id}`
-            });
-            dbId = result.dbId;
-            this.logger.info({ pluginId: id, dbId }, 'Provisioned private database');
-        }
-
-        this.store.install(manifest, grantedPermissions, dbId);
+        this.store.install(manifest, grantedPermissions);
         this.logger.info({ id, permissions: grantedPermissions }, 'Plugin installed and enabled');
 
         // Immediately load it

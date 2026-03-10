@@ -1,7 +1,6 @@
 import type { DependencyContainer } from "tsyringe";
 import type { AppComponent, AppComponentContext } from "@orch/shared";
 import { TOKENS } from "@orch/shared";
-import { DatabaseProvisioner } from "@orch/db-manager";
 import type { VaultStore } from "@orch/vault";
 import { HooksEventBus } from "@orch/shared/hooks-bus";
 import type { Logger } from "@orch/daemon";
@@ -10,7 +9,7 @@ import { PluginManager } from "./index.js";
 
 const config: AppComponent = {
     name: "@orch/plugin-manager",
-    dependencies: ["@orch/db-manager"],
+    dependencies: [],
     register(container: DependencyContainer) {
         container.register(PluginManager, {
             useFactory: (c) => {
@@ -32,7 +31,6 @@ const config: AppComponent = {
                 return new PluginManager(
                     c.resolve(TOKENS.Database),
                     c.resolve(TOKENS.DatabaseOrm),
-                    c.resolve(DatabaseProvisioner),
                     c.resolve(TOKENS.Logger),
                     undefined, // dataDir — use the PluginManager default: './data/plugins'
                     vaultStore,

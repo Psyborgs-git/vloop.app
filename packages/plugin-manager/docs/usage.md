@@ -29,14 +29,12 @@ Use this when writing tests or integrating outside the daemon DI system.
 import Database from 'better-sqlite3-multiple-ciphers';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { PluginManager } from '@orch/plugin-manager';
-import { DatabaseProvisioner } from '@orch/db-manager';
 
 const db = new Database('./data/app.db');
 const orm = drizzle(db);
-const dbProvisioner = new DatabaseProvisioner(/* … */);
 const logger = pino();
 
-const manager = new PluginManager(db, orm, dbProvisioner, logger, './data/plugins');
+const manager = new PluginManager(db, orm, logger, './data/plugins');
 await manager.start();
 ```
 
@@ -178,7 +176,7 @@ export function on_start(): i32 {
 
 Place extension directories inside `./extensions/` at the repo root.  Each
 must contain a valid `plugin.json`.  On daemon start the `autoInstallFromDir`
-method scans the directory and installs any extension not already in the DB,
+method scans the directory and installs any extension not already registered,
 granting all permissions that the extension declares.
 
 ```

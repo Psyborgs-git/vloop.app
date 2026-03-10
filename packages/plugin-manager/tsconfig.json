@@ -16,7 +16,6 @@
     "references": [
         { "path": "../shared" },
         { "path": "../daemon" },
-        { "path": "../db-manager" },
         { "path": "../vault" }
     ]
 }

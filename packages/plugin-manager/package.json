@@ -23,7 +23,6 @@
         "@extism/extism": "2.0.0-rc13",
         "@orch/daemon": "workspace:*",
         "@orch/shared": "workspace:*",
-        "@orch/db-manager": "workspace:*",
         "@orch/vault": "workspace:*",
         "drizzle-orm": "^0.44.7",
         "zod": "^3.24.2",

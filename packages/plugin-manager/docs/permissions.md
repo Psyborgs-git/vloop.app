@@ -13,8 +13,10 @@ every host-function call site.
 
 | Permission | Host function(s) | Description |
 |---|---|---|
-| `db:read` | `db_query` | Execute `SELECT` and other read-only statements in the plugin's private DB |
-| `db:write` | `db_query` | Execute `INSERT / UPDATE / DELETE / DDL` in the plugin's private DB |
+| `settings:read` | `settings_get` | Read keys from the plugin's settings store |
+| `fs:read` | `wasi:fd_read` | Read files within the plugin's isolated `/data` directory |
+| `settings:write` | `settings_set`, `settings_delete` | Write or delete keys in the settings store |
+| `fs:write` | `wasi:fd_write` | Write files within the plugin's isolated `/data` directory |
 | `vault:read:<key>` | `vault_read` | Read a specific vault secret |
 | `vault:read:*` | `vault_read` | Read any vault secret |
 | `vault:write:<key>` | `vault_write` | Create/update a specific vault secret |

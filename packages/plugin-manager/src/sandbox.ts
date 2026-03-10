@@ -3,9 +3,9 @@ import type { Plugin as ExtismPlugin, CallContext } from '@extism/extism';
 import type { Logger } from '@orch/daemon';
 import type { PluginManifest } from './manifest.js';
 import { join } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdirSync } from 'node:fs';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
-import type { DbHostFunctions } from './host/db.js';
+import type { SettingsHostFunctions } from './host/settings.js';
 import type { VaultHostFunctions } from './host/vault.js';
 import type { EventsHostFunctions } from './host/events.js';
 import type { TaskHostFunctions } from './host/task.js';
@@ -26,7 +26,7 @@ export class PluginSandbox {
         pluginDir: string,
         _permissions: string[],
         logger: Logger,
-        dbHost?: DbHostFunctions,
+        settingsHost?: SettingsHostFunctions,
         vaultHost?: VaultHostFunctions,
         eventsHost?: EventsHostFunctions,
         taskHost?: TaskHostFunctions
@@ -34,6 +34,9 @@ export class PluginSandbox {
         this.logger = logger.child({ plugin: manifest.id });
         this.eventsHost = eventsHost;
         const wasmPath = join(pluginDir, manifest.entrypoint);
+
+        const dataDir = join(pluginDir, 'data');
+        mkdirSync(dataDir, { recursive: true });
 
         try {
             const wasmBuffer = readFileSync(wasmPath);
@@ -43,6 +46,7 @@ export class PluginSandbox {
                 { wasm: [{ data: wasmBuffer }] },
                 {
                     useWasi: true,
+                    allowedPaths: { '/data': dataDir },
                     functions: {
                         'extism:host/user': {
                             log_info: (callContext: CallContext, offset: bigint) => {
@@ -67,17 +71,46 @@ export class PluginSandbox {
                                     return callContext.store(`{"error":${JSON.stringify(msg)}}`);
                                 }
                             },
-                            db_query: (callContext: CallContext, sqlOffset: bigint, paramsOffset: bigint) => {
-                                if (!dbHost) {
-                                    callContext.setError('No DB host functions available');
-                                    return callContext.store('{"error":"No DB host functions available"}');
+                            settings_get: (callContext: CallContext, keyOffset: bigint) => {
+                                if (!settingsHost) {
+                                    callContext.setError('No settings host functions available');
+                                    return callContext.store('{"error":"No settings host functions available"}');
                                 }
-                                const sql = callContext.read(sqlOffset)?.string() ?? '';
-                                const paramsStr = callContext.read(paramsOffset)?.string() ?? '[]';
+                                const key = callContext.read(keyOffset)?.string() ?? '';
                                 try {
-                                    const params = JSON.parse(paramsStr);
-                                    const result = dbHost.query(sql, params);
-                                    return callContext.store(JSON.stringify(result));
+                                    const val = settingsHost.get(key);
+                                    return callContext.store(val === null ? "" : val);
+                                } catch (err: unknown) {
+                                    const msg = err instanceof Error ? err.message : String(err);
+                                    callContext.setError(msg);
+                                    return callContext.store(`{"error":${JSON.stringify(msg)}}`);
+                                }
+                            },
+                            settings_set: (callContext: CallContext, keyOffset: bigint, valueOffset: bigint) => {
+                                if (!settingsHost) {
+                                    callContext.setError('No settings host functions available');
+                                    return callContext.store('{"error":"No settings host functions available"}');
+                                }
+                                const key = callContext.read(keyOffset)?.string() ?? '';
+                                const val = callContext.read(valueOffset)?.string() ?? '';
+                                try {
+                                    settingsHost.set(key, val);
+                                    return callContext.store('{"ok":true}');
+                                } catch (err: unknown) {
+                                    const msg = err instanceof Error ? err.message : String(err);
+                                    callContext.setError(msg);
+                                    return callContext.store(`{"error":${JSON.stringify(msg)}}`);
+                                }
+                            },
+                            settings_delete: (callContext: CallContext, keyOffset: bigint) => {
+                                if (!settingsHost) {
+                                    callContext.setError('No settings host functions available');
+                                    return callContext.store('{"error":"No settings host functions available"}');
+                                }
+                                const key = callContext.read(keyOffset)?.string() ?? '';
+                                try {
+                                    settingsHost.delete(key);
+                                    return callContext.store('{"ok":true}');
                                 } catch (err: unknown) {
                                     const msg = err instanceof Error ? err.message : String(err);
                                     callContext.setError(msg);

@@ -2,7 +2,8 @@
   "targets": {
     "release": {
       "outFile": "build/discord_chat_plugin.wasm",
-      "optimize": true
+      "optimize": true,
+      "noAssert": true
     }
   },
   "entries": ["src/index.ts"]

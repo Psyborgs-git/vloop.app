@@ -5,7 +5,6 @@ import Database from 'better-sqlite3-multiple-ciphers';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { PluginManager } from '../src/manager.js';
-import { DatabaseProvisioner } from '@orch/db-manager';
 import type { Logger } from '@orch/daemon';
 
 // Mock node:fs/promises
@@ -21,11 +20,6 @@ const mockLogger = {
     child: vi.fn().mockReturnThis(),
 } as unknown as Logger;
 
-const mockDbProvisioner = {
-    provision: vi.fn(),
-    getCredentials: vi.fn(),
-} as unknown as DatabaseProvisioner;
-
 describe('PluginManager', () => {
     let manager: PluginManager;
     let db: Database.Database;
@@ -36,7 +30,7 @@ describe('PluginManager', () => {
         vi.clearAllMocks();
         db = new Database(':memory:');
         orm = drizzle(db);
-        manager = new PluginManager(db, orm, mockDbProvisioner, mockLogger, testDataDir);
+        manager = new PluginManager(db, orm, mockLogger, testDataDir);
     });
 
     it('should list plugins from store', () => {
@@ -60,8 +54,8 @@ describe('PluginManager', () => {
         } as any;
         const now = new Date().toISOString();
         db.exec(`
-            INSERT INTO plugins (id, enabled, manifest, granted_permissions, installed_at, db_id)
-            VALUES ('${pluginId}', 1, '${JSON.stringify(manifest).replace(/'/g, "''")}', '[]', '${now}', NULL)
+            INSERT INTO plugins (id, enabled, manifest, granted_permissions, installed_at)
+            VALUES ('${pluginId}', 1, '${JSON.stringify(manifest).replace(/'/g, "''")}', '[]', '${now}')
         `);
 
         await manager.uninstall(pluginId);
@@ -87,8 +81,8 @@ describe('PluginManager', () => {
         } as any;
         const now = new Date().toISOString();
         db.exec(`
-            INSERT INTO plugins (id, enabled, manifest, granted_permissions, installed_at, db_id)
-            VALUES ('${pluginId}', 1, '${JSON.stringify(manifest).replace(/'/g, "''")}', '[]', '${now}', NULL)
+            INSERT INTO plugins (id, enabled, manifest, granted_permissions, installed_at)
+            VALUES ('${pluginId}', 1, '${JSON.stringify(manifest).replace(/'/g, "''")}', '[]', '${now}')
         `);
 
         // Mock rm rejection

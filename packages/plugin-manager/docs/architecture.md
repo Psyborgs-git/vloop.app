@@ -20,7 +20,7 @@ functions.
 │   └──────┬───────┘                                             │
 │          │ host functions                                       │
 │   ┌──────┴──────────────────────────────────┐                  │
-│   │  DbHostFunctions  │  VaultHostFunctions │                  │
+│   │  SettingsHostFunctions  │  VaultHostFunctions │                  │
 │   │  EventsHostFns    │  TaskHostFunctions  │                  │
 │   └─────────────────────────────────────────┘                  │
 │          │                                                      │
@@ -38,7 +38,7 @@ functions.
 | `PluginSandbox` | Creates and holds the Extism plugin instance, routes WASM host-function calls to the appropriate host object |
 | `PluginStore` | Drizzle-backed persistence of `PluginRecord` rows — install, list, enable/disable, delete |
 | `PluginDownloader` | Fetches a ZIP (HTTP/local) or copies a directory, validates `plugin.json`, extracts to `<dataDir>/<id>/` |
-| `DbHostFunctions` | Exposes a sandboxed SQLite database provisioned per-plugin via `@orch/db-manager` |
+| `SettingsHostFunctions` | Exposes a sandboxed K/V settings store scoped to the plugin via `pluginSettingsTable`. Plugins use isolated WASI directories (`/data`) for storing databases or raw files. |
 | `VaultHostFunctions` | Bridges `vault_read` / `vault_write` host calls to `@orch/vault` `VaultStore` |
 | `EventsHostFunctions` | Bridges `events_subscribe` / `events_publish` host calls to `@orch/shared` `HooksEventBus` |
 | `TaskHostFunctions` | Bridges structured domain operations (contacts, chat, AI, notifications) through the event bus |
@@ -56,8 +56,7 @@ CLI/HTTP ──► PluginManager.prepareInstall(url)
 CLI/HTTP ──► PluginManager.commitInstall(id, grantedPermissions)
               │
               ├─ read plugin.json from staging dir
-              ├─ (optional) DatabaseProvisioner.provision() → dbId
-              ├─ PluginStore.install(manifest, permissions, dbId)
+              ├─ PluginStore.install(manifest, permissions)
               └─ loadPlugin() → new PluginSandbox(...)
 ```
 

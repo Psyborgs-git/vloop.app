@@ -26,16 +26,18 @@ Namespace: `extism:host/user`
 
 ---
 
-## Database access (`db:read` / `db:write`)
+## Settings access (`settings:read` / `settings:write`)
 
 | Function | Signature | Description |
 |---|---|---|
-| `db_query` | `(sqlPtr: i64, paramsPtr: i64) → i64` | Execute a parameterised SQL statement against the plugin's private SQLite database. `paramsPtr` is a JSON array of `SqlParam` values. Returns a JSON array of row objects on success, or `{"error":"…"}` on failure. |
+| `settings_get` | `(keyPtr: i64) → i64` | Get a setting value |
+| `settings_set` | `(keyPtr: i64, valuePtr: i64) → i64` | Set a setting value |
+| `settings_delete` | `(keyPtr: i64) → i64` | Delete a setting |
 
 > **Security**: Each plugin receives its own AES-256-XTS encrypted SQLite
-> database provisioned by `@orch/db-manager`.  No cross-plugin data access is
-> possible.  Write operations require the `db:write` permission in addition to
-> `db:read`.
+> Shared settings configurations (via `pluginSettingsTable`).
+> No cross-plugin data access is possible.
+> Write operations require `settings:write` via `settings_set`.
 
 ---
 

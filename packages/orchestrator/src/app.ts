@@ -29,6 +29,7 @@ import type {
 	OrchestratorConfig,
 } from "@orch/shared";
 import { ComponentLifecycleManager } from "./lifecycle-manager.js";
+import { HooksEventBus } from "@orch/shared/hooks-bus";
 
 interface SessionManagerLike {
 	refresh(sessionId: string): unknown;
@@ -186,6 +187,8 @@ export class OrchestratorApp {
 			vaultKeyPath,
 			"ORCH_VAULT_PASSPHRASE",
 		);
+		this.container.register(HooksEventBus, { useValue: new HooksEventBus(this.logger) });
+		this.container.register(HooksEventBus, { useValue: new HooksEventBus(this.logger) });
 		this.container.register(TOKENS.VaultPassphrase, {
 			useValue: vaultPassphrase,
 		});

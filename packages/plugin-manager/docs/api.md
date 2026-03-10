@@ -14,7 +14,6 @@ All symbols exported from `@orch/plugin-manager` (the package root `index.ts`).
 new PluginManager(
   db: BetterSqlite3.Database,
   orm: RootDatabaseOrm,
-  dbProvisioner: DatabaseProvisioner,
   logger: Logger,
   dataDir?: string,          // default: './data/plugins'
   vaultStore?: VaultStore,
@@ -29,7 +28,7 @@ new PluginManager(
 | `start` | `() => Promise<void>` | Load all enabled plugins from the DB; called once at daemon start |
 | `stop` | `() => Promise<void>` | Close every running sandbox; idempotent |
 | `prepareInstall` | `(urlOrPath: string) => Promise<PluginManifest>` | Download/copy plugin files to staging; returns parsed manifest for permission review |
-| `commitInstall` | `(id: string, grantedPermissions: string[]) => Promise<void>` | Persist the record, optionally provision a private DB, then load the plugin |
+| `commitInstall` | `(id: string, grantedPermissions: string[]) => Promise<void>` | Persist the record, create the data folder, then load the plugin |
 | `cancelInstall` | `(id: string) => void` | Remove staged files without inserting a DB record |
 | `list` | `() => PluginRecord[]` | Return all installed plugin records |
 | `uninstall` | `(id: string) => Promise<void>` | Stop sandbox, delete files, remove DB record |
@@ -54,7 +53,7 @@ new PluginStore(
 
 | Method | Signature | Description |
 |---|---|---|
-| `install` | `(manifest: PluginManifest, permissions: string[], dbId?: string) => void` | Upsert a plugin record |
+| `install` | `(manifest: PluginManifest, permissions: string[], ) => void` | Upsert a plugin record |
 | `uninstall` | `(id: string) => void` | Delete by primary key |
 | `get` | `(id: string) => PluginRecord \| undefined` | Fetch a single record |
 | `list` | `() => PluginRecord[]` | Fetch all records |
@@ -69,8 +68,7 @@ interface PluginRecord {
   manifest: PluginManifest;
   granted_permissions: string[];
   installed_at: string;   // ISO 8601
-  db_id?: string;         // provisioned DB identifier, if any
-}
+  }
 ```
 
 ---
@@ -87,7 +85,7 @@ new PluginSandbox(
   pluginDir: string,
   permissions: string[],
   logger: Logger,
-  dbHost?: DbHostFunctions,
+  settingsHost?: SettingsHostFunctions,
   vaultHost?: VaultHostFunctions,
   eventsHost?: EventsHostFunctions,
   taskHost?: TaskHostFunctions
@@ -180,7 +178,7 @@ interface PluginManifest {
 
 ```ts
 type PluginPermission =
-  | 'db:read' | 'db:write'
+  | 'settings:read' | 'settings:write' | 'fs:read' | 'fs:write'
   | 'vault:read' | 'vault:write'
   | 'contacts:read' | 'contacts:write'
   | 'chat:read' | 'chat:write'
