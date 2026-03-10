@@ -79,9 +79,9 @@ export class DatabaseProvisioner {
     /**
      * Retrieves the path and raw encryption key from Vault so that poolers can connect.
      */
-    public async getCredentials(workspaceId: string, dbId: string): Promise<{ path: string; key: string }> {
+    public getCredentials(workspaceId: string, dbId: string): { path: string; key: string } {
         const secretPath = `workspaces/${workspaceId}/databases/${dbId}/key`;
-        const secret = await this.vault.get(secretPath);
+        const secret = this.vault.get(secretPath);
 
         if (!secret) {
             throw new OrchestratorError(ErrorCode.NOT_FOUND, `Database credentials not found for ${dbId}`);

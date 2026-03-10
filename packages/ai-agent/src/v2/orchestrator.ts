@@ -204,6 +204,7 @@ export class AgentOrchestratorV2 {
 		const startedAt = Date.now();
 		let fullText = "";
 		const toolCalls: any[] = [];
+		const toolResults: any[] = [];
 		let reactTrajectory: string | undefined;
 
 		try {

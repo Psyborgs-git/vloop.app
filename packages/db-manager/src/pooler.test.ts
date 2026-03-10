@@ -44,7 +44,7 @@ describe('DatabasePool', () => {
         // Mock the Vault read since we bypassed real Vault
         const callArgs = mockVault.create.mock.calls[0];
         const storedKey = callArgs[1];
-        mockVault.get.mockResolvedValueOnce({ value: storedKey });
+        mockVault.get.mockReturnValueOnce({ value: storedKey });
 
         // First connection execution
         await pool.executeRaw('ws-1', dbId, `CREATE TABLE test (id INTEGER PRIMARY KEY, msg TEXT)`);
@@ -62,13 +62,13 @@ describe('DatabasePool', () => {
 
     it('disconnects and cleans up properly', async () => {
         const { dbId } = await provisioner.provision({ workspaceId: 'ws-2' });
-        mockVault.get.mockResolvedValueOnce({ value: mockVault.create.mock.calls[0][1] });
+        mockVault.get.mockReturnValueOnce({ value: mockVault.create.mock.calls[0][1] });
 
         await pool.connect('ws-2', dbId);
         pool.disconnect('ws-2', dbId);
 
         // Attempting to query should fetch key again as cache was cleared
-        mockVault.get.mockResolvedValueOnce({ value: mockVault.create.mock.calls[0][1] });
+        mockVault.get.mockReturnValueOnce({ value: mockVault.create.mock.calls[0][1] });
         await pool.executeRaw('ws-2', dbId, 'SELECT 1');
 
         expect(mockVault.get).toHaveBeenCalledTimes(2);

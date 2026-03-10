@@ -3,7 +3,7 @@ import { Box, Typography, TextField, Button, Paper, Alert } from '@mui/material'
 import { useClient } from '../ClientContext.js';
 
 interface LoginViewProps {
-    onLoginSuccess: () => void;
+    onLoginSuccess: (loginResult: { token: string; user: any }) => void;
 }
 
 export default function LoginView({ onLoginSuccess }: LoginViewProps) {
@@ -21,8 +21,8 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
         setError(null);
 
         try {
-            await client.auth.login(email, password);
-            onLoginSuccess();
+            const result = await client.auth.login(email, password);
+            onLoginSuccess(result as { token: string; user: any });
         } catch (err: any) {
             setError(err.message || 'Login failed');
         } finally {

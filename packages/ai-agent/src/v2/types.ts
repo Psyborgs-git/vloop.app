@@ -294,7 +294,7 @@ export interface CreateMessageInput {
 // ─── State Node (v2 — DAG execution checkpoint) ──────────────────────────────
 
 export type StateNodeStatus = 'running' | 'completed' | 'failed' | 'waiting_for_input' | 'cancelled';
-export type StateNodeKind = 'llm_call' | 'tool_call' | 'tool_response' | 'reasoning' | 'conditional' | 'loop_iteration' | 'hitl_pause' | 'workflow_start' | 'workflow_end' | 'agent_start' | 'agent_end';
+export type StateNodeKind = 'llm_call' | 'tool_call' | 'tool_response' | 'reasoning' | 'conditional' | 'loop_iteration' | 'hitl_pause' | 'workflow_start' | 'workflow_end' | 'agent_start' | 'agent_end' | 'react_start' | 'react_end';
 
 export interface StateNode {
 	id: StateNodeId;

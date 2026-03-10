@@ -29,7 +29,9 @@ export default function AuthView() {
     const [tab, setTab] = useState(0);
     const [users, setUsers] = useState<any[]>([]);
     const [providers, setProviders] = useState<any[]>([]);
+    const [tokens, setTokens] = useState<any[]>([]);
     const [error, setError] = useState<string | null>(null);
+    const [newTokenRaw, setNewTokenRaw] = useState<string | null>(null);
 
     // User Dialog State
     const [userDialogOpen, setUserDialogOpen] = useState(false);
@@ -48,6 +50,13 @@ export default function AuthView() {
     const [newProviderIssuer, setNewProviderIssuer] = useState('');
     const [newProviderJwks, setNewProviderJwks] = useState('');
 
+    // Token Dialog State
+    const [tokenDialogOpen, setTokenDialogOpen] = useState(false);
+    const [newTokenName, setNewTokenName] = useState('');
+    const [newTokenType, setNewTokenType] = useState('user');
+    const [newTokenRoles, setNewTokenRoles] = useState('viewer');
+    const [newTokenTtl, setNewTokenTtl] = useState('604800');
+
     useEffect(() => {
         if (client) {
             loadData();
@@ -60,9 +69,12 @@ export default function AuthView() {
             if (tab === 0) {
                 const res = await client?.auth.listUsers();
                 setUsers(res?.items || []);
-            } else {
+            } else if (tab === 1) {
                 const res = await client?.auth.listProviders();
                 setProviders(res?.items || []);
+            } else {
+                const res = await client?.auth.listTokens();
+                setTokens(res?.tokens || []);
             }
         } catch (err: any) {
             setError(err.message);
@@ -124,6 +136,34 @@ export default function AuthView() {
         }
     };
 
+    const handleCreateToken = async () => {
+        try {
+            const result = await client?.auth.createToken({
+                name: newTokenName,
+                tokenType: newTokenType as 'user' | 'agent',
+                roles: newTokenRoles.split(',').map(r => r.trim()).filter(Boolean),
+                ttlSecs: newTokenTtl ? parseInt(newTokenTtl, 10) : undefined,
+            });
+            setNewTokenRaw(result?.rawToken ?? null);
+            setNewTokenName('');
+            setNewTokenType('user');
+            setNewTokenRoles('viewer');
+            setNewTokenTtl('604800');
+            loadData();
+        } catch (err: any) {
+            setError(err.message);
+        }
+    };
+
+    const handleRevokeToken = async (tokenId: string) => {
+        try {
+            await client?.auth.revokeToken(tokenId);
+            loadData();
+        } catch (err: any) {
+            setError(err.message);
+        }
+    };
+
     if (!client) return <Typography>Loading...</Typography>;
 
     return (
@@ -136,6 +176,7 @@ export default function AuthView() {
                 <Tabs value={tab} onChange={(_, v) => setTab(v)}>
                     <Tab label="Local Users" />
                     <Tab label="JWT Providers" />
+                    <Tab label="API Tokens" />
                 </Tabs>
             </Box>
 
@@ -337,6 +378,146 @@ export default function AuthView() {
                 <DialogActions>
                     <Button onClick={() => setProviderDialogOpen(false)}>Cancel</Button>
                     <Button onClick={handleAddProvider} variant="contained">Add</Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* API Tokens Tab */}
+            {tab === 2 && (
+                <Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                        <Typography variant="h6">API Tokens</Typography>
+                        <Button variant="contained" startIcon={<Plus size={16} />} onClick={() => setTokenDialogOpen(true)}>
+                            Create Token
+                        </Button>
+                    </Box>
+                    <TableContainer component={Paper}>
+                        <Table>
+                            <TableHead>
+                                <TableRow>
+                                    <TableCell>Name</TableCell>
+                                    <TableCell>Type</TableCell>
+                                    <TableCell>Roles</TableCell>
+                                    <TableCell>Expires</TableCell>
+                                    <TableCell>Last Used</TableCell>
+                                    <TableCell>Status</TableCell>
+                                    <TableCell align="right">Actions</TableCell>
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {tokens.map((t) => (
+                                    <TableRow key={t.id}>
+                                        <TableCell>{t.name}</TableCell>
+                                        <TableCell><Chip label={t.tokenType} size="small" /></TableCell>
+                                        <TableCell>
+                                            {t.roles?.map((r: string) => (
+                                                <Chip key={r} label={r} size="small" sx={{ mr: 0.5 }} />
+                                            ))}
+                                        </TableCell>
+                                        <TableCell>{t.expiresAt ? new Date(t.expiresAt).toLocaleString() : 'Never'}</TableCell>
+                                        <TableCell>{t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleString() : '—'}</TableCell>
+                                        <TableCell>
+                                            <Chip
+                                                label={t.revoked ? 'Revoked' : 'Active'}
+                                                color={t.revoked ? 'error' : 'success'}
+                                                size="small"
+                                            />
+                                        </TableCell>
+                                        <TableCell align="right">
+                                            <IconButton color="error" onClick={() => handleRevokeToken(t.id)} disabled={t.revoked}>
+                                                <Trash2 size={18} />
+                                            </IconButton>
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                                {tokens.length === 0 && (
+                                    <TableRow>
+                                        <TableCell colSpan={7} align="center">No tokens found</TableCell>
+                                    </TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
+                    </TableContainer>
+                </Box>
+            )}
+
+            {/* Create Token Dialog */}
+            <Dialog open={tokenDialogOpen} onClose={() => { setTokenDialogOpen(false); setNewTokenRaw(null); }} maxWidth="sm" fullWidth>
+                <DialogTitle>Create API Token</DialogTitle>
+                <DialogContent>
+                    {newTokenRaw ? (
+                        <Box>
+                            <Alert severity="success" sx={{ mb: 2 }}>
+                                Token created! Copy it now — it will not be shown again.
+                            </Alert>
+                            <TextField
+                                fullWidth
+                                label="Raw Token (copy now)"
+                                value={newTokenRaw}
+                                InputProps={{ readOnly: true }}
+                                variant="outlined"
+                                multiline
+                                rows={3}
+                            />
+                        </Box>
+                    ) : (
+                        <>
+                            <TextField
+                                autoFocus
+                                margin="dense"
+                                label="Token Name"
+                                fullWidth
+                                variant="outlined"
+                                value={newTokenName}
+                                onChange={(e) => setNewTokenName(e.target.value)}
+                                sx={{ mb: 2, mt: 1 }}
+                                helperText="e.g. CI/CD pipeline, web-ui-session"
+                            />
+                            <TextField
+                                select
+                                margin="dense"
+                                label="Token Type"
+                                fullWidth
+                                variant="outlined"
+                                value={newTokenType}
+                                onChange={(e) => setNewTokenType(e.target.value)}
+                                sx={{ mb: 2 }}
+                                SelectProps={{ native: true }}
+                            >
+                                <option value="user">user</option>
+                                <option value="agent">agent</option>
+                            </TextField>
+                            <TextField
+                                margin="dense"
+                                label="Roles (comma separated)"
+                                fullWidth
+                                variant="outlined"
+                                value={newTokenRoles}
+                                onChange={(e) => setNewTokenRoles(e.target.value)}
+                                sx={{ mb: 2 }}
+                                helperText="e.g. admin, viewer"
+                            />
+                            <TextField
+                                margin="dense"
+                                label="TTL (seconds)"
+                                type="number"
+                                fullWidth
+                                variant="outlined"
+                                value={newTokenTtl}
+                                onChange={(e) => setNewTokenTtl(e.target.value)}
+                                helperText="0 or empty = use server default (7 days). 604800 = 7 days, 2592000 = 30 days."
+                            />
+                        </>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => { setTokenDialogOpen(false); setNewTokenRaw(null); }}>
+                        {newTokenRaw ? 'Close' : 'Cancel'}
+                    </Button>
+                    {!newTokenRaw && (
+                        <Button onClick={handleCreateToken} variant="contained" disabled={!newTokenName}>
+                            Create
+                        </Button>
+                    )}
                 </DialogActions>
             </Dialog>
         </Box>

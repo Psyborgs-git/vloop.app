@@ -1,51 +1,63 @@
-import type { AppHandlerContext } from '@orch/shared';
+import { z } from 'zod';
+import type { AppHandlerContext, AppTopicHandler } from '@orch/shared';
+import { OrchestratorError, ErrorCode } from '@orch/shared';
 import { PluginManager } from './manager.js';
 
-export function createPluginHandler(pluginManager: PluginManager) {
-    return async (action: string, payload: any, context: AppHandlerContext) => {
-        // Enforce RBAC for plugin management?
-        // Assuming admin for now for management, or specific roles.
-        // For public commands like list, maybe looser.
+// ─── Payload schemas ──────────────────────────────────────────────────────────
 
+const InstallPayloadSchema = z.object({ url: z.string().min(1) });
+const GrantPayloadSchema = z.object({
+    id: z.string().min(1),
+    permissions: z.array(z.string()),
+});
+const CancelPayloadSchema = z.object({ id: z.string().min(1) });
+const UninstallPayloadSchema = z.object({ id: z.string().min(1) });
+
+// ─── Handler factory ──────────────────────────────────────────────────────────
+
+export function createPluginHandler(pluginManager: PluginManager): AppTopicHandler {
+    return async (action: string, payload: unknown, context: AppHandlerContext) => {
         switch (action) {
-            case 'install':
-                // payload: { url: string }
-                // Returns manifest + permissions request
-                // Does NOT commit install yet
+            case 'install': {
                 if (!context.roles?.includes('admin')) {
-                     throw new Error("Permission denied");
+                    throw new OrchestratorError(ErrorCode.PERMISSION_DENIED, 'Permission denied');
                 }
-                return await pluginManager.prepareInstall(payload.url);
+                const { url } = InstallPayloadSchema.parse(payload);
+                return await pluginManager.prepareInstall(url);
+            }
 
-            case 'grant':
-                // payload: { id: string, permissions: string[] }
+            case 'grant': {
                 if (!context.roles?.includes('admin')) {
-                     throw new Error("Permission denied");
+                    throw new OrchestratorError(ErrorCode.PERMISSION_DENIED, 'Permission denied');
                 }
-                await pluginManager.commitInstall(payload.id, payload.permissions);
-                return { success: true, message: `Plugin ${payload.id} installed.` };
+                const { id, permissions } = GrantPayloadSchema.parse(payload);
+                await pluginManager.commitInstall(id, permissions);
+                return { success: true, message: `Plugin ${id} installed.` };
+            }
 
-            case 'cancel':
-                // payload: { id: string }
-                // Cleans up a staged plugin that was never granted permissions
+            case 'cancel': {
                 if (!context.roles?.includes('admin')) {
-                    throw new Error("Permission denied");
+                    throw new OrchestratorError(ErrorCode.PERMISSION_DENIED, 'Permission denied');
                 }
-                pluginManager.cancelInstall(payload.id);
+                const { id } = CancelPayloadSchema.parse(payload);
+                pluginManager.cancelInstall(id);
                 return { success: true };
+            }
 
             case 'list':
                 return { items: pluginManager.list() };
 
-            case 'uninstall':
+            case 'uninstall': {
                 if (!context.roles?.includes('admin')) {
-                     throw new Error("Permission denied");
+                    throw new OrchestratorError(ErrorCode.PERMISSION_DENIED, 'Permission denied');
                 }
-                await pluginManager.uninstall(payload.id);
+                const { id } = UninstallPayloadSchema.parse(payload);
+                await pluginManager.uninstall(id);
                 return { success: true };
+            }
 
             default:
-                throw new Error(`Unknown plugin action: ${action}`);
+                throw new OrchestratorError(ErrorCode.NOT_FOUND, `Unknown plugin action: ${action}`);
         }
     };
 }

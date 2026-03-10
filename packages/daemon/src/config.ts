@@ -45,6 +45,8 @@ const AuthSection = z.object({
     session_idle_timeout_secs: z.number().int().min(60).default(3600),
     session_max_lifetime_secs: z.number().int().min(600).default(86400),
     max_sessions_per_identity: z.number().int().min(1).default(10),
+    default_token_ttl_secs: z.number().int().min(0).default(604800),
+    max_tokens_per_identity: z.number().int().min(1).default(50),
 });
 
 const DatabaseSection = z.object({

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { rm } from 'node:fs/promises';
 import Database from 'better-sqlite3-multiple-ciphers';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { PluginManager } from '../src/manager.js';
 import { DatabaseProvisioner } from '@orch/db-manager';
 import type { Logger } from '@orch/daemon';
@@ -28,7 +29,7 @@ const mockDbProvisioner = {
 describe('PluginManager', () => {
     let manager: PluginManager;
     let db: Database.Database;
-    let orm: any;
+    let orm: BetterSQLite3Database;
     const testDataDir = './test-data/plugins';
 
     beforeEach(() => {

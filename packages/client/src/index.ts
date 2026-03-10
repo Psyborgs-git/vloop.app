@@ -9,3 +9,5 @@ export * from './namespaces/vault.js';
 export * from './namespaces/db.js';
 export * from './namespaces/agent.js';
 export * from './namespaces/terminal.js';
+export { PluginClient } from './namespaces/plugin.js';
+export type { PluginManifest, InstalledPlugin, PluginListResult } from './namespaces/plugin.js';

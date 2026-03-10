@@ -64,6 +64,10 @@ export interface AuthSectionConfig {
     session_idle_timeout_secs: number;
     session_max_lifetime_secs: number;
     max_sessions_per_identity: number;
+    /** Default TTL for persistent API tokens in seconds (default: 604800 = 7 days). */
+    default_token_ttl_secs: number;
+    /** Max persistent tokens allowed per identity (default: 50). */
+    max_tokens_per_identity: number;
 }
 
 export interface DatabaseSectionConfig {

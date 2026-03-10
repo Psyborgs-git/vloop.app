@@ -51,7 +51,7 @@ describe('DatabaseProvisioner', () => {
 
     it('retrieves credentials correctly from vault', async () => {
         const fakeKey = 'fake-aes-key';
-        mockVault.get!.mockResolvedValueOnce({ value: fakeKey, name: 'key', version: 1 });
+        mockVault.get!.mockReturnValueOnce({ value: fakeKey, name: 'key', version: 1 });
 
         const { dbId } = await provisioner.provision({ workspaceId: 'ws-1' });
 
@@ -60,9 +60,9 @@ describe('DatabaseProvisioner', () => {
         expect(creds.path).toBe(join(tmpDir, `${dbId}.sqlite`));
     });
 
-    it('throws NOT_FOUND if vault key is missing', async () => {
-        mockVault.get!.mockResolvedValueOnce(undefined);
+    it('throws NOT_FOUND if vault key is missing', () => {
+        mockVault.get!.mockReturnValueOnce(undefined);
 
-        await expect(provisioner.getCredentials('ws-1', 'db_nonexistent')).rejects.toThrowError(/Database credentials not found/);
+        expect(() => provisioner.getCredentials('ws-1', 'db_nonexistent')).toThrow(/Database credentials not found/);
     });
 });

@@ -48,7 +48,7 @@ export class EventsHostFunctions {
              throw new OrchestratorError(ErrorCode.PERMISSION_DENIED, `Plugins can only publish to their own namespace (plugin.${this.pluginId}.*)`);
         }
 
-        let payload: any;
+        let payload: unknown;
         try {
             payload = JSON.parse(payloadJson);
         } catch {

@@ -44,9 +44,13 @@ const config: AppComponent = {
             useFactory: (c) => new AuditLogger(c.resolve(TOKENS.Database), c.resolve(TOKENS.DatabaseOrm))
         });
         container.register(TokenManager, {
-            useFactory: (c) => new TokenManager(c.resolve(TOKENS.DatabaseOrm), {
-                maxTokensPerIdentity: 50,
-            })
+            useFactory: (c) => {
+                const { default_token_ttl_secs, max_tokens_per_identity } = resolveConfig(c, 'auth');
+                return new TokenManager(c.resolve(TOKENS.DatabaseOrm), {
+                    maxTokensPerIdentity: max_tokens_per_identity,
+                    defaultTtlSecs: default_token_ttl_secs,
+                });
+            }
         });
         container.register(TOKENS.TokenManager, {
             useFactory: (c) => c.resolve(TokenManager)

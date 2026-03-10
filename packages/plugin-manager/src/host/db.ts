@@ -3,6 +3,18 @@ import { DatabaseProvisioner } from '@orch/db-manager';
 import Database from 'better-sqlite3-multiple-ciphers';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
 
+/**
+ * Allowed SQLite parameter value types (mirrors better-sqlite3's BindingType).
+ * Uint8Array is included to allow BLOB bindings.
+ */
+export type SqlParam = string | number | bigint | boolean | null | Uint8Array;
+
+/**
+ * A single row returned by a plugin DB query.
+ * Column values may be any SQLite-native type.
+ */
+export type SqlRow = Record<string, string | number | bigint | boolean | null | Uint8Array>;
+
 export class DbHostFunctions {
     constructor(
         private readonly dbProvisioner: DatabaseProvisioner,
@@ -12,7 +24,7 @@ export class DbHostFunctions {
         private readonly dbId?: string
     ) {}
 
-    public async query(sql: string, params: any[] = []): Promise<any[]> {
+    public query(sql: string, params: SqlParam[] = []): SqlRow[] {
         if (!this.permissions.includes('db:read')) {
             throw new OrchestratorError(ErrorCode.PERMISSION_DENIED, 'Plugin lacks db:read permission');
         }
@@ -21,7 +33,7 @@ export class DbHostFunctions {
              throw new OrchestratorError(ErrorCode.INTERNAL_ERROR, 'Plugin has db permission but no DB provisioned');
         }
 
-        const creds = await this.dbProvisioner.getCredentials('plugin-' + this.pluginId, this.dbId);
+        const creds = this.dbProvisioner.getCredentials('plugin-' + this.pluginId, this.dbId);
 
         let db: InstanceType<typeof Database> | undefined;
         try {
@@ -49,19 +61,18 @@ export class DbHostFunctions {
             }
 
             if (stmt.reader) {
-                return stmt.all(params) as any[];
+                return stmt.all(params) as SqlRow[];
             }
 
             const result = stmt.run(params);
 
-            // If it's a run result, return it differently?
-            // The host function signature must be consistent.
-            // If we return JSON string, we can handle both.
+            // Normalise write results to the same SqlRow[] shape for a consistent API.
             return [{ changes: result.changes, lastInsertRowid: result.lastInsertRowid }];
 
-        } catch (err: any) {
+        } catch (err: unknown) {
             this.logger.error({ err, sql }, 'Plugin DB query failed');
-            throw new OrchestratorError(ErrorCode.DB_ERROR, err.message);
+            const msg = err instanceof Error ? err.message : String(err);
+            throw new OrchestratorError(ErrorCode.DB_ERROR, msg);
         } finally {
             db?.close();
         }

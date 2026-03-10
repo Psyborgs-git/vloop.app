@@ -10,7 +10,7 @@ export class VaultHostFunctions {
         private readonly logger: Logger
     ) {}
 
-    public async read(key: string): Promise<string | null> {
+    public read(key: string): string | null {
         // Enforce permission: vault:read:<key> or vault:read:*
         if (!this.hasPermission('read', key)) {
             this.logger.warn({ pluginId: this.pluginId, key }, 'Plugin denied vault read access');
@@ -20,15 +20,15 @@ export class VaultHostFunctions {
         try {
             const secret = this.vaultStore.get(key);
             return secret ? secret.value : null;
-        } catch (err: any) {
-            if (err.code === ErrorCode.SECRET_NOT_FOUND) {
+        } catch (err: unknown) {
+            if (err instanceof OrchestratorError && err.code === ErrorCode.SECRET_NOT_FOUND) {
                 return null;
             }
             throw err;
         }
     }
 
-    public async write(key: string, value: string): Promise<void> {
+    public write(key: string, value: string): void {
         // Enforce permission: vault:write:<key> or vault:write:*
         if (!this.hasPermission('write', key)) {
             this.logger.warn({ pluginId: this.pluginId, key }, 'Plugin denied vault write access');
@@ -39,16 +39,17 @@ export class VaultHostFunctions {
             // Check if exists to decide create vs update
             try {
                 this.vaultStore.update(key, value, { pluginId: this.pluginId }, { identity: `plugin:${this.pluginId}`, roles: [] });
-            } catch (e: any) {
-                if (e.code === ErrorCode.SECRET_NOT_FOUND) {
+            } catch (e: unknown) {
+                if (e instanceof OrchestratorError && e.code === ErrorCode.SECRET_NOT_FOUND) {
                      this.vaultStore.create(key, value, { pluginId: this.pluginId }, `plugin:${this.pluginId}`);
                 } else {
                     throw e;
                 }
             }
-        } catch (err: any) {
+        } catch (err: unknown) {
              this.logger.error({ err, key }, 'Plugin vault write failed');
-             throw new OrchestratorError(ErrorCode.INTERNAL_ERROR, err.message);
+             const msg = err instanceof Error ? err.message : String(err);
+             throw new OrchestratorError(ErrorCode.INTERNAL_ERROR, msg);
         }
     }
 

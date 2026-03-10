@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { OrchestratorClient } from '@orch/client';
 import { ClientContext } from './ClientContext.js';
@@ -51,6 +51,7 @@ import {
     Sparkles,
     FolderOpen,
     Puzzle,
+    LogOut,
 } from 'lucide-react';
 
 import { ToastProvider } from './components/ToastContext.js';
@@ -58,18 +59,29 @@ import { ToastProvider } from './components/ToastContext.js';
 const drawerWidth = 240;
 const collapsedWidth = 64;
 
+/** localStorage key for the persisted web-ui session token. */
+const STORAGE_KEY = 'vloop_session';
+
+interface StoredSession {
+    rawToken: string;
+    tokenId: string;
+    expiresAt: string | null;
+}
+
 const Sidebar = ({
     toggleTheme,
     mode,
     open,
     setOpen,
     isMobile,
+    onLogout,
 }: {
     toggleTheme: () => void;
     mode: 'light' | 'dark';
     open: boolean;
     setOpen: (o: boolean) => void;
     isMobile: boolean;
+    onLogout?: () => void;
 }) => {
     const location = useLocation();
 
@@ -143,6 +155,23 @@ const Sidebar = ({
                     </ListItem>
                 ))}
             </List>
+            {onLogout && (
+                <Box sx={{ mt: 'auto', p: 1 }}>
+                    <ListItemButton
+                        onClick={onLogout}
+                        sx={{ minHeight: 48, justifyContent: isMobile || open ? 'initial' : 'center', px: 2.5, borderRadius: 1 }}
+                    >
+                        <ListItemIcon sx={{ minWidth: 0, mr: isMobile || open ? 3 : 'auto', justifyContent: 'center', color: 'error.main' }}>
+                            <LogOut size={20} />
+                        </ListItemIcon>
+                        <ListItemText
+                            primary="Logout"
+                            primaryTypographyProps={{ color: 'error' }}
+                            sx={{ opacity: isMobile || open ? 1 : 0, transition: 'opacity 0.2s' }}
+                        />
+                    </ListItemButton>
+                </Box>
+            )}
         </>
     );
 
@@ -216,6 +245,46 @@ export default function App() {
     const [connecting, setConnecting] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const tokenRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const scheduleTokenRefresh = useCallback((orch: OrchestratorClient, tokenId: string, expiresAt: string | null) => {
+        if (tokenRefreshTimerRef.current) clearTimeout(tokenRefreshTimerRef.current);
+        if (!expiresAt) return;
+        const remaining = new Date(expiresAt).getTime() - Date.now();
+        if (remaining <= 0) return;
+        // Fire at 20% remaining lifetime (i.e. 80% elapsed)
+        const delay = Math.max(remaining * 0.2, 60_000);
+        tokenRefreshTimerRef.current = setTimeout(async () => {
+            try {
+                const storedRaw = localStorage.getItem(STORAGE_KEY);
+                if (!storedRaw) return;
+                const stored: StoredSession = JSON.parse(storedRaw);
+                const refreshed = await orch.auth.refreshToken(tokenId);
+                const updated: StoredSession = { ...stored, expiresAt: refreshed.expiresAt };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+                scheduleTokenRefresh(orch, refreshed.id, refreshed.expiresAt);
+            } catch {
+                // Token expired or server unreachable — force re-login
+                localStorage.removeItem(STORAGE_KEY);
+                setIsAuthenticated(false);
+            }
+        }, delay);
+    }, []);
+
+    const handleLogout = useCallback(async (orch: OrchestratorClient | null) => {
+        if (tokenRefreshTimerRef.current) clearTimeout(tokenRefreshTimerRef.current);
+        const storedRaw = localStorage.getItem(STORAGE_KEY);
+        if (storedRaw && orch) {
+            try {
+                const stored: StoredSession = JSON.parse(storedRaw);
+                await orch.auth.revokeToken(stored.tokenId);
+            } catch {
+                // best-effort — proceed regardless
+            }
+        }
+        localStorage.removeItem(STORAGE_KEY);
+        setIsAuthenticated(false);
+    }, []);
 
     useEffect(() => {
         let mounted = true;
@@ -232,6 +301,22 @@ export default function App() {
                 if (mounted) {
                     setClient(orch);
                     setConnecting(false);
+
+                    // Attempt to restore session from localStorage
+                    const storedRaw = localStorage.getItem(STORAGE_KEY);
+                    if (storedRaw) {
+                        try {
+                            const stored: StoredSession = JSON.parse(storedRaw);
+                            await orch.auth.loginWithToken(stored.rawToken);
+                            if (mounted) {
+                                setIsAuthenticated(true);
+                                scheduleTokenRefresh(orch, stored.tokenId, stored.expiresAt);
+                            }
+                        } catch {
+                            // Stored token expired or revoked — clear it and show login
+                            localStorage.removeItem(STORAGE_KEY);
+                        }
+                    }
                 }
             } catch (err: any) {
                 console.error(err);
@@ -245,19 +330,41 @@ export default function App() {
 
         return () => {
             mounted = false;
+            if (tokenRefreshTimerRef.current) clearTimeout(tokenRefreshTimerRef.current);
             if (orch !== null) {
                 orch.disconnect().catch(console.error);
             }
         };
-    }, []);
+    }, [scheduleTokenRefresh]);
 
     if (!isAuthenticated && client) {
+        const handleLoginSuccess = async (_loginResult: { token: string; user: any }) => {
+            // Create a persistent token so the session survives page reloads
+            try {
+                const { token: persistentToken, rawToken } = await client.auth.createToken({
+                    name: 'web-ui-session',
+                    tokenType: 'user',
+                    // omitting ttlSecs uses the server-configured default_token_ttl_secs
+                });
+                const stored: StoredSession = {
+                    rawToken,
+                    tokenId: persistentToken.id,
+                    expiresAt: persistentToken.expiresAt,
+                };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+                scheduleTokenRefresh(client, persistentToken.id, persistentToken.expiresAt);
+            } catch {
+                // If token creation fails (e.g. RBAC edge case), stay authenticated via session only
+            }
+            setIsAuthenticated(true);
+        };
+
         return (
             <ThemeProvider theme={theme}>
                 <CssBaseline />
                 <ToastProvider>
                     <ClientContext.Provider value={client}>
-                        <LoginView onLoginSuccess={() => setIsAuthenticated(true)} />
+                        <LoginView onLoginSuccess={handleLoginSuccess} />
                     </ClientContext.Provider>
                 </ToastProvider>
             </ThemeProvider>
@@ -276,6 +383,7 @@ export default function App() {
                             open={sidebarOpen}
                             setOpen={setSidebarOpen}
                             isMobile={isMobile}
+                            onLogout={() => handleLogout(client)}
                         />
 
                     {/* Mobile menu fab */}

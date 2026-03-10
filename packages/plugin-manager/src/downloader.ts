@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync, cpSync } from 'node:fs';
+import { join, resolve, dirname } from 'node:path';
 import JSZip from 'jszip';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
 import type { Logger } from '@orch/daemon';
@@ -66,6 +66,20 @@ export class PluginDownloader {
             if (!existsSync(path)) {
                 throw new OrchestratorError(ErrorCode.NOT_FOUND, `Plugin file not found: ${path}`);
             }
+
+            // Directory → copy contents directly, no ZIP needed
+            const fstat = statSync(path);
+            if (fstat.isDirectory()) {
+                this.logger.info({ path }, 'Loading plugin from directory');
+                return this.copyFromDirectory(path);
+            }
+
+            // plugin.json path → use its parent directory
+            if (path.endsWith('.json')) {
+                this.logger.info({ path }, 'Loading plugin from plugin.json');
+                return this.copyFromDirectory(dirname(path));
+            }
+
             this.logger.info({ path }, 'Loading plugin from local file');
             buffer = readFileSync(path);
         }
@@ -81,8 +95,9 @@ export class PluginDownloader {
         let manifest: PluginManifest;
         try {
             manifest = PluginManifestSchema.parse(JSON.parse(manifestJson));
-        } catch (err: any) {
-            throw new OrchestratorError(ErrorCode.VALIDATION_ERROR, `Invalid plugin manifest: ${err.message}`);
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            throw new OrchestratorError(ErrorCode.VALIDATION_ERROR, `Invalid plugin manifest: ${msg}`);
         }
 
         const pluginDir = join(this.pluginsDir, manifest.id);
@@ -102,6 +117,35 @@ export class PluginDownloader {
         }
 
         this.logger.info({ id: manifest.id, dir: pluginDir }, 'Plugin extracted successfully');
+        return { manifest, dir: pluginDir };
+    }
+
+    /**
+     * Copy a plugin from an existing directory (rather than extracting a ZIP).
+     * The source directory must contain a valid plugin.json at its root.
+     */
+    private copyFromDirectory(sourceDir: string): { manifest: PluginManifest; dir: string } {
+        const manifestPath = join(sourceDir, 'plugin.json');
+        if (!existsSync(manifestPath)) {
+            throw new OrchestratorError(
+                ErrorCode.VALIDATION_ERROR,
+                `Invalid plugin directory: missing plugin.json in ${sourceDir}`,
+            );
+        }
+
+        let manifest: PluginManifest;
+        try {
+            manifest = PluginManifestSchema.parse(JSON.parse(readFileSync(manifestPath, 'utf-8')));
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            throw new OrchestratorError(ErrorCode.VALIDATION_ERROR, `Invalid plugin manifest: ${msg}`);
+        }
+
+        const pluginDir = join(this.pluginsDir, manifest.id);
+        mkdirSync(pluginDir, { recursive: true });
+        cpSync(sourceDir, pluginDir, { recursive: true, force: true });
+
+        this.logger.info({ id: manifest.id, dir: pluginDir }, 'Plugin copied from directory');
         return { manifest, dir: pluginDir };
     }
 }

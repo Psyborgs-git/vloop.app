@@ -4,6 +4,7 @@ import { TOKENS } from "@orch/shared";
 import { DatabaseProvisioner } from "@orch/db-manager";
 import type { VaultStore } from "@orch/vault";
 import { HooksEventBus } from "@orch/shared/hooks-bus";
+import type { Logger } from "@orch/daemon";
 
 import { PluginManager } from "./index.js";
 
@@ -45,8 +46,15 @@ const config: AppComponent = {
     },
     async start({ container }: AppComponentContext) {
         const manager = container.resolve(PluginManager);
-        const logger = container.resolve<any>(TOKENS.Logger);
-        
+        const logger = container.resolve<Logger>(TOKENS.Logger);
+
+        // Auto-install any bundled extensions that are not yet in the DB
+        try {
+            await manager.autoInstallFromDir('./extensions');
+        } catch (err) {
+            logger.warn({ err }, 'Failed to auto-install bundled extensions');
+        }
+
         try {
             await manager.start();
         } catch (err) {

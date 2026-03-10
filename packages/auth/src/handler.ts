@@ -1,5 +1,6 @@
 import type { TopicHandler } from '@orch/daemon';
 import { OrchestratorError, ErrorCode } from '@orch/shared';
+import type { SessionId } from '@orch/shared';
 import type { SessionManager } from './session.js';
 import type { UserManager } from './user.js';
 import type { JwtValidator } from './jwt.js';
@@ -55,6 +56,23 @@ export function createAuthHandler(
                             roles = ['viewer'];
                         }
                     }
+                } else if (type === 'persistent_token') {
+                    // Re-authenticate using a stored persistent token (e.g. after page reload)
+                    if (!tokenManager) {
+                        throw new OrchestratorError(ErrorCode.SERVICE_UNAVAILABLE, 'Token manager not available.');
+                    }
+                    const { token: persistentRaw } = payload;
+                    if (!persistentRaw || typeof persistentRaw !== 'string') {
+                        throw new OrchestratorError(ErrorCode.VALIDATION_ERROR, 'token is required for persistent_token login.');
+                    }
+                    const validated = tokenManager.validate(persistentRaw);
+                    // Attach the raw token to the WS connection so middleware can auth each subsequent request
+                    if (ws) {
+                        // @ts-ignore
+                        ws.sessionId = persistentRaw;
+                    }
+                    return { identity: validated.identity, roles: validated.roles, tokenType: validated.tokenType };
+
                 } else {
                     throw new OrchestratorError(ErrorCode.INTERNAL_ERROR, `Unknown login type: ${type}`);
                 }
@@ -115,6 +133,34 @@ export function createAuthHandler(
                 return jwtProviderManager.list({ limit, offset });
             }
 
+            // ── Session management ────────────────────────────────────────────
+
+            case 'session.refresh': {
+                // Extend the idle timeout of the current session
+                // @ts-ignore
+                const rawToken = ws?.sessionId as string | undefined;
+                if (!rawToken || rawToken.startsWith('orch_')) {
+                    throw new OrchestratorError(ErrorCode.VALIDATION_ERROR, 'session.refresh is only valid for interactive sessions.');
+                }
+                const refreshed = sessionManager.refresh(context.sessionId as SessionId);
+                return { session: refreshed };
+            }
+
+            case 'session.revoke': {
+                // Explicitly end the current session
+                // @ts-ignore
+                const rawToken = ws?.sessionId as string | undefined;
+                if (!rawToken || rawToken.startsWith('orch_')) {
+                    throw new OrchestratorError(ErrorCode.VALIDATION_ERROR, 'session.revoke is only valid for interactive sessions.');
+                }
+                sessionManager.revoke(context.sessionId as SessionId);
+                if (ws) {
+                    // @ts-ignore
+                    ws.sessionId = undefined;
+                }
+                return { success: true };
+            }
+
             // ── Persistent token management ───────────────────────────────
 
             case 'token.create': {
@@ -152,12 +198,36 @@ export function createAuthHandler(
                 if (!tokenManager) {
                     throw new OrchestratorError(ErrorCode.SERVICE_UNAVAILABLE, 'Token manager not available.');
                 }
-                const { tokenId } = payload;
+                const { tokenId: revokeTokenId } = payload;
+                if (!revokeTokenId || typeof revokeTokenId !== 'string') {
+                    throw new OrchestratorError(ErrorCode.VALIDATION_ERROR, 'tokenId is required.');
+                }
+                tokenManager.revoke(revokeTokenId);
+                return { success: true, tokenId: revokeTokenId };
+            }
+
+            case 'token.refresh': {
+                if (!tokenManager) {
+                    throw new OrchestratorError(ErrorCode.SERVICE_UNAVAILABLE, 'Token manager not available.');
+                }
+                const { tokenId: refreshTokenId, ttlSecs: refreshTtl } = payload;
+                if (!refreshTokenId || typeof refreshTokenId !== 'string') {
+                    throw new OrchestratorError(ErrorCode.VALIDATION_ERROR, 'tokenId is required.');
+                }
+                const refreshed = tokenManager.refresh(refreshTokenId, refreshTtl ? Number(refreshTtl) : undefined);
+                return { token: refreshed };
+            }
+
+            case 'token.refresh': {
+                if (!tokenManager) {
+                    throw new OrchestratorError(ErrorCode.SERVICE_UNAVAILABLE, 'Token manager not available.');
+                }
+                const { tokenId, ttlSecs } = payload;
                 if (!tokenId || typeof tokenId !== 'string') {
                     throw new OrchestratorError(ErrorCode.VALIDATION_ERROR, 'tokenId is required.');
                 }
-                tokenManager.revoke(tokenId);
-                return { success: true, tokenId };
+                const refreshed = tokenManager.refresh(tokenId, ttlSecs ? Number(ttlSecs) : undefined);
+                return { token: refreshed };
             }
 
             default:

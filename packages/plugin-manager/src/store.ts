@@ -3,6 +3,9 @@ import { pluginsTable, initPluginManagerSchema } from './schema.js';
 import type { RootDatabaseOrm } from '@orch/shared/db';
 import type { PluginManifest } from './manifest.js';
 
+/** Raw Drizzle row shape for the plugins table. */
+type PluginRow = typeof pluginsTable.$inferSelect;
+
 export interface PluginRecord {
     id: string;
     enabled: boolean;
@@ -50,13 +53,13 @@ export class PluginStore {
     }
 
     public get(id: string): PluginRecord | undefined {
-        const row = this.orm.select().from(pluginsTable).where(eq(pluginsTable.id, id)).get() as any;
+        const row = this.orm.select().from(pluginsTable).where(eq(pluginsTable.id, id)).get() as PluginRow | undefined;
         if (!row) return undefined;
         return this.mapRow(row);
     }
 
     public list(): PluginRecord[] {
-        const rows = this.orm.select().from(pluginsTable).all() as any[];
+        const rows = this.orm.select().from(pluginsTable).all() as PluginRow[];
         return rows.map(this.mapRow);
     }
 
@@ -68,14 +71,14 @@ export class PluginStore {
             .run();
     }
 
-    private mapRow(row: any): PluginRecord {
+    private mapRow(row: PluginRow): PluginRecord {
         return {
             id: row.id,
             enabled: row.enabled === 1,
             manifest: JSON.parse(row.manifest),
             granted_permissions: JSON.parse(row.granted_permissions),
             installed_at: row.installed_at,
-            db_id: row.db_id,
+            db_id: row.db_id ?? undefined,
         };
     }
 }

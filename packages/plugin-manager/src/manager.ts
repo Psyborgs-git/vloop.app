@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, readdirSync, mkdirSync, cpSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import type { Logger } from '@orch/daemon';
 import type BetterSqlite3 from 'better-sqlite3-multiple-ciphers';
@@ -194,6 +194,47 @@ export class PluginManager {
 
     public list() {
         return this.store.list();
+    }
+
+    /**
+     * Scan a directory for plugin subdirectories and auto-install any that are
+     * not yet registered in the database. Used to bootstrap bundled extensions
+     * (e.g. the `extensions/` folder) on daemon startup.
+     */
+    public async autoInstallFromDir(dir: string): Promise<void> {
+        const resolvedDir = resolvePath(dir);
+        if (!existsSync(resolvedDir)) {
+            this.logger.debug({ dir: resolvedDir }, 'Extensions directory not found, skipping auto-install');
+            return;
+        }
+
+        const entries = readdirSync(resolvedDir, { withFileTypes: true });
+        for (const entry of entries) {
+            if (!entry.isDirectory()) continue;
+            const manifestPath = join(resolvedDir, entry.name, 'plugin.json');
+            if (!existsSync(manifestPath)) continue;
+
+            try {
+                const manifest = PluginManifestSchema.parse(
+                    JSON.parse(readFileSync(manifestPath, 'utf-8')),
+                );
+
+                if (this.store.get(manifest.id)) {
+                    this.logger.debug({ id: manifest.id }, 'Extension already installed, skipping');
+                    continue;
+                }
+
+                const destDir = join(this.pluginsDir, manifest.id);
+                mkdirSync(destDir, { recursive: true });
+                cpSync(join(resolvedDir, entry.name), destDir, { recursive: true, force: true });
+
+                // Grant all permissions declared in the manifest for bundled extensions
+                this.store.install(manifest, manifest.permissions);
+                this.logger.info({ id: manifest.id }, 'Auto-installed bundled extension');
+            } catch (err) {
+                this.logger.warn({ err, name: entry.name }, 'Failed to auto-install extension, skipping');
+            }
+        }
     }
 
     public async uninstall(id: string) {

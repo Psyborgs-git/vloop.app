@@ -61,43 +61,61 @@ export class PluginSandbox {
 
                                 try {
                                     return callContext.store(JSON.stringify(taskHost.getContract()));
-                                } catch (err: any) {
+                                } catch (err: unknown) {
                                     const msg = err instanceof Error ? err.message : String(err);
                                     callContext.setError(msg);
                                     return callContext.store(`{"error":${JSON.stringify(msg)}}`);
                                 }
                             },
-                            db_query: (callContext: CallContext, sqlOffset: bigint, _paramsOffset: bigint) => {
+                            db_query: (callContext: CallContext, sqlOffset: bigint, paramsOffset: bigint) => {
                                 if (!dbHost) {
                                     callContext.setError('No DB host functions available');
                                     return callContext.store('{"error":"No DB host functions available"}');
                                 }
                                 const sql = callContext.read(sqlOffset)?.string() ?? '';
-                                // dbHost.query is async but better-sqlite3 operations are sync internally
-                                // We set an error since async host functions require JSPI support
-                                pluginLogger.warn({ sql }, 'db_query called; async host functions require runInWorker+JSPI');
-                                callContext.setError('Async db_query requires JSPI support');
-                                return callContext.store('{"error":"Async db_query requires JSPI support"}');
+                                const paramsStr = callContext.read(paramsOffset)?.string() ?? '[]';
+                                try {
+                                    const params = JSON.parse(paramsStr);
+                                    const result = dbHost.query(sql, params);
+                                    return callContext.store(JSON.stringify(result));
+                                } catch (err: unknown) {
+                                    const msg = err instanceof Error ? err.message : String(err);
+                                    callContext.setError(msg);
+                                    return callContext.store(`{"error":${JSON.stringify(msg)}}`);
+                                }
                             },
-                            vault_read: (callContext: CallContext, _keyOffset: bigint) => {
+                            vault_read: (callContext: CallContext, keyOffset: bigint) => {
                                 // Key and value are not logged to avoid leaking sensitive metadata or secrets.
                                 if (!vaultHost) {
                                     callContext.setError('No vault host functions available');
                                     return callContext.store('{"error":"No vault host functions available"}');
                                 }
-                                pluginLogger.warn('vault_read called; async host functions require runInWorker+JSPI');
-                                callContext.setError('Async vault_read requires JSPI support');
-                                return callContext.store('{"error":"Async vault_read requires JSPI support"}');
+                                const key = callContext.read(keyOffset)?.string() ?? '';
+                                try {
+                                    const val = vaultHost.read(key);
+                                    return callContext.store(val === null ? "" : val);
+                                } catch (err: unknown) {
+                                    const msg = err instanceof Error ? err.message : String(err);
+                                    callContext.setError(msg);
+                                    return callContext.store(`{"error":${JSON.stringify(msg)}}`);
+                                }
                             },
-                            vault_write: (callContext: CallContext, _keyOffset: bigint, _valueOffset: bigint) => {
+                            vault_write: (callContext: CallContext, keyOffset: bigint, valueOffset: bigint) => {
                                 // Key and value are not logged to avoid leaking sensitive metadata or secrets.
                                 if (!vaultHost) {
                                     callContext.setError('No vault host functions available');
                                     return callContext.store('{"error":"No vault host functions available"}');
                                 }
-                                pluginLogger.warn('vault_write called; async host functions require runInWorker+JSPI');
-                                callContext.setError('Async vault_write requires JSPI support');
-                                return callContext.store('{"error":"Async vault_write requires JSPI support"}');
+                                const key = callContext.read(keyOffset)?.string() ?? '';
+                                const val = callContext.read(valueOffset)?.string() ?? '';
+                                try {
+                                    vaultHost.write(key, val);
+                                    return callContext.store('{"ok":true}');
+                                } catch (err: unknown) {
+                                    const msg = err instanceof Error ? err.message : String(err);
+                                    callContext.setError(msg);
+                                    return callContext.store(`{"error":${JSON.stringify(msg)}}`);
+                                }
                             },
                             contacts_manage: (callContext: CallContext, requestOffset: bigint) => {
                                 if (!taskHost) {
@@ -108,7 +126,7 @@ export class PluginSandbox {
                                 const request = callContext.read(requestOffset)?.string() ?? '';
                                 try {
                                     return callContext.store(taskHost.manageContacts(request));
-                                } catch (err: any) {
+                                } catch (err: unknown) {
                                     const msg = err instanceof Error ? err.message : String(err);
                                     callContext.setError(msg);
                                     return callContext.store(`{"error":${JSON.stringify(msg)}}`);
@@ -123,7 +141,7 @@ export class PluginSandbox {
                                 const request = callContext.read(requestOffset)?.string() ?? '';
                                 try {
                                     return callContext.store(taskHost.manageChat(request));
-                                } catch (err: any) {
+                                } catch (err: unknown) {
                                     const msg = err instanceof Error ? err.message : String(err);
                                     callContext.setError(msg);
                                     return callContext.store(`{"error":${JSON.stringify(msg)}}`);
@@ -138,7 +156,7 @@ export class PluginSandbox {
                                 const request = callContext.read(requestOffset)?.string() ?? '';
                                 try {
                                     return callContext.store(taskHost.infer(request));
-                                } catch (err: any) {
+                                } catch (err: unknown) {
                                     const msg = err instanceof Error ? err.message : String(err);
                                     callContext.setError(msg);
                                     return callContext.store(`{"error":${JSON.stringify(msg)}}`);
@@ -153,7 +171,7 @@ export class PluginSandbox {
                                 const request = callContext.read(requestOffset)?.string() ?? '';
                                 try {
                                     return callContext.store(taskHost.notify(request));
-                                } catch (err: any) {
+                                } catch (err: unknown) {
                                     const msg = err instanceof Error ? err.message : String(err);
                                     callContext.setError(msg);
                                     return callContext.store(`{"error":${JSON.stringify(msg)}}`);
@@ -168,7 +186,7 @@ export class PluginSandbox {
                                 try {
                                     eventsHost.subscribe(topic);
                                     return callContext.store('{"ok":true}');
-                                } catch (err: any) {
+                                } catch (err: unknown) {
                                     const msg = err instanceof Error ? err.message : String(err);
                                     pluginLogger.warn({ topic }, 'events_subscribe failed');
                                     callContext.setError(msg);
@@ -185,19 +203,28 @@ export class PluginSandbox {
                                 try {
                                     eventsHost.publish(topic, payload);
                                     return callContext.store('{"ok":true}');
-                                } catch (err: any) {
+                                } catch (err: unknown) {
                                     const msg = err instanceof Error ? err.message : String(err);
                                     pluginLogger.warn({ topic }, 'events_publish failed');
                                     callContext.setError(msg);
                                     return callContext.store(`{"error":${JSON.stringify(msg)}}`);
                                 }
                             }
+                        },
+                        // AssemblyScript-compiled WASM modules import env.abort for runtime panics.
+                        // Provide a stub so the host module resolves correctly; log at error level
+                        // so fatal plugin errors are still surfaced in structured logs.
+                        'env': {
+                            abort: (_callContext: CallContext, _messagePtr: number, _fileNamePtr: number, line: number, column: number) => {
+                                pluginLogger.error({ line, column }, 'WASM plugin called abort (fatal runtime error)');
+                            }
                         }
                     }
                 }
             );
-        } catch (err: any) {
-            throw new OrchestratorError(ErrorCode.INTERNAL_ERROR, `Failed to load Wasm plugin ${manifest.id}: ${err.message}`);
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            throw new OrchestratorError(ErrorCode.INTERNAL_ERROR, `Failed to load Wasm plugin ${manifest.id}: ${msg}`);
         }
     }
 
@@ -206,9 +233,10 @@ export class PluginSandbox {
             const plugin = await this.pluginPromise;
             const output = await plugin.call(funcName, input);
             return output ? output.text() : '';
-        } catch (err: any) {
+        } catch (err: unknown) {
             this.logger.error({ err, funcName }, 'Plugin execution failed');
-            throw new OrchestratorError(ErrorCode.INTERNAL_ERROR, `Plugin execution error: ${err.message}`);
+            const msg = err instanceof Error ? err.message : String(err);
+            throw new OrchestratorError(ErrorCode.INTERNAL_ERROR, `Plugin execution error: ${msg}`);
         }
     }
 

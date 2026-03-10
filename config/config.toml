@@ -29,6 +29,8 @@ jwt_audience = "orchestrator-api"
 session_idle_timeout_secs = 3600
 session_max_lifetime_secs = 86400
 max_sessions_per_identity = 10
+default_token_ttl_secs   = 604800   # 7 days
+max_tokens_per_identity  = 50
 
 [database]
 engine = "sqlite"

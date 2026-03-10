@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HooksEventBus } from '@orch/shared/hooks-bus';
+import type { HookEvent } from '@orch/shared/hooks-bus';
 import type { Logger } from '@orch/daemon';
 import { TaskHostFunctions } from './task.js';
 
@@ -101,7 +102,7 @@ describe('TaskHostFunctions', () => {
             false
         );
 
-        let received: any;
+        let received: HookEvent | undefined;
         bus.subscribe('notifications.plugin.discord-plugin.contacts.upsert', (event) => {
             received = event;
         });
@@ -185,7 +186,7 @@ describe('TaskHostFunctions', () => {
             false
         );
 
-        let received: any;
+        let received: HookEvent | undefined;
         bus.subscribe('notifications.plugin.discord-plugin.alerts.critical', (event) => {
             received = event;
         });

@@ -136,8 +136,8 @@ describe('TerminalManager', () => {
         // should succeed after a single retry
         expect(info.sessionId).toBe('s-posix');
         expect(logger.warn).toHaveBeenCalledWith(
-            expect.objectContaining({ sessionId: 's-posix' }),
-            expect.stringContaining('posix_spawnp failed'),
+            expect.objectContaining({ sessionId: 's-posix', err: expect.stringContaining('posix_spawnp') }),
+            expect.any(String),
         );
     });
 

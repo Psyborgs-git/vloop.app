@@ -61,6 +61,8 @@ export interface ValidatedToken {
 export interface TokenManagerOptions {
     /** Max tokens per identity (default: 50). */
     maxTokensPerIdentity: number;
+    /** Default TTL in seconds when none is provided at creation time. 0 or omit = no expiry. */
+    defaultTtlSecs?: number;
 }
 
 interface TokenRow {
@@ -122,8 +124,9 @@ export class TokenManager {
         const rawToken = `orch_${randomBytes(32).toString('hex')}`;
         const tokenHash = this.hashToken(rawToken);
         const now = new Date().toISOString();
-        const expiresAt = ttlSecs && ttlSecs > 0
-            ? new Date(Date.now() + ttlSecs * 1000).toISOString()
+        const effectiveTtl = (ttlSecs && ttlSecs > 0) ? ttlSecs : (this.options.defaultTtlSecs ?? 0);
+        const expiresAt = effectiveTtl > 0
+            ? new Date(Date.now() + effectiveTtl * 1000).toISOString()
             : null;
 
         this.orm.insert(tokensTable).values({
@@ -260,6 +263,30 @@ export class TokenManager {
             .where(and(eq(tokensTable.identity, identity), eq(tokensTable.revoked, 0)))
             .run();
         return result.changes;
+    }
+
+    /**
+     * Extend the expiry of an existing persistent token.
+     * If ttlSecs is omitted the defaultTtlSecs from options is used.
+     */
+    refresh(tokenId: string, ttlSecs?: number): PersistentToken {
+        const effectiveTtl = (ttlSecs && ttlSecs > 0) ? ttlSecs : (this.options.defaultTtlSecs ?? 0);
+        if (effectiveTtl <= 0) {
+            throw new OrchestratorError(ErrorCode.VALIDATION_ERROR, 'A TTL must be specified to refresh a token.');
+        }
+
+        const newExpiresAt = new Date(Date.now() + effectiveTtl * 1000).toISOString();
+        const result = this.orm.update(tokensTable)
+            .set({ expires_at: newExpiresAt })
+            .where(and(eq(tokensTable.id, tokenId), eq(tokensTable.revoked, 0)))
+            .run();
+
+        if (result.changes === 0) {
+            throw new OrchestratorError(ErrorCode.NOT_FOUND, `Token not found or already revoked: ${tokenId}`);
+        }
+
+        const row = this.orm.select().from(tokensTable).where(eq(tokensTable.id, tokenId)).get() as TokenRow;
+        return this.rowToToken(row);
     }
 
     /**

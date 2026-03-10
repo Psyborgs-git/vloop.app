@@ -84,9 +84,39 @@ export class AuthClient {
     }
 
     /**
+     * Re-authenticate using a previously issued persistent token (orch_xxx).
+     * Call this on page reload before showing the app, to skip the login screen.
+     */
+    public async loginWithToken(rawToken: string): Promise<{ identity: string; roles: string[]; tokenType: string }> {
+        return this.client.request('auth', 'login', { type: 'persistent_token', token: rawToken });
+    }
+
+    /**
      * Revoke a persistent token by its ID.
      */
     public async revokeToken(tokenId: string): Promise<{ success: boolean }> {
         return this.client.request('auth', 'token.revoke', { tokenId });
+    }
+
+    /**
+     * Extend the expiry of a persistent token. Returns the updated token.
+     */
+    public async refreshToken(tokenId: string, ttlSecs?: number): Promise<{ id: string; expiresAt: string | null; name: string }> {
+        return this.client.request<{ token: any }>('auth', 'token.refresh', { tokenId, ttlSecs })
+            .then(res => res.token);
+    }
+
+    /**
+     * Extend the idle timeout of the current interactive session.
+     */
+    public async refreshSession(): Promise<{ session: any }> {
+        return this.client.request('auth', 'session.refresh', {});
+    }
+
+    /**
+     * Explicitly revoke the current interactive session.
+     */
+    public async revokeSession(): Promise<{ success: boolean }> {
+        return this.client.request('auth', 'session.revoke', {});
     }
 }

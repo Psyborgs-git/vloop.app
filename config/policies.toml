@@ -25,6 +25,12 @@ permissions = [
     "health:*:*",
     "session:info:self",
     "session:refresh:self",
+    "auth:token.create:*",
+    "auth:token.list:*",
+    "auth:token.revoke:*",
+    "auth:token.refresh:*",
+    "auth:session.refresh:*",
+    "auth:session.revoke:*",
 ]
 
 [roles.agent]
@@ -53,4 +59,9 @@ permissions = [
     "db:db.ext.list:self",
     "health:*:*",
     "session:info:self",
+    "auth:token.create:*",
+    "auth:token.list:*",
+    "auth:token.revoke:*",
+    "auth:token.refresh:*",
+    "auth:session.revoke:*",
 ]

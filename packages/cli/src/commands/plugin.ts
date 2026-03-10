@@ -50,6 +50,11 @@ export function registerPluginCommands(program: Command) {
                     await client.plugin.grant(manifest.id, manifest.permissions);
                     console.log(chalk.green(`\nPlugin ${manifest.name} installed successfully!`));
                 } else {
+                    try {
+                        await client.plugin.cancel(manifest.id);
+                    } catch {
+                        // best-effort: remove staged files
+                    }
                     console.log(chalk.yellow('Installation cancelled.'));
                 }
 

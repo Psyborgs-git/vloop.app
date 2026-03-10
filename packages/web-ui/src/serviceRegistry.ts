@@ -48,10 +48,10 @@ export const SERVICE_REGISTRY: TopicDef[] = [
                 action: 'login',
                 description: 'Login with email/password or JWT token',
                 fields: [
-                    { name: 'type', type: 'select', required: true, description: 'Login type', options: ['local', 'jwt'], default: 'local' },
+                    { name: 'type', type: 'select', required: true, description: 'Login type', options: ['local', 'jwt', 'persistent_token'], default: 'local' },
                     { name: 'email', type: 'string', required: false, description: 'Email address (local login)' },
                     { name: 'password', type: 'string', required: false, description: 'Password (local login)' },
-                    { name: 'token', type: 'string', required: false, description: 'JWT token (jwt login)' },
+                    { name: 'token', type: 'string', required: false, description: 'JWT or persistent token (jwt / persistent_token login)' },
                 ],
             },
             {
@@ -103,6 +103,49 @@ export const SERVICE_REGISTRY: TopicDef[] = [
             {
                 action: 'provider.list',
                 description: 'List all JWT providers',
+                fields: [],
+            },
+            {
+                action: 'token.create',
+                description: 'Create a persistent API token',
+                fields: [
+                    { name: 'name', type: 'string', required: true, description: 'Token label' },
+                    { name: 'tokenType', type: 'select', required: false, description: 'Token type', options: ['user', 'agent'], default: 'user' },
+                    { name: 'roles', type: 'string[]', required: false, description: 'Roles (defaults to caller roles)' },
+                    { name: 'scopes', type: 'string[]', required: false, description: 'Scopes (defaults to *)' },
+                    { name: 'ttlSecs', type: 'number', required: false, description: 'TTL in seconds (0 = server default)' },
+                ],
+            },
+            {
+                action: 'token.list',
+                description: 'List persistent tokens',
+                fields: [
+                    { name: 'identity', type: 'string', required: false, description: 'Filter by identity (omit for own tokens)' },
+                ],
+            },
+            {
+                action: 'token.revoke',
+                description: 'Revoke a persistent token',
+                fields: [
+                    { name: 'tokenId', type: 'string', required: true, description: 'Token ID to revoke' },
+                ],
+            },
+            {
+                action: 'token.refresh',
+                description: 'Extend a persistent token TTL',
+                fields: [
+                    { name: 'tokenId', type: 'string', required: true, description: 'Token ID to refresh' },
+                    { name: 'ttlSecs', type: 'number', required: false, description: 'New TTL in seconds (omit = server default)' },
+                ],
+            },
+            {
+                action: 'session.refresh',
+                description: 'Extend current interactive session idle timeout',
+                fields: [],
+            },
+            {
+                action: 'session.revoke',
+                description: 'Explicitly end the current session',
                 fields: [],
             },
         ],
