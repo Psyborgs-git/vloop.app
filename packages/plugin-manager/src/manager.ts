@@ -65,6 +65,56 @@ export class PluginManager {
     }
 
     /**
+     * Stop a specific plugin.
+     */
+    public async stopPlugin(id: string): Promise<void> {
+        const sandbox = this.sandboxes.get(id);
+        if (sandbox) {
+            await sandbox.close();
+            this.sandboxes.delete(id);
+            this.logger.info({ pluginId: id }, 'Plugin stopped');
+        } else {
+             throw new OrchestratorError(ErrorCode.NOT_FOUND, `Plugin ${id} is not running.`);
+        }
+    }
+
+    /**
+     * Restart a specific plugin.
+     */
+    public async restartPlugin(id: string): Promise<void> {
+        const record = this.store.get(id);
+        if (!record) {
+            throw new OrchestratorError(ErrorCode.NOT_FOUND, `Plugin ${id} not found.`);
+        }
+        if (this.sandboxes.has(id)) {
+            await this.stopPlugin(id);
+        }
+        if (record.enabled) {
+            await this.loadPlugin(record);
+        } else {
+            throw new OrchestratorError(ErrorCode.VALIDATION_ERROR, `Plugin ${id} is disabled and cannot be restarted.`);
+        }
+    }
+
+    /**
+     * Start a specific plugin.
+     */
+    public async startPlugin(id: string): Promise<void> {
+        const record = this.store.get(id);
+        if (!record) {
+            throw new OrchestratorError(ErrorCode.NOT_FOUND, `Plugin ${id} not found.`);
+        }
+        if (this.sandboxes.has(id)) {
+             throw new OrchestratorError(ErrorCode.VALIDATION_ERROR, `Plugin ${id} is already running.`);
+        }
+        if (record.enabled) {
+            await this.loadPlugin(record);
+        } else {
+            throw new OrchestratorError(ErrorCode.VALIDATION_ERROR, `Plugin ${id} is disabled and cannot be started.`);
+        }
+    }
+
+    /**
      * Load a single plugin into memory.
      */
     private async loadPlugin(record: PluginRecord) {

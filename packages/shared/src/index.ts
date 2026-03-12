@@ -12,6 +12,13 @@ export { generateMessageId, generateTraceId, generateSessionId, now } from './ty
 export * from './app/index.js';
 export { TOKENS } from './tokens.js';
 export type {
+    RuntimeServiceType,
+    RuntimeServiceStatus,
+    RuntimeServiceInfo,
+    RuntimeServiceAttachOptions,
+    IRuntimeServiceProvider,
+} from './runtime-service.js';
+export type {
     OrchestratorConfig,
     DaemonSectionConfig,
     NetworkSectionConfig,

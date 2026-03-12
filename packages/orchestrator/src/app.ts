@@ -2,7 +2,7 @@ import { resolve, dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { container as rootContainer } from "tsyringe";
-import type { DependencyContainer } from "tsyringe";
+import type { DependencyContainer, InjectionToken } from "tsyringe";
 import {
 	createLogger,
 	Router,
@@ -30,6 +30,11 @@ import type {
 } from "@orch/shared";
 import { ComponentLifecycleManager } from "./lifecycle-manager.js";
 import { HooksEventBus } from "@orch/shared/hooks-bus";
+import { RuntimeServiceManager } from "./services/runtime-manager.js";
+import { ProcessServiceProvider } from "./services/providers/process-provider.js";
+import { PluginServiceProvider } from "./services/providers/plugin-provider.js";
+import { BuiltinServiceProvider } from "./services/providers/builtin-provider.js";
+import { createServicesHandler } from "./routes/services.js";
 
 interface SessionManagerLike {
 	refresh(sessionId: string): unknown;
@@ -100,6 +105,7 @@ export class OrchestratorApp {
 			await this.lifecycle.startAll(this.componentContext);
 
 			// Gateway-level routes and servers
+			this.setupRuntimeServiceManager(router);
 			this.registerGatewayRoutes(router);
 			await this.startGateway(router);
 
@@ -187,8 +193,12 @@ export class OrchestratorApp {
 			vaultKeyPath,
 			"ORCH_VAULT_PASSPHRASE",
 		);
-		this.container.register(HooksEventBus, { useValue: new HooksEventBus(this.logger) });
-		this.container.register(HooksEventBus, { useValue: new HooksEventBus(this.logger) });
+		this.container.register(HooksEventBus, {
+			useValue: new HooksEventBus(this.logger),
+		});
+		this.container.register(HooksEventBus, {
+			useValue: new HooksEventBus(this.logger),
+		});
 		this.container.register(TOKENS.VaultPassphrase, {
 			useValue: vaultPassphrase,
 		});
@@ -208,7 +218,7 @@ export class OrchestratorApp {
 		return components;
 	}
 
-	private tryResolve<T>(token: symbol): T | undefined {
+	private tryResolve<T>(token: InjectionToken<T>): T | undefined {
 		try {
 			return this.container.resolve<T>(token);
 		} catch {
@@ -273,6 +283,54 @@ export class OrchestratorApp {
 		}
 	}
 
+	private async setupRuntimeServiceManager(router: Router): Promise<void> {
+		const manager = new RuntimeServiceManager();
+
+		// 1. Process Provider
+		try {
+			const { ProcessManager, ProcessLogManager } =
+				await import("@orch/process");
+			try {
+				const processManager = this.container.resolve(ProcessManager);
+				const processLogManager = this.container.resolve(ProcessLogManager);
+				manager.register(
+					new ProcessServiceProvider(processManager, processLogManager),
+				);
+			} catch (err) {
+				console.error("Process providers not active", err);
+			}
+		} catch {}
+
+		// 2. Plugin Provider
+		try {
+			const { PluginManager } = await import("@orch/plugin-manager");
+			try {
+				const pluginManager = this.container.resolve(PluginManager);
+				manager.register(new PluginServiceProvider(pluginManager));
+			} catch (err) {
+				console.error("Plugin provider not active", err);
+			}
+		} catch {}
+
+		// 3. Builtin Provider
+		const builtinProvider = new BuiltinServiceProvider();
+		builtinProvider.register({
+			id: "orchestrator.db",
+			name: "Database Manager",
+			isCritical: true,
+			actions: {
+				inspect: () => ({ isOpen: this.dbManager.isOpen() }),
+				stop: async () => {
+					await this.dbManager.close();
+				},
+			},
+		});
+		manager.register(builtinProvider);
+
+		// Register router handler
+		router.register("services", createServicesHandler(manager));
+	}
+
 	private registerGatewayRoutes(router: Router): void {
 		router.register("session", async (action, _payload, context) => {
 			const authModule = await import("@orch/auth");
@@ -309,7 +367,9 @@ export class OrchestratorApp {
 		// Secured lifecycle control plane (admin-only)
 		router.register("lifecycle", async (action, payload, context) => {
 			if (!context.roles?.includes("admin")) {
-				throw new Error("Unauthorized: admin role required for lifecycle operations");
+				throw new Error(
+					"Unauthorized: admin role required for lifecycle operations",
+				);
 			}
 
 			switch (action) {

@@ -37,6 +37,62 @@ export interface TopicDef {
 // ─── Registry ────────────────────────────────────────────────────────────────
 
 export const SERVICE_REGISTRY: TopicDef[] = [
+    // ── Services (Unified Runtime) ──────────────────────────────────────────
+    {
+        topic: 'services',
+        label: 'Runtime Services',
+        description: 'Unified management for processes, plugins, and built-in components',
+        color: '#10b981', // Violet-ish
+        actions: [
+            {
+                action: 'list',
+                description: 'List all running services (processes, plugins, and core components)',
+                fields: [
+                    { name: 'type', type: 'select', required: false, description: 'Optional filter by type', options: ['process', 'plugin', 'builtin'] },
+                ],
+            },
+            {
+                action: 'inspect',
+                description: 'Get internal details of a specific service',
+                fields: [
+                    { name: 'id', type: 'string', required: true, description: 'Service ID' },
+                ],
+            },
+            {
+                action: 'start',
+                description: 'Attempt to start a stopped service',
+                fields: [
+                    { name: 'id', type: 'string', required: true, description: 'Service ID' },
+                ],
+            },
+            {
+                action: 'stop',
+                description: 'Attempt to gracefully stop a running service',
+                fields: [
+                    { name: 'id', type: 'string', required: true, description: 'Service ID' },
+                    { name: 'force', type: 'boolean', required: false, description: 'Force stop even if marked critical', default: false },
+                ],
+            },
+            {
+                action: 'restart',
+                description: 'Restart a running or stopped service',
+                fields: [
+                    { name: 'id', type: 'string', required: true, description: 'Service ID' },
+                    { name: 'force', type: 'boolean', required: false, description: 'Force restart even if marked critical', default: false },
+                ],
+            },
+            {
+                action: 'attach',
+                description: 'Stream logs and operational metrics from a service',
+                isStream: true,
+                fields: [
+                    { name: 'id', type: 'string', required: true, description: 'Service ID' },
+                    { name: 'tail', type: 'number', required: false, description: 'Number of old logs to include initially', default: 100 },
+                    { name: 'follow', type: 'boolean', required: false, description: 'Wait for and stream new logs as they appear', default: true },
+                ],
+            },
+        ],
+    },
     // ── Auth ─────────────────────────────────────────────────────────────
     {
         topic: 'auth',

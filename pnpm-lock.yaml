@@ -420,9 +420,6 @@ importers:
       '@orch/daemon':
         specifier: workspace:*
         version: link:../daemon
-      '@orch/db-manager':
-        specifier: workspace:*
-        version: link:../db-manager
       '@orch/shared':
         specifier: workspace:*
         version: link:../shared
