@@ -119,9 +119,9 @@ export function validateInput(
     policy: TerminalPolicy = DEFAULT_TERMINAL_POLICY,
 ): AccessCheckResult {
     for (const pattern of policy.inputBlockPatterns) {
-        try {
-            let re = regexCache.get(pattern);
-            if (!re) {
+        let re = regexCache.get(pattern);
+        if (!re) {
+            try {
                 // Compile regex and add to bounded cache
                 re = new RegExp(pattern);
                 if (regexCache.size >= MAX_REGEX_CACHE_SIZE) {
@@ -130,16 +130,16 @@ export function validateInput(
                     if (firstKey) regexCache.delete(firstKey);
                 }
                 regexCache.set(pattern, re);
+            } catch {
+                continue; // Invalid regex — skip
             }
+        }
 
-            if (re.test(input)) {
-                return {
-                    allowed: false,
-                    reason: `Input blocked by policy pattern: ${pattern}`,
-                };
-            }
-        } catch {
-            // Invalid regex — skip
+        if (re.test(input)) {
+            return {
+                allowed: false,
+                reason: `Input blocked by policy pattern: ${pattern}`,
+            };
         }
     }
 
