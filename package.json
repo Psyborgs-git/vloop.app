@@ -22,7 +22,8 @@
     "packageManager": "pnpm@10.27.0",
     "pnpm": {
         "overrides": {
-            "drizzle-orm": "$drizzle-orm"
+            "drizzle-orm": "$drizzle-orm",
+            "minimatch@>=10.0.0 <10.2.3": ">=10.2.3"
         },
         "onlyBuiltDependencies": [
             "argon2",
