@@ -13,7 +13,7 @@ import {
 } from '@orch/event-contracts';
 import type { ServiceCommand, RedisLike } from '@orch/event-contracts';
 import { readFile, writeFile, readdir, stat, mkdir, rm } from 'node:fs/promises';
-import { resolve, relative, normalize } from 'node:path';
+import { resolve, relative, normalize, isAbsolute } from 'node:path';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -68,9 +68,12 @@ export class FsServiceWorker extends ServiceWorker {
     // ── Path security ───────────────────────────────────────────────────
 
     private safePath(requestedPath: string): string {
+        if (isAbsolute(requestedPath)) {
+            throw new Error(`Path traversal blocked: ${requestedPath}`);
+        }
         const resolved = resolve(this.rootDir, normalize(requestedPath));
         const rel = relative(this.rootDir, resolved);
-        if (rel.startsWith('..') || resolve(this.rootDir, rel) !== resolved) {
+        if (rel.startsWith('..')) {
             throw new Error(`Path traversal blocked: ${requestedPath}`);
         }
         return resolved;

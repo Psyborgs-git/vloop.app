@@ -146,6 +146,14 @@ describe('FsServiceWorker', () => {
         );
     });
 
+    it('blocks absolute paths', async () => {
+        await dispatchAndWait(makeCommand('read', { path: '/etc/passwd' }));
+        expect(pub.publish).toHaveBeenCalledWith(
+            'fs:results:ws_1',
+            expect.stringContaining('"status":"error"'),
+        );
+    });
+
     it('errors on unknown action', async () => {
         await dispatchAndWait(makeCommand('unknown_action', {}));
         expect(pub.publish).toHaveBeenCalledWith(

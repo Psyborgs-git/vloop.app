@@ -440,8 +440,12 @@ export class OrchestratorApp {
 						const authModule = await import("@orch/auth");
 						const verifier = this.container.resolve(authModule.JwtManager);
 						const decoded = verifier.verify(token);
+						const userId = decoded.sub ?? decoded.identity;
+						if (!userId) {
+							throw new Error("Token missing user identity");
+						}
 						return {
-							userId: decoded.sub ?? decoded.identity ?? "anonymous",
+							userId,
 							roles: decoded.roles ?? ["guest"],
 						};
 					} catch {
@@ -459,7 +463,7 @@ export class OrchestratorApp {
 			this.healthServer.registerSubsystem("event-gateway", () => ({
 				name: "event-gateway",
 				status: "healthy",
-				message: `${this.eventGateway?.gateway.connectionCount() ?? 0} event connections`,
+				message: `${this.eventGateway?.gateway.connectionCount() ?? 0} gateway WebSocket connections`,
 			}));
 
 			this.logger.info(
