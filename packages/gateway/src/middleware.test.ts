@@ -74,8 +74,9 @@ describe('checkPermission', () => {
     });
 
     it('should check deny before allow across multiple roles', () => {
-        // guest denies terminal:*, even if another role would allow it
-        // But since we check per-role: guest deny wins for guest, developer allow wins for developer
+        // Explicit deny wins: guest denies terminal:*, so even though
+        // developer allows terminal:exec, the deny from guest takes precedence
+        // because the function short-circuits on the first deny match.
         expect(checkPermission(['guest', 'developer'], 'terminal', 'exec')).toBe(false);
     });
 });
