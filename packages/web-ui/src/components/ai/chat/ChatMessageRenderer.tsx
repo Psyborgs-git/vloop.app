@@ -1,3 +1,4 @@
+import React from 'react';
 import { Box, Typography, Paper } from '@mui/material';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -127,7 +128,7 @@ function buildParts(msg: ChatMessage): RenderPart[] {
     return parts;
 }
 
-export function ChatMessageRenderer({ msg }: { msg: ChatMessage }) {
+export const ChatMessageRenderer = React.memo(function ChatMessageRenderer({ msg }: { msg: ChatMessage }) {
     const parts = buildParts(msg);
 
     return (
@@ -205,4 +206,4 @@ export function ChatMessageRenderer({ msg }: { msg: ChatMessage }) {
             })}
         </Box>
     );
-}
+});
