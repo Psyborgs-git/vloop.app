@@ -504,6 +504,22 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
+  packages/rbac:
+    dependencies:
+      ioredis:
+        specifier: ^5.6.1
+        version: 5.10.0
+      minimatch:
+        specifier: ^10.2.3
+        version: 10.2.4
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
+    devDependencies:
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/debug@4.1.12)(@types/node@25.3.0)(lightningcss@1.31.1)
+
   packages/shared:
     dependencies:
       better-sqlite3:

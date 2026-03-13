@@ -24,6 +24,7 @@
     "devDependencies": {
         "@orch/container": "workspace:*",
         "@orch/daemon": "workspace:*",
+        "@orch/event-contracts": "workspace:*",
         "@orch/process": "workspace:*",
         "@orch/shared": "workspace:*"
     },

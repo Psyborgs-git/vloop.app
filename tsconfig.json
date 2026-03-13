@@ -72,6 +72,9 @@
         },
         {
             "path": "packages/gateway"
+        },
+        {
+            "path": "packages/rbac"
         }
     ]
 }

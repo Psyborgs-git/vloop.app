@@ -36,3 +36,7 @@ export type {
 } from './permissions.js';
 
 export { createTerminalHandler } from './handler.js';
+
+// Event-driven service adapter
+export { TerminalServiceWorker } from './service.js';
+export type { TerminalServiceConfig } from './service.js';

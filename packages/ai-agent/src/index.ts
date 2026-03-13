@@ -97,3 +97,7 @@ export type { CanvasServerHandle, CanvasStore } from './canvas-server.js';
 export { CanvasStateManager } from './canvas-state-manager.js';
 export type { CanvasStateManagerOptions, CanvasStateMessage } from './canvas-state-manager.js';
 export { registerCanvasRuntimeTopic } from './canvas-runtime-routes.js';
+
+// Event-driven service adapter
+export { AiServiceWorker } from './service.js';
+export type { AiServiceConfig, AgentHandlerFn } from './service.js';

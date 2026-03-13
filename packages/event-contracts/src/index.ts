@@ -40,3 +40,7 @@ export {
     SessionInfoSchema,
     ServiceRegistryEntrySchema,
 } from './schemas.js';
+
+// Service worker base class
+export { ServiceWorker } from './service-worker.js';
+export type { ServiceWorkerConfig, RedisLike } from './service-worker.js';

@@ -1,0 +1,21 @@
+{
+    "name": "@orch/rbac",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "build": "tsc --build",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "ioredis": "^5.6.1",
+        "minimatch": "^10.2.3",
+        "zod": "^3.24.2"
+    },
+    "devDependencies": {
+        "vitest": "^3.0.0"
+    }
+}
