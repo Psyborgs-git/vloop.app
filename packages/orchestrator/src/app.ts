@@ -438,15 +438,15 @@ export class OrchestratorApp {
 				verify: async (token: string) => {
 					try {
 						const authModule = await import("@orch/auth");
-						const verifier = this.container.resolve(authModule.JwtManager);
-						const decoded = verifier.verify(token);
-						const userId = decoded.sub ?? decoded.identity;
+						const verifier = this.container.resolve(authModule.JwtValidator);
+						const decoded = await verifier.validate(token);
+						const userId = decoded.sub;
 						if (!userId) {
 							throw new Error("Token missing user identity");
 						}
 						return {
 							userId,
-							roles: decoded.roles ?? ["guest"],
+							roles: decoded.roles.length > 0 ? decoded.roles : ["guest"],
 						};
 					} catch {
 						throw new Error("Invalid token");

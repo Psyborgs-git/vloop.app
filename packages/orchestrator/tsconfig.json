@@ -42,6 +42,12 @@
         },
         {
             "path": "../mcp-server"
+        },
+        {
+            "path": "../event-contracts"
+        },
+        {
+            "path": "../gateway"
         }
     ]
 }

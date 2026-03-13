@@ -12,9 +12,8 @@
 import {
     ServiceWorker,
     CHANNELS,
-    resultChannel,
 } from '@orch/event-contracts';
-import type { ServiceCommand, ServiceResult, RedisLike } from '@orch/event-contracts';
+import type { ServiceCommand, RedisLike } from '@orch/event-contracts';
 import type { TerminalManager } from './manager.js';
 import type { TerminalProfileManager } from './profiles.js';
 import type { SessionLogger } from './logger.js';
@@ -52,7 +51,6 @@ export class TerminalServiceWorker extends ServiceWorker {
     private sessionLogger: SessionLogger;
     private sessionStore?: TerminalSessionStore;
     private policy: TerminalPolicy;
-    private publisher: RedisLike;
 
     constructor(config: TerminalServiceConfig) {
         super(
@@ -67,7 +65,6 @@ export class TerminalServiceWorker extends ServiceWorker {
         this.sessionLogger = config.sessionLogger;
         this.sessionStore = config.sessionStore;
         this.policy = config.policy ?? DEFAULT_TERMINAL_POLICY;
-        this.publisher = config.redis.publisher;
     }
 
     protected async handleCommand(command: ServiceCommand): Promise<void> {

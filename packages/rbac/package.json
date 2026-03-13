@@ -4,13 +4,17 @@
     "private": true,
     "type": "module",
     "exports": {
-        ".": "./src/index.ts"
+        ".": {
+            "import": "./dist/index.js",
+            "types": "./dist/index.d.ts"
+        }
     },
     "scripts": {
         "build": "tsc --build",
         "test": "vitest run"
     },
     "dependencies": {
+        "@orch/event-contracts": "workspace:*",
         "ioredis": "^5.6.1",
         "minimatch": "^10.2.3",
         "zod": "^3.24.2"

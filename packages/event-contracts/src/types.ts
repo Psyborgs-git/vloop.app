@@ -39,8 +39,8 @@ export interface ServiceCommand extends BaseEvent {
     roles: string[];
     /** Service-specific action. */
     action: string;
-    /** Action-specific payload. */
-    payload: unknown;
+    /** Action-specific payload. Optional — services default to {} when absent. */
+    payload?: unknown;
     /** Channel the service should publish results to. */
     replyTo: string;
 }
