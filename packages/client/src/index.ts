@@ -1,5 +1,7 @@
 export { OrchestratorClient } from './client.js';
 export type { ClientConfig } from './client.js';
+export { GatewayClient } from './gateway-client.js';
+export type { GatewayClientConfig, GatewayResult } from './gateway-client.js';
 export { OrchestratorError, ErrorCode } from './errors.js';
 export type { PaginationOptions, PaginatedResult } from './types.js';
 

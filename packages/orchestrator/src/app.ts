@@ -35,6 +35,8 @@ import { ProcessServiceProvider } from "./services/providers/process-provider.js
 import { PluginServiceProvider } from "./services/providers/plugin-provider.js";
 import { BuiltinServiceProvider } from "./services/providers/builtin-provider.js";
 import { createServicesHandler } from "./routes/services.js";
+import { bootEventGateway } from "./event-gateway.js";
+import type { EventGatewayHandle } from "./event-gateway.js";
 
 interface SessionManagerLike {
 	refresh(sessionId: string): unknown;
@@ -53,6 +55,7 @@ export class OrchestratorApp {
 	private healthServer!: HealthServer;
 	private shutdownController!: AbortController;
 	private onReload!: (callback: () => void) => void;
+	private eventGateway?: EventGatewayHandle;
 
 	constructor(config: OrchestratorConfig) {
 		this.config = config;
@@ -108,6 +111,9 @@ export class OrchestratorApp {
 			this.setupRuntimeServiceManager(router);
 			this.registerGatewayRoutes(router);
 			await this.startGateway(router);
+
+			// Boot the event-driven gateway (Redis pub/sub) if Redis is available
+			await this.bootEventGateway();
 
 			this.setupReloadHandler();
 
@@ -416,6 +422,58 @@ export class OrchestratorApp {
 		this.logger.info("🚀 Orchestrator daemon is ready");
 	}
 
+	private async bootEventGateway(): Promise<void> {
+		// Only start if Redis URL is configured
+		const redisUrl = process.env['REDIS_URL'];
+		if (!redisUrl) {
+			this.logger.info(
+				"Event gateway skipped (set REDIS_URL to enable event-driven mode)",
+			);
+			return;
+		}
+
+		try {
+			// Create a JWT verifier that delegates to the auth module
+			const jwtVerifier = {
+				verify: async (token: string) => {
+					try {
+						const authModule = await import("@orch/auth");
+						const verifier = this.container.resolve(authModule.JwtManager);
+						const decoded = verifier.verify(token);
+						return {
+							userId: decoded.sub ?? decoded.identity ?? "anonymous",
+							roles: decoded.roles ?? ["guest"],
+						};
+					} catch {
+						throw new Error("Invalid token");
+					}
+				},
+			};
+
+			this.eventGateway = await bootEventGateway({
+				redisUrl,
+				jwtVerifier,
+				gatewayPort: Number(process.env['GATEWAY_PORT'] ?? 9090),
+			});
+
+			this.healthServer.registerSubsystem("event-gateway", () => ({
+				name: "event-gateway",
+				status: "healthy",
+				message: `${this.eventGateway?.gateway.connectionCount() ?? 0} event connections`,
+			}));
+
+			this.logger.info(
+				{ port: process.env['GATEWAY_PORT'] ?? 9090 },
+				"🌉 Event gateway started",
+			);
+		} catch (err) {
+			this.logger.warn(
+				{ err },
+				"Event gateway failed to start (Redis may be unavailable)",
+			);
+		}
+	}
+
 	private setupReloadHandler() {
 		this.onReload(() => {
 			void (async () => {
@@ -456,6 +514,7 @@ export class OrchestratorApp {
 		}
 
 		if (this.wsHandle) await this.wsHandle.close();
+		if (this.eventGateway) await this.eventGateway.shutdown();
 		if (this.healthServer) await this.healthServer.close();
 		if (this.dbManager) this.dbManager.close();
 

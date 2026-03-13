@@ -19,15 +19,20 @@ program
     .description('Orchestrator CLI')
     .version('0.1.0')
     .option('-h, --host <url>', 'Orchestrator WebSocket URL', process.env.ORCH_HOST || 'ws://localhost:9443')
+    .option('-g, --gateway <url>', 'Gateway WebSocket URL (event-driven mode)', process.env.ORCH_GATEWAY)
     .option('-t, --token <jwt>', 'Authentication token', process.env.ORCH_TOKEN);
 
 /**
  * Utility to instantiate the client centrally for commands.
+ * Supports both legacy daemon (default) and gateway mode (-g flag or ORCH_GATEWAY env).
  */
 export async function getClient(): Promise<OrchestratorClient> {
     const opts = program.opts();
+
+    // Choose connection URL — gateway takes priority if set
+    const url = opts.gateway ?? opts.host;
     const client = new OrchestratorClient({
-        url: opts.host,
+        url,
     });
 
     try {

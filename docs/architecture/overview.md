@@ -98,8 +98,8 @@ graph TD
 
 ## Key Architectural Decisions
 
-*   **Modular Monolith**: While logically separated into packages, the core system runs as a single process to minimize latency and operational complexity.
+*   **Modular Monolith → Event-Driven**: The system is migrating from a single-process monolith to an event-driven architecture with Redis pub/sub. The gateway handles client connections, RBAC, and rate limiting; services are isolated workers communicating only through Redis channels. See [Event-Driven Architecture](./event-driven.md) for the full design.
 *   **Encrypted-by-Default**: The system assumes it is running in a potentially hostile environment (e.g., a shared dev machine), so all persistent state is encrypted at rest.
-*   **Event-Driven**: The internal architecture heavily relies on event emitters and WebSocket messages, enabling real-time updates for all connected clients.
-*   **Policy-as-Code**: Access control is defined in TOML configuration files, allowing for transparent and version-controlled security policies.
+*   **Event-Driven**: The internal architecture uses Redis pub/sub for inter-service communication and WebSocket for client-facing real-time updates.
+*   **Policy-as-Code**: Access control is defined in TOML configuration files and Redis-backed role stores, allowing for transparent and version-controlled security policies with hot-reload support.
 *   **Typed Lifecycle Contract**: Installed apps must implement `AppComponent`; the orchestrator validates contract shape at load time and exposes a secured admin-only lifecycle control topic.

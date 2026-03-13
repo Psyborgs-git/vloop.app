@@ -9,6 +9,7 @@ export default defineConfig({
             '@orch/shared': path.resolve(__dirname, 'packages/shared/src/index.ts'),
             '@orch/event-contracts': path.resolve(__dirname, 'packages/event-contracts/src/index.ts'),
             '@orch/rbac': path.resolve(__dirname, 'packages/rbac/src/index.ts'),
+            '@orch/fs-service': path.resolve(__dirname, 'packages/fs-service/src/index.ts'),
             '@orch/gateway': path.resolve(__dirname, 'packages/gateway/src/index.ts'),
             '@orch/daemon': path.resolve(__dirname, 'packages/daemon/src/index.ts'),
             '@orch/container': path.resolve(__dirname, 'packages/container/src/index.ts'),

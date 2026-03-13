@@ -75,6 +75,9 @@
         },
         {
             "path": "packages/rbac"
+        },
+        {
+            "path": "packages/fs-service"
         }
     ]
 }

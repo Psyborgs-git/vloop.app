@@ -1,0 +1,19 @@
+{
+    "name": "@orch/fs-service",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "build": "tsc --build",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "@orch/event-contracts": "workspace:*"
+    },
+    "devDependencies": {
+        "vitest": "^3.0.0"
+    }
+}
