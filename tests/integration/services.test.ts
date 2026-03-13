@@ -27,7 +27,13 @@ describe('BuiltinServiceProvider Integration', () => {
     });
 
     it('should inspect a registered builtin service', () => {
-    it('should inspect a registered builtin service', ()  e    it('should inspect a registered builtin service', ()  e    it('should inspect a registered builtin serviisC    it('should inspect a registered builtin service',Critical('test.db')).toBe(true);
+        const result = provider.inspect('test.db');
+        expect(result.id).toBe('test.db');
+        expect(result.metadata).toEqual({ isOpen: true });
+    });
+
+    it('should report isCritical correctly', () => {
+        expect(provider.isCritical('test.db')).toBe(true);
     });
 
     it('should handle service restart successfully', async () => {
@@ -39,8 +45,12 @@ describe('BuiltinServiceProvider Integration', () => {
             id: 'no.restart',
             name: 'No Restart Node',
             isCritical: false,
-                   : {}
-        }                 }                 }                 }           oT        }                 }             ;
+            actions: {}
+        });
+        await expect(provider.restart('no.restart')).rejects.toThrow();
+    });
 
-    it('should handle service stop succes    it('should handle service stop succes    iov    it('should handle service stop succes    it(' });
+    it('should handle service stop successfully', async () => {
+        await expect(provider.stop('test.db')).resolves.not.toThrow();
+    });
 });

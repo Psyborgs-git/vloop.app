@@ -14,7 +14,28 @@ All requests to the vloop daemon must include a valid session token or persisten
 
 ## 2. Authorization (RBAC)
 
-Access control is enforced by a robust Role-Based Access Control (RBAC) engine. Permissions are defined in `config/policies.toml` and evaluated at runtime for every single request.
+Access control is enforced by a robust Role-Based Access Control (RBAC) engine. The system supports two RBAC implementations:
+
+### Legacy RBAC (Policy-as-Code)
+Permissions are defined in `config/policies.toml` and evaluated at runtime.
+
+### Event-Driven RBAC (`@orch/rbac`)
+The new deny-wins policy engine used by the Gateway:
+
+*   **Deny-Wins Model**: If *any* assigned role denies an action, access is blocked — regardless of other roles granting it.
+*   **Glob Matching**: Permissions use glob patterns (e.g., `terminal:*`, `vault:admin`).
+*   **Redis-Backed RoleStore**: Roles stored in Redis HSET for hot-reload without restart.
+*   **Extension Roles**: Scoped `extension:{id}` roles cannot use wildcards for security.
+*   **Default Roles**: `guest` (limited), `developer` (broad access), `admin` (full access).
+
+```typescript
+// Example role definitions
+const roles = {
+  guest:     { permissions: ['ai:chat'],         deny: ['terminal:*', 'vault:*'] },
+  developer: { permissions: ['terminal:*', 'ai:*', 'fs:*'], deny: ['vault:admin'] },
+  admin:     { permissions: ['*'],               deny: [] },
+};
+```
 
 ### Policy Structure
 
@@ -64,11 +85,17 @@ The value is decrypted and injected into the process environment *only* at runti
 
 ## 4. Audit Logging
 
-Every mutation (create, update, delete, execute) is recorded in an immutable audit log. This provides a complete trail of:
+Every mutation (create, update, delete, execute) is recorded in an audit log. The system supports two audit backends:
+
+*   **Legacy**: Stored in the encrypted SQLite database.
+*   **Event-Driven**: Published to Redis Stream `audit:stream` via `XADD`, enabling real-time consumption by monitoring services.
+
+Audit entries include:
 *   **Who**: The user or agent identity.
 *   **What**: The specific action and resource.
 *   **When**: Timestamp with millisecond precision.
 *   **Outcome**: Whether the action was allowed or denied.
-*   **Context**: Request ID and session ID for tracing.
+*   **Context**: traceId and sessionId for distributed tracing.
+*   **Service**: Which service processed the request.
 
-Audit logs are stored in the encrypted database and can be queried by administrators for compliance or debugging.
+Audit logs can be queried by administrators for compliance or debugging.

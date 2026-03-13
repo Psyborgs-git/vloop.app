@@ -7,6 +7,7 @@ This guide will walk you through running a simple AI Agent workflow that interac
 ## Prerequisites
 *   [vloop installed](./installation.md)
 *   An API key for an LLM provider (e.g., OpenAI, Anthropic) OR a local Ollama instance running.
+*   (Optional) Redis for event-driven mode — see [Event-Driven Architecture](../architecture/event-driven.md)
 
 ## Step 1: Login & Configure
 

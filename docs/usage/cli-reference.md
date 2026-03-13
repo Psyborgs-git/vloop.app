@@ -6,7 +6,8 @@ The `orch` command-line tool is the primary interface for managing vloop.
 
 These options apply to all commands:
 
-*   `-h, --host <url>`: Orchestrator WebSocket URL (default: `ws://localhost:9000` or `ORCH_HOST` env var).
+*   `-h, --host <url>`: Orchestrator WebSocket URL (default: `ws://localhost:9443` or `ORCH_HOST` env var).
+*   `-g, --gateway <url>`: Gateway WebSocket URL for event-driven mode (default: `ORCH_GATEWAY` env var). When set, requests are routed through the Redis-backed gateway instead of the legacy daemon.
 *   `-t, --token <jwt>`: Authentication token (default: `ORCH_TOKEN` env var).
 *   `-v, --version`: Output the version number.
 *   `--help`: Display help for command.
