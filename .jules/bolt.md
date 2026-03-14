@@ -1,3 +1,6 @@
 ## 2024-03-12 - [Terminal] Limit try-catch scope in input validation hot path
 **Learning:** In V8 engines, wrapping a whole execution block (like looping over regex tests) inside a `try-catch` can prevent compiler optimizations, severely hindering performance on frequently called functions (hot paths) like payload input validation for terminals.
 **Action:** When working on very hot paths where inputs stream at high frequency, narrow the scope of `try-catch` blocks specifically around the code that actually needs to catch expected exceptions (e.g. `new RegExp(pattern)` for invalid patterns), keeping the caching mechanism (`Map.get`) and fast-path execution (`re.test`) strictly outside the `try-catch` block.
+## 2024-03-14 - [Web UI] React.memo missing areEqual in streaming chat
+**Learning:** React.memo performs a shallow comparison by default. In streaming interfaces (like chat), recreating object props (like arrays or objects within `msg`) causes constant, expensive re-renders even when data hasn't functionally changed.
+**Action:** When using `React.memo` on list items that receive frequently updating/recreated props (like streaming chat chunks), always implement a custom `areEqual` function that compares specific scalar values and array lengths instead of object references.
