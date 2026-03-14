@@ -248,4 +248,19 @@ export const ChatMessageItem = React.memo(function ChatMessageItem({ msg, onReru
             </Box>
         </ListItem>
     );
+}, (prevProps, nextProps) => {
+    // Custom equality check to prevent unnecessary re-renders of list items during streaming.
+    return (
+        prevProps.msg.id === nextProps.msg.id &&
+        prevProps.msg.content === nextProps.msg.content &&
+        prevProps.msg.role === nextProps.msg.role &&
+        prevProps.isGrouped === nextProps.isGrouped &&
+        prevProps.disabledActions === nextProps.disabledActions &&
+        // Tool arrays might be recreated, check lengths instead of reference
+        (prevProps.msg.toolCalls?.length ?? 0) === (nextProps.msg.toolCalls?.length ?? 0) &&
+        (prevProps.msg.toolResults?.length ?? 0) === (nextProps.msg.toolResults?.length ?? 0) &&
+        (prevProps.msg.longRunningToolIds?.length ?? 0) === (nextProps.msg.longRunningToolIds?.length ?? 0) &&
+        // If there are tool confirmations requested, do a shallow comparison
+        Object.keys(prevProps.msg.requestedToolConfirmations ?? {}).length === Object.keys(nextProps.msg.requestedToolConfirmations ?? {}).length
+    );
 });
