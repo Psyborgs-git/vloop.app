@@ -5,7 +5,7 @@
  * Supports checkpoint snapshots for crash recovery and resume.
  */
 
-import { eq, desc, asc, and } from 'drizzle-orm';
+import { eq, desc, asc, and, sql } from 'drizzle-orm';
 import { aiStateNodesTable } from '../schema.js';
 import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
@@ -90,14 +90,20 @@ export class StateNodeRepo implements IStateNodeRepo {
 	}
 
 	getAncestry(nodeId: StateNodeId): StateNode[] {
-		const chain: StateNode[] = [];
-		let current = this.get(nodeId);
-		while (current) {
-			chain.unshift(current);
-			if (!current.parentId) break;
-			current = this.get(current.parentId);
-		}
-		return chain;
+		// Optimize to avoid N+1 query problem by using recursive CTE
+		const rows = this.orm.all(sql`
+			WITH RECURSIVE ancestry AS (
+				SELECT * FROM ${aiStateNodesTable} WHERE id = ${nodeId}
+				UNION ALL
+				SELECT t.* FROM ${aiStateNodesTable} t
+				INNER JOIN ancestry a ON t.id = a.parent_id
+			)
+			SELECT * FROM ancestry
+		`) as Record<string, unknown>[];
+
+		// The recursive CTE returns leaf first, then parents up to root.
+		// We want the ancestry chain from root to leaf, so we map and then reverse.
+		return rows.map(mapStateNode).reverse();
 	}
 
 	getChildren(parentId: StateNodeId): StateNode[] {

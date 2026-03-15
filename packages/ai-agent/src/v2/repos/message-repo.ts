@@ -6,7 +6,7 @@
  * producing a fork without destroying the original lineage.
  */
 
-import { eq, asc } from 'drizzle-orm';
+import { eq, asc, sql } from 'drizzle-orm';
 import { aiMessagesTable } from '../schema.js';
 import { toJSON, now } from '../repo-helpers.js';
 import { generateId } from '../types.js';
@@ -89,14 +89,20 @@ export class MessageRepo implements IMessageRepo {
 	}
 
 	getAncestry(messageId: MessageId): Message[] {
-		const chain: Message[] = [];
-		let current = this.get(messageId);
-		while (current) {
-			chain.unshift(current);
-			if (!current.parentId) break;
-			current = this.get(current.parentId);
-		}
-		return chain;
+		// Optimize to avoid N+1 query problem by using recursive CTE
+		const rows = this.orm.all(sql`
+			WITH RECURSIVE ancestry AS (
+				SELECT * FROM ${aiMessagesTable} WHERE id = ${messageId}
+				UNION ALL
+				SELECT t.* FROM ${aiMessagesTable} t
+				INNER JOIN ancestry a ON t.id = a.parent_id
+			)
+			SELECT * FROM ancestry
+		`) as Record<string, unknown>[];
+
+		// The recursive CTE returns leaf first, then parents up to root.
+		// We want the ancestry chain from root to leaf, so we map and then reverse.
+		return rows.map(mapMessage).reverse();
 	}
 
 	getChildren(parentId: MessageId): Message[] {
