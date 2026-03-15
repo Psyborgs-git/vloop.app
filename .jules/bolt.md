@@ -1,3 +1,7 @@
 ## 2024-03-12 - [Terminal] Limit try-catch scope in input validation hot path
 **Learning:** In V8 engines, wrapping a whole execution block (like looping over regex tests) inside a `try-catch` can prevent compiler optimizations, severely hindering performance on frequently called functions (hot paths) like payload input validation for terminals.
 **Action:** When working on very hot paths where inputs stream at high frequency, narrow the scope of `try-catch` blocks specifically around the code that actually needs to catch expected exceptions (e.g. `new RegExp(pattern)` for invalid patterns), keeping the caching mechanism (`Map.get`) and fast-path execution (`re.test`) strictly outside the `try-catch` block.
+
+## 2025-02-28 - [AI Agent] Recursive CTEs for DAG Ancestry Retrieval
+**Learning:** Querying ancestors in a Directed Acyclic Graph (DAG) node-by-node in a `while` loop triggers the classic N+1 query problem, creating a severe database latency bottleneck for deep conversation threads or execution lineages in SQLite.
+**Action:** Use a recursive Common Table Expression (CTE) to fetch the entire ancestry chain in a single query via `sql` template literal. When mapping the result of a recursive query (which returns leaf-first up to root), remember to `.reverse()` the mapped array if you require a root-to-leaf ordering.
