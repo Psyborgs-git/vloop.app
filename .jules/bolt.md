@@ -1,3 +1,7 @@
 ## 2024-03-12 - [Terminal] Limit try-catch scope in input validation hot path
 **Learning:** In V8 engines, wrapping a whole execution block (like looping over regex tests) inside a `try-catch` can prevent compiler optimizations, severely hindering performance on frequently called functions (hot paths) like payload input validation for terminals.
 **Action:** When working on very hot paths where inputs stream at high frequency, narrow the scope of `try-catch` blocks specifically around the code that actually needs to catch expected exceptions (e.g. `new RegExp(pattern)` for invalid patterns), keeping the caching mechanism (`Map.get`) and fast-path execution (`re.test`) strictly outside the `try-catch` block.
+
+## 2024-03-13 - [AI Agent] Recursive CTEs for DAG traversal
+**Learning:** In DAG-based persistence layers (like StateNodeRepo and MessageRepo), recursive retrieval methods (e.g. `getAncestry`) using while-loops execute N+1 database queries. This creates a severe performance bottleneck as graphs grow larger. Drizzle ORM supports the \`sql\` template literal which can evaluate complex recursive CTEs properly against SQLite tables.
+**Action:** When implementing ancestry/lineage resolution in graph-like structures, use a Recursive Common Table Expression (CTE) via Drizzle's \`sql\` template literal to fetch the entire tree in a single database roundtrip, then perform post-processing (like `.reverse().map(...)`) in memory.
