@@ -1,3 +1,7 @@
 ## 2024-03-12 - [Terminal] Limit try-catch scope in input validation hot path
 **Learning:** In V8 engines, wrapping a whole execution block (like looping over regex tests) inside a `try-catch` can prevent compiler optimizations, severely hindering performance on frequently called functions (hot paths) like payload input validation for terminals.
 **Action:** When working on very hot paths where inputs stream at high frequency, narrow the scope of `try-catch` blocks specifically around the code that actually needs to catch expected exceptions (e.g. `new RegExp(pattern)` for invalid patterns), keeping the caching mechanism (`Map.get`) and fast-path execution (`re.test`) strictly outside the `try-catch` block.
+
+## 2024-03-12 - [Database] Optimize graph traversal with Recursive CTEs
+**Learning:** Resolving DAG ancestry or traversing a chain of self-referencing database rows using sequential `SELECT` queries (fetching a parent by ID in a `while` loop) introduces a severe N+1 query bottleneck. In SQLite/Drizzle, fetching 100 ancestors sequentially can take ~1.3 seconds vs. ~70 milliseconds using a Recursive Common Table Expression (CTE).
+**Action:** When building an object graph or computing lineage from a self-referential table (`parent_id`), construct a `WITH RECURSIVE` CTE query instead of sequential database fetches to resolve the entire lineage in a single round-trip. In Drizzle, execute the raw `sql` using `orm.all(query)`, map the results, and reverse the array if root-to-leaf ordering is required.
