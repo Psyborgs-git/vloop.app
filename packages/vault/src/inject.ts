@@ -41,6 +41,8 @@ export class SecretInjector {
      * Check if a string contains vault references.
      */
     hasReferences(value: string): boolean {
-        return VAULT_REF_PATTERN.test(value);
+        // Optimization: Use native string search instead of stateful RegExp.test()
+        // since VAULT_REF_PATTERN uses the global flag (/g) which maintains lastIndex state.
+        return value.includes('${vault:');
     }
 }
