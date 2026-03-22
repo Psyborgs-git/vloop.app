@@ -1,3 +1,7 @@
 ## 2024-03-12 - [Terminal] Limit try-catch scope in input validation hot path
 **Learning:** In V8 engines, wrapping a whole execution block (like looping over regex tests) inside a `try-catch` can prevent compiler optimizations, severely hindering performance on frequently called functions (hot paths) like payload input validation for terminals.
 **Action:** When working on very hot paths where inputs stream at high frequency, narrow the scope of `try-catch` blocks specifically around the code that actually needs to catch expected exceptions (e.g. `new RegExp(pattern)` for invalid patterns), keeping the caching mechanism (`Map.get`) and fast-path execution (`re.test`) strictly outside the `try-catch` block.
+
+## 2025-03-01 - [Vault] Global RegExp Stateful Bug and Includes Performance
+**Learning:** `RegExp.prototype.test()` with the global flag (`/g`) maintains state via `lastIndex`. Calling `.test()` repeatedly with the same instance on different strings will cause bugs (alternating true/false results) if `lastIndex` is not manually reset. Moreover, using string searches like `.includes()` is significantly faster than using a global regex for simple substring existence checks.
+**Action:** When performing repeated existence checks for simple prefixes or substrings, avoid `RegExp.prototype.test()` with global flags. Use native string searching methods like `value.includes()` for better performance and to avoid stateful bugs.
