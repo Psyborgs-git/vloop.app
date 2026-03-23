@@ -1,3 +1,7 @@
 ## 2024-03-12 - [Terminal] Limit try-catch scope in input validation hot path
 **Learning:** In V8 engines, wrapping a whole execution block (like looping over regex tests) inside a `try-catch` can prevent compiler optimizations, severely hindering performance on frequently called functions (hot paths) like payload input validation for terminals.
 **Action:** When working on very hot paths where inputs stream at high frequency, narrow the scope of `try-catch` blocks specifically around the code that actually needs to catch expected exceptions (e.g. `new RegExp(pattern)` for invalid patterns), keeping the caching mechanism (`Map.get`) and fast-path execution (`re.test`) strictly outside the `try-catch` block.
+
+## 2024-05-23 - [Vault] Global RegExp stateful bug in boolean checks
+**Learning:** Using `RegExp.prototype.test()` with a global (`/g`) or sticky (`/y`) regex is highly dangerous for simple boolean checks because the regex object maintains a stateful `lastIndex` property. Subsequent calls to `.test()` on the same regex instance will resume from `lastIndex`, causing them to incorrectly return `false` even if the pattern matches earlier in the string, and incurring a performance overhead.
+**Action:** Always replace `.test()` checks using global regexes with native string search methods like `.includes()` when checking for static prefix/substring presence. It is inherently stateless, immune to `lastIndex` bugs, and significantly faster for simple sub-string lookups.
