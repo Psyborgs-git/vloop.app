@@ -1,3 +1,7 @@
 ## 2024-03-12 - [Terminal] Limit try-catch scope in input validation hot path
 **Learning:** In V8 engines, wrapping a whole execution block (like looping over regex tests) inside a `try-catch` can prevent compiler optimizations, severely hindering performance on frequently called functions (hot paths) like payload input validation for terminals.
 **Action:** When working on very hot paths where inputs stream at high frequency, narrow the scope of `try-catch` blocks specifically around the code that actually needs to catch expected exceptions (e.g. `new RegExp(pattern)` for invalid patterns), keeping the caching mechanism (`Map.get`) and fast-path execution (`re.test`) strictly outside the `try-catch` block.
+
+## 2025-03-03 - [Vault] Global RegExp state persistence across `test()` calls
+**Learning:** Using a regular expression with the global (`/g`) or sticky (`/y`) flag makes it stateful, meaning it remembers its `lastIndex`. When calling `.test(value)` multiple times on the same RegExp object (e.g. `const VAULT_REF_PATTERN = /\$\{vault:([^}]+)\}/g`), consecutive matches might fail unexpectedly because the RegExp continues searching from its `lastIndex` rather than resetting to 0 for each new string.
+**Action:** Replace stateful global RegExp checks with faster, bug-free native string functions like `.includes()` when only checking for substring existence, avoiding `lastIndex` state bugs and improving performance.
