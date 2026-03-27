@@ -128,6 +128,14 @@ function buildParts(msg: ChatMessage): RenderPart[] {
     return parts;
 }
 
+
+// ⚡ Bolt: Custom equality function to prevent unnecessary re-parsing and re-rendering
+// of markdown for messages that haven't changed during streaming.
+export function areEqual(prevProps: { msg: ChatMessage }, nextProps: { msg: ChatMessage }) {
+    if (prevProps.msg === nextProps.msg) return true;
+    return prevProps.msg.content === nextProps.msg.content && prevProps.msg.id === nextProps.msg.id;
+}
+
 export const ChatMessageRenderer = React.memo(function ChatMessageRenderer({ msg }: { msg: ChatMessage }) {
     const parts = buildParts(msg);
 
@@ -206,4 +214,4 @@ export const ChatMessageRenderer = React.memo(function ChatMessageRenderer({ msg
             })}
         </Box>
     );
-});
+}, areEqual);
