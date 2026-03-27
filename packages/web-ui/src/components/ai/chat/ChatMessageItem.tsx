@@ -12,6 +12,36 @@ interface ChatMessageItemProps {
     isGrouped: boolean;
 }
 
+
+// ⚡ Bolt: Custom equality function to prevent expensive re-renders of older messages
+// while the newest message is streaming. Checks only the relevant message content
+// and ignores unstabilized callback functions like onRerun/onFork.
+export function areEqual(prevProps: ChatMessageItemProps, nextProps: ChatMessageItemProps) {
+    if (prevProps.isGrouped !== nextProps.isGrouped) return false;
+    if (prevProps.disabledActions !== nextProps.disabledActions) return false;
+
+    const p = prevProps.msg;
+    const n = nextProps.msg;
+
+    // Quick reference check
+    if (p === n) return true;
+
+    // Check core properties that can change during streaming
+    if (p.id !== n.id) return false;
+    if (p.role !== n.role) return false;
+    if (p.content !== n.content) return false;
+    if (p.toolCalls?.length !== n.toolCalls?.length) return false;
+    if (p.toolResults?.length !== n.toolResults?.length) return false;
+    if (p.longRunningToolIds?.length !== n.longRunningToolIds?.length) return false;
+
+    // For tool confirmations, just do a rough length check on keys if it exists
+    const pConfKeys = p.requestedToolConfirmations ? Object.keys(p.requestedToolConfirmations).length : 0;
+    const nConfKeys = n.requestedToolConfirmations ? Object.keys(n.requestedToolConfirmations).length : 0;
+    if (pConfKeys !== nConfKeys) return false;
+
+    return true;
+}
+
 export const ChatMessageItem = React.memo(function ChatMessageItem({ msg, onRerun, onFork, disabledActions = false, isGrouped = false }: ChatMessageItemProps) {
     const [isThinkingExpanded, setIsThinkingExpanded] = useState(true);
     const [isHovered, setIsHovered] = useState(false);
@@ -248,4 +278,4 @@ export const ChatMessageItem = React.memo(function ChatMessageItem({ msg, onReru
             </Box>
         </ListItem>
     );
-});
+}, areEqual);
